@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- training_v1_dilocopytorchtraining.yaml
+- training_v1_dilocotorchddp.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
