@@ -22,19 +22,18 @@ import (
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	trainingv1 "github.com/exalsius/exalsius-operator/api/v1"
+	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 )
 
 // DilocoTorchDDPReconciler reconciles a DilocoTorchDDP object
@@ -69,15 +68,15 @@ func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// ensure the headless service exists
-	if err := r.ensureHeadlessService(ctx, &training); err != nil {
-		log.Error(err, "Failed to ensure headless service")
+	// Create the Volcano Job for the training.
+	if err := r.ensureDilocoTrainingVolcanoJob(ctx, &training); err != nil {
+		log.Error(err, "Failed to ensure diloco training Volcano Job")
 		return ctrl.Result{}, err
 	}
 
-	// ensure the diloco training job exists
-	if err := r.ensureDilocoTrainingJob(ctx, &training); err != nil {
-		log.Error(err, "Failed to ensure diloco training job")
+	// Update the CR status based on the Volcano Job status.
+	if err := r.updateCRStatusFromVolcanoJob(ctx, &training); err != nil {
+		log.Error(err, "Failed to update CR status from Volcano Job")
 		return ctrl.Result{}, err
 	}
 
@@ -86,142 +85,138 @@ func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func (r *DilocoTorchDDPReconciler) ensureHeadlessService(ctx context.Context, training *trainingv1.DilocoTorchDDP) error {
-	log := log.FromContext(ctx)
-	serviceName := fmt.Sprintf("%s-worker", training.Name)
-	namespace := training.Namespace
-
-	// Check if the service already exists
-	var existingService corev1.Service
-	err := r.Get(ctx, client.ObjectKey{Name: serviceName, Namespace: namespace}, &existingService)
-	if err == nil {
-		log.Info("Headless service already exists", "Service.Name", serviceName)
-		return nil
-	} else if !errors.IsNotFound(err) {
-		log.Error(err, "Failed to get headless service")
-		return err
-	}
-
-	// Create the headless service
-	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
-	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName,
-			Namespace: namespace,
-			Labels:    map[string]string{"job-name": jobName},
-		},
-		Spec: corev1.ServiceSpec{
-			ClusterIP: "None", // Headless service
-			Selector:  map[string]string{"job-name": jobName},
-			Ports: []corev1.ServicePort{
-				{
-					Protocol: corev1.ProtocolTCP,
-					Port:     29500,
-					TargetPort: intstr.IntOrString{
-						IntVal: 29500,
-					},
-				},
-			},
-		},
-	}
-
-	// Set owner reference so that the Service is deleted when the CR is deleted.
-	if err := controllerutil.SetControllerReference(training, service, r.Scheme); err != nil {
-		return err
-	}
-
-	if err := r.Create(ctx, service); err != nil {
-		log.Error(err, "Failed to create headless service")
-		return err
-	}
-
-	log.Info("Created headless service", "Service.Name", serviceName)
-	return nil
-}
-
-// ensurePytorchJob ensures the training job is running
-func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingJob(ctx context.Context, training *trainingv1.DilocoTorchDDP) error {
+// ensureDilocoTrainingVolcanoJob creates a Volcano Job for distributed PyTorch training.
+func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP) error {
 	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
 	namespace := training.Namespace
 	log := log.FromContext(ctx)
 
-	// Check if the Job already exists
-	var existingJob batchv1.Job
-	err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &existingJob)
-	if err == nil {
-		log.Info("Diloco Job already exists", "Job.Name", jobName)
+	var existingJob vol.Job
+	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &existingJob); err == nil {
+		log.Info("Volcano Job already exists", "Job.Name", jobName)
 		return nil
 	} else if !errors.IsNotFound(err) {
-		log.Error(err, "Failed to get Job")
+		log.Error(err, "Failed to get Volcano Job")
 		return err
 	}
 
-	// Default values
+	// Define replica counts for master and worker tasks.
+	masterReplicas := int32(1)
+	workerReplicas := training.Spec.Parallelism - 1
+
+	// Use the image and WANDB API key from the training resource.
+	image := training.Spec.Image
+	wanDBKey := training.Spec.WandBAPIKey
+
 	nprocPerNode := training.Spec.NProcPerNode
 	if nprocPerNode == 0 {
 		nprocPerNode = 1
 	}
 
-	replicas := training.Spec.Parallelism
-
-	// currenty hardcoded to nvidia
-	runtimeClassName := "nvidia"
-
-	// Construct script arguments
 	scriptArgs := append([]string{training.Spec.ScriptPath}, training.Spec.Args...)
 	joinedArgs := strings.Join(scriptArgs, " ")
+	cmd := fmt.Sprintf(`torchrun --nproc_per_node=%d %s`, nprocPerNode, joinedArgs)
 
-	// The StatefulSet pods will have stable names: stsName-0, stsName-1, etc.
-	// The headless service (named "<training.Name>-worker") allows DNS resolution:
-	// e.g. stsName-0.<training.Name>-worker.default.svc.cluster.local resolves to the master pod.
-	// In the startup script, if the pod's hostname ends with "-0", it acts as the RDZV master.
-	startupScript := fmt.Sprintf(`
-if [ "$JOB_COMPLETION_INDEX" = "0" ]; then 
-    RDZV_ENDPOINT=$(hostname -i); 
-else 
-    RDZV_ENDPOINT=$(getent hosts %s-worker.default.svc.cluster.local | awk '{print $1}' | head -n 1); 
-fi; 
-echo "Using RDZV endpoint: $RDZV_ENDPOINT"; 
-torchrun --nnodes=%d --nproc_per_node=%d --rdzv_id=42 --rdzv_backend=c10d --rdzv_endpoint=$RDZV_ENDPOINT:29500 %s
-`, training.Name, training.Spec.Parallelism, nprocPerNode, joinedArgs)
+	runtimeClassName := "nvidia"
 
-	job := &batchv1.Job{
+	// Create the Volcano Job object.
+	volJob := &vol.Job{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "batch.volcano.sh/v1alpha1",
+			Kind:       "Job",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: namespace,
 			Labels:    map[string]string{"job-name": jobName},
 		},
-		Spec: batchv1.JobSpec{
-			Completions:    &replicas,
-			Parallelism:    &replicas,
-			CompletionMode: func() *batchv1.CompletionMode { mode := batchv1.IndexedCompletion; return &mode }(),
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"job-name": jobName},
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy:    corev1.RestartPolicyNever,
-					RuntimeClassName: &runtimeClassName,
-					Containers: []corev1.Container{
+		Spec: vol.JobSpec{
+			MinAvailable:  training.Spec.Parallelism,
+			SchedulerName: "volcano",
+			Plugins: map[string][]string{
+				"pytorch": {"--master=master", "--worker=worker", "--port=23456"},
+			},
+			Tasks: []vol.TaskSpec{
+				{
+					Name:     "master",
+					Replicas: masterReplicas,
+					Policies: []vol.LifecyclePolicy{
 						{
-							Name:    "diloco-torch",
-							Image:   training.Spec.Image,
-							Command: []string{"/bin/sh", "-c", startupScript},
-							Ports: []corev1.ContainerPort{
+							Event:  "TaskCompleted",
+							Action: "CompleteJob",
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"job-name": jobName, "role": "master"},
+							Annotations: map[string]string{
+								// Optional: for gang scheduling.
+								"scheduling.k8s.io/group-name": jobName,
+							},
+						},
+						Spec: corev1.PodSpec{
+							RestartPolicy:    corev1.RestartPolicyOnFailure,
+							RuntimeClassName: &runtimeClassName,
+							Containers: []corev1.Container{
 								{
-									ContainerPort: 29500,
-									Protocol:      corev1.ProtocolTCP,
+									Name:            "master",
+									Image:           image,
+									ImagePullPolicy: corev1.PullAlways,
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											"nvidia.com/gpu": *resource.NewQuantity(int64(training.Spec.NProcPerNode), resource.DecimalSI),
+										},
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name:  "WANDB_API_KEY",
+											Value: wanDBKey,
+										},
+									},
+									Command: []string{"/bin/sh", "-c"},
+									Args: []string{
+										// Note: The PyTorch plugin in Volcano will inject necessary env variables.
+										cmd,
+									},
 								},
 							},
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									"nvidia.com/gpu": *resource.NewQuantity(int64(nprocPerNode), resource.DecimalSI),
-								},
+						},
+					},
+				},
+				{
+					Name:     "worker",
+					Replicas: workerReplicas,
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"job-name": jobName, "role": "worker"},
+							Annotations: map[string]string{
+								"scheduling.k8s.io/group-name": jobName,
 							},
-							Env: []corev1.EnvVar{
+						},
+						Spec: corev1.PodSpec{
+							RestartPolicy:    corev1.RestartPolicyOnFailure,
+							RuntimeClassName: &runtimeClassName,
+							Containers: []corev1.Container{
 								{
-									Name:  "WANDB_API_KEY",
-									Value: training.Spec.WandBAPIKey,
+									Name:            "worker",
+									Image:           image,
+									ImagePullPolicy: corev1.PullAlways,
+									WorkingDir:      "/app",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											"nvidia.com/gpu": *resource.NewQuantity(int64(training.Spec.NProcPerNode), resource.DecimalSI),
+										},
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name:  "WANDB_API_KEY",
+											Value: wanDBKey,
+										},
+									},
+									Command: []string{"/bin/sh", "-c"},
+									Args: []string{
+										cmd,
+									},
 								},
 							},
 						},
@@ -231,17 +226,57 @@ torchrun --nnodes=%d --nproc_per_node=%d --rdzv_id=42 --rdzv_backend=c10d --rdzv
 		},
 	}
 
-	// Set owner reference so that the Service is deleted when the CR is deleted.
-	if err := controllerutil.SetControllerReference(training, job, r.Scheme); err != nil {
+	// Set owner reference so the Volcano Job is deleted when the CR is deleted.
+	if err := controllerutil.SetControllerReference(training, volJob, r.Scheme); err != nil {
 		return err
 	}
 
-	if err := r.Create(ctx, job); err != nil {
-		log.Error(err, "Failed to create Job")
+	if err := r.Create(ctx, volJob); err != nil {
+		log.Error(err, "Failed to create Volcano Job")
 		return err
 	}
 
-	log.Info("Created new Diloco PyTorch Job", "Job.Name", jobName)
+	log.Info("Created new Volcano Job", "Job.Name", jobName)
+
+	// Optionally, wait for pods to start or update a ConfigMap for master IP if needed.
+	// You can integrate additional logic here.
+
+	return nil
+}
+
+func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP) error {
+	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
+	namespace := training.Namespace
+	log := log.FromContext(ctx)
+
+	var volJob vol.Job
+	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &volJob); err != nil {
+		return err
+	}
+
+	// Determine a phase based on the Volcano Job's state
+	var phase string
+	switch volJob.Status.State.Phase {
+	case vol.Completed:
+		phase = "Succeeded"
+	case vol.Failed, vol.Terminated:
+		phase = "Failed"
+	case vol.Running:
+		phase = "Running"
+	case vol.Pending:
+		phase = "Pending"
+	default:
+		phase = string(volJob.Status.State.Phase)
+	}
+
+	// Update the CR status if the phase has changed.
+	if training.Status.Status != phase {
+		log.Info("Updating CR status", "Phase", phase)
+		training.Status.Status = phase
+		if err := r.Status().Update(ctx, training); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

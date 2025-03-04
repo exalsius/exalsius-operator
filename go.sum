@@ -245,3 +245,5 @@ sigs.k8s.io/structured-merge-diff/v4 v4.4.2 h1:MdmvkGuXi/8io6ixD5wud3vOLwc1rj0aN
 sigs.k8s.io/structured-merge-diff/v4 v4.4.2/go.mod h1:N8f93tFZh9U6vpxwRArLiikrE5/2tiu1w1AGfACIGE4=
 sigs.k8s.io/yaml v1.4.0 h1:Mk1wCc2gy/F0THH0TAp1QYyJNzRm2KCLy3o5ASXVI5E=
 sigs.k8s.io/yaml v1.4.0/go.mod h1:Ejl7/uTz7PSA4eKMyQCUTnhZYNmLIl+5c2lQPGR2BPY=
+volcano.sh/apis v1.11.0 h1:Z5ZXxxgUNfXv1OhfVXXfGPN7StoSsozQM+8CAPoNWY8=
+volcano.sh/apis v1.11.0/go.mod h1:FOdmG++9+8lgENJ9XXDh+O3Jcb9YVRnlMSpgIh3NSVI=

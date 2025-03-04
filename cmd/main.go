@@ -39,6 +39,7 @@ import (
 
 	trainingv1 "github.com/exalsius/exalsius-operator/api/v1"
 	"github.com/exalsius/exalsius-operator/internal/controller"
+	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,6 +53,10 @@ func init() {
 
 	utilruntime.Must(trainingv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
+	if err := vol.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Volcano API to scheme")
+		os.Exit(1)
+	}
 }
 
 // nolint:gocyclo
