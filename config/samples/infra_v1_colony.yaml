@@ -1,0 +1,9 @@
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  labels:
+    app.kubernetes.io/name: exalsius-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: colony-sample
+spec:
+  # TODO(user): Add fields here
