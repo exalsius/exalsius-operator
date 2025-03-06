@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the {{ .ProjectName }} itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- infra_colony_admin_role.yaml
+- infra_colony_editor_role.yaml
+- infra_colony_viewer_role.yaml
 - dilocotorchddp_admin_role.yaml
 - dilocotorchddp_editor_role.yaml
 - dilocotorchddp_viewer_role.yaml

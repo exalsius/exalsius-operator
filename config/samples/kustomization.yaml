@@ -2,4 +2,5 @@
 resources:
 - training_v1_dilocopytorchtraining.yaml
 - training_v1_dilocotorchddp.yaml
+- infra_v1_colony.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

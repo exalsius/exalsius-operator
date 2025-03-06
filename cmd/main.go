@@ -37,9 +37,16 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	trainingv1 "github.com/exalsius/exalsius-operator/api/v1"
-	"github.com/exalsius/exalsius-operator/internal/controller"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
+
+	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
+	capav1beta2 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+
+	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
+	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
+	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,9 +59,22 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(trainingv1.AddToScheme(scheme))
+	utilruntime.Must(infrav1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 	if err := vol.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Volcano API to scheme")
+		os.Exit(1)
+	}
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Cluster API to scheme")
+		os.Exit(1)
+	}
+	if err := capav1beta2.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Cluster API Provider AWS to scheme")
+		os.Exit(1)
+	}
+	if err := k0sv1beta1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add K0s to scheme")
 		os.Exit(1)
 	}
 }
@@ -207,11 +227,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.DilocoTorchDDPReconciler{
+	if err = (&trainingcontroller.DilocoTorchDDPReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DilocoTorchDDP")
+		os.Exit(1)
+	}
+	if err = (&infracontroller.ColonyReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Colony")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
