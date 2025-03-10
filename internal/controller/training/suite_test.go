@@ -18,6 +18,9 @@ package training
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
+	volcanoalpha1 "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -47,6 +51,55 @@ var (
 	k8sClient client.Client
 )
 
+const externalCRDBaseDir = "../../../test/crds"
+
+// externalCRDSources is a map of external CRDs to be added to the test environment
+var externalCRDSources = map[string]string{
+	"batch.volcano.sh_jobs.yaml": "https://raw.githubusercontent.com/volcano-sh/volcano/refs/heads/release-1.11/config/crd/volcano/bases/batch.volcano.sh_jobs.yaml",
+}
+
+func ensureExternalCRDs() error {
+	if err := os.MkdirAll(externalCRDBaseDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create external CRD base directory: %w", err)
+	}
+
+	for name, url := range externalCRDSources {
+		crdPath := filepath.Join(externalCRDBaseDir, name)
+
+		if _, err := os.Stat(crdPath); err == nil {
+			fmt.Printf("CRD '%s' already exists, skipping download.\n", name)
+			continue
+		}
+
+		fmt.Printf("Downloading CRD: %s from %s\n", name, url)
+
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to download CRD %s: %w", name, err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("failed to download CRD %s: HTTP %d", name, resp.StatusCode)
+		}
+
+		out, err := os.Create(crdPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file for CRD %s: %w", name, err)
+		}
+		defer out.Close()
+
+		_, err = io.Copy(out, resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to write CRD %s to file: %w", name, err)
+		}
+
+		fmt.Printf("Successfully downloaded CRD: %s\n", name)
+	}
+
+	return nil
+}
+
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
@@ -56,18 +109,27 @@ func TestControllers(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
+	Expect(ensureExternalCRDs()).To(Succeed())
+
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
 	err = trainingv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	By("adding volcano api scheme")
+	err = volcanoalpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
+		CRDInstallOptions: envtest.CRDInstallOptions{
+			Paths: []string{externalCRDBaseDir},
+		},
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs
@@ -101,7 +163,7 @@ var _ = AfterSuite(func() {
 // setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
 // properly set up, run 'make setup-envtest' beforehand.
 func getFirstFoundEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "bin", "k8s")
+	basePath := filepath.Join("..", "..", "..", "bin", "k8s")
 	entries, err := os.ReadDir(basePath)
 	if err != nil {
 		logf.Log.Error(err, "Failed to read directory", "path", basePath)
