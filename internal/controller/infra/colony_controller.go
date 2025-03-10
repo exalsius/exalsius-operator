@@ -152,6 +152,7 @@ func (r *ColonyReconciler) ensureCluster(ctx context.Context, colony *infrav1.Co
 			Namespace: colony.Namespace,
 			Labels: map[string]string{
 				"nvidiaOperator": "enabled",
+				"volcano":        "enabled",
 			},
 		},
 		Spec: clusterv1.ClusterSpec{
