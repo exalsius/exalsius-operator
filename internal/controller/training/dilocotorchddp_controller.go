@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -40,6 +43,55 @@ import (
 type DilocoTorchDDPReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// ClusterClients stores the available k8s cluster to execute jobs on
+	ClusterClients sync.Map
+}
+
+// updateClusterClients refreshes the cluster clients from secrets
+func (r *DilocoTorchDDPReconciler) updateClusterClients(ctx context.Context) error {
+	log := log.FromContext(ctx)
+
+	secretList := &corev1.SecretList{}
+	if err := r.List(ctx, secretList); err != nil {
+		return fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	// Get all secrets which end with "-kubeconfig"
+	// TODO: This is a hack to get the kubeconfig secrets, we should add a label to the kubeconfig secret
+	for _, secret := range secretList.Items {
+		if strings.HasSuffix(secret.Name, "-kubeconfig") {
+			clusterName := strings.TrimSuffix(secret.Name, "-kubeconfig")
+			kubeconfigData := secret.Data["value"]
+
+			// Create rest config from kubeconfig
+			restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigData)
+			if err != nil {
+				log.Error(err, "Failed to create REST config", "cluster", clusterName)
+				continue
+			}
+
+			// Create new client
+			clusterClient, err := client.New(restConfig, client.Options{Scheme: r.Scheme})
+			if err != nil {
+				log.Error(err, "Failed to create client", "cluster", clusterName)
+				continue
+			}
+
+			// Store in sync.Map
+			r.ClusterClients.Store(clusterName, clusterClient)
+			log.Info("Updated client for cluster", "cluster", clusterName)
+		}
+	}
+
+	return nil
+}
+
+// getClusterClient gets a client for the specified cluster
+func (r *DilocoTorchDDPReconciler) getClusterClient(clusterName string) (client.Client, error) {
+	if c, ok := r.ClusterClients.Load(clusterName); ok {
+		return c.(client.Client), nil
+	}
+	return nil, fmt.Errorf("no client found for cluster %s", clusterName)
 }
 
 // +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps,verbs=get;list;watch;create;update;patch;delete
@@ -58,6 +110,12 @@ type DilocoTorchDDPReconciler struct {
 func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	// Periodically update cluster clients
+	if err := r.updateClusterClients(ctx); err != nil {
+		log.Error(err, "Failed to update cluster clients")
+		return ctrl.Result{RequeueAfter: time.Minute}, err
+	}
+
 	var training trainingv1.DilocoTorchDDP
 	if err := r.Get(ctx, req.NamespacedName, &training); err != nil {
 		if errors.IsNotFound(err) {
@@ -68,31 +126,44 @@ func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	// Determine which cluster to use for the training
+	var targetClient client.Client
+	if training.Spec.TargetCluster != nil {
+		var err error
+		targetClient, err = r.getClusterClient(*training.Spec.TargetCluster)
+		if err != nil {
+			log.Error(err, "Failed to get cluster client")
+			return ctrl.Result{}, err
+		}
+	} else {
+		targetClient = r.Client
+	}
+
 	// Create the Volcano Job for the training.
-	if err := r.ensureDilocoTrainingVolcanoJob(ctx, &training); err != nil {
+	if err := r.ensureDilocoTrainingVolcanoJob(ctx, &training, targetClient); err != nil {
 		log.Error(err, "Failed to ensure diloco training Volcano Job")
 		return ctrl.Result{}, err
 	}
 
 	// Update the CR status based on the Volcano Job status.
-	if err := r.updateCRStatusFromVolcanoJob(ctx, &training); err != nil {
+	if err := r.updateCRStatusFromVolcanoJob(ctx, &training, targetClient); err != nil {
 		log.Error(err, "Failed to update CR status from Volcano Job")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
 	log.Info("DilocoTorchDDP reconciled successfully")
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
 // ensureDilocoTrainingVolcanoJob creates a Volcano Job for distributed PyTorch training.
-func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP) error {
+func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP, targetClient client.Client) error {
 	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
 	namespace := training.Namespace
 	log := log.FromContext(ctx)
 
 	var existingJob vol.Job
-	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &existingJob); err == nil {
+	if err := targetClient.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &existingJob); err == nil {
 		log.Info("Volcano Job already exists", "Job.Name", jobName)
 		return nil
 	} else if !errors.IsNotFound(err) {
@@ -229,7 +300,7 @@ func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Co
 		return err
 	}
 
-	if err := r.Create(ctx, volJob); err != nil {
+	if err := targetClient.Create(ctx, volJob); err != nil {
 		log.Error(err, "Failed to create Volcano Job")
 		return err
 	}
@@ -239,13 +310,13 @@ func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Co
 	return nil
 }
 
-func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP) error {
+func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP, targetClient client.Client) error {
 	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
 	namespace := training.Namespace
 	log := log.FromContext(ctx)
 
 	var volJob vol.Job
-	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &volJob); err != nil {
+	if err := targetClient.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, &volJob); err != nil {
 		return err
 	}
 
@@ -268,7 +339,9 @@ func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Cont
 	if training.Status.Status != phase {
 		log.Info("Updating CR status", "Phase", phase)
 		training.Status.Status = phase
-		if err := r.Status().Update(ctx, training); err != nil {
+		// here we use the incluster client to update the status
+		// of the training job in the exalsius mgmt cluster
+		if err := r.Client.Status().Update(ctx, training); err != nil {
 			return err
 		}
 	}
