@@ -67,7 +67,8 @@ spec:
             properties:
               jobName:
                 type: string
-              status:
+              phase:
+                description: JobPhase defines the phase of the job.
                 type: string
             type: object
         type: object

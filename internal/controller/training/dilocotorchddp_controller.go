@@ -98,15 +98,6 @@ func (r *DilocoTorchDDPReconciler) getClusterClient(clusterName string) (client.
 // +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the DilocoTorchDDP object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -320,28 +311,11 @@ func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Cont
 		return err
 	}
 
-	// Determine a phase based on the Volcano Job's state
-	var phase string
-	switch volJob.Status.State.Phase {
-	case vol.Completed:
-		phase = "Succeeded"
-	case vol.Failed, vol.Terminated:
-		phase = "Failed"
-	case vol.Running:
-		phase = "Running"
-	case vol.Pending:
-		phase = "Pending"
-	default:
-		phase = string(volJob.Status.State.Phase)
-	}
-
-	// Update the CR status if the phase has changed.
-	if training.Status.Status != phase {
-		log.Info("Updating CR status", "Phase", phase)
-		training.Status.Status = phase
-		// here we use the incluster client to update the status
-		// of the training job in the exalsius mgmt cluster
-		if err := r.Client.Status().Update(ctx, training); err != nil {
+	// Update the CR status directly with the Volcano Job's phase
+	if training.Status.Phase != trainingv1.JobPhase(volJob.Status.State.Phase) {
+		log.Info("Updating CR status", "Phase", volJob.Status.State.Phase)
+		training.Status.Phase = trainingv1.JobPhase(volJob.Status.State.Phase)
+		if err := r.Status().Update(ctx, training); err != nil {
 			return err
 		}
 	}
