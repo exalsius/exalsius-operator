@@ -46,6 +46,110 @@ type DilocoTorchDDPReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/finalizers,verbs=update
+
+func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	var training trainingv1.DilocoTorchDDP
+	if err := r.Get(ctx, req.NamespacedName, &training); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("DilocoTorchDDP resource not found. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get DilocoTorchDDP")
+		return ctrl.Result{}, err
+	}
+
+	// Determine which colony to use for the training
+	var targetClient client.Client
+	if training.Spec.TargetColony != nil {
+		var err error
+
+		// check if a colony with the given name exists by checking if a Colony CR exists
+		colony := &infrav1.Colony{}
+		if err := r.Get(ctx, client.ObjectKey{Name: *training.Spec.TargetColony, Namespace: training.Namespace}, colony); err != nil {
+			if errors.IsNotFound(err) {
+				log.Error(err, "No colony found with name %s", "colony", *training.Spec.TargetColony)
+				return ctrl.Result{}, err
+			}
+			log.Error(err, "Failed to get Colony")
+			return ctrl.Result{}, err
+		}
+
+		if len(colony.Status.ClusterRefs) == 0 {
+			log.Error(fmt.Errorf("no clusters found in colony %q", colony.Name), "No colony found with name %s", "colony", *training.Spec.TargetColony)
+			return ctrl.Result{}, fmt.Errorf("no clusters found in colony %q", colony.Name)
+		}
+
+		isColonyMarkedForDeletion, err := r.isColonyMarkedForDeletion(ctx, colony.Name, colony.Namespace)
+
+		if err != nil {
+			log.Error(err, "Failed to check if colony is marked for deletion")
+			return ctrl.Result{}, err
+		}
+
+		if isColonyMarkedForDeletion {
+			log.Info("Colony is marked for deletion. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+
+		// TODO: Currently a colony consists of a single cluster, but in the future we will support multiple clusters
+		clusterName := colony.Status.ClusterRefs[0].Name
+
+		targetClient, err = r.getClientForTargetCluster(ctx, colony.Name, colony.Namespace, clusterName)
+		if err != nil {
+			log.Error(err, "Failed to get cluster client")
+			return ctrl.Result{}, err
+		}
+	} else {
+		targetClient = r.Client
+	}
+
+	// Create the Volcano Job for the training.
+	if err := r.ensureDilocoTrainingVolcanoJob(ctx, &training, targetClient); err != nil {
+		log.Error(err, "Failed to ensure diloco training Volcano Job")
+		return ctrl.Result{}, err
+	}
+
+	// Update the CR status based on the Volcano Job status.
+	if err := r.updateCRStatusFromVolcanoJob(ctx, &training, targetClient); err != nil {
+		log.Error(err, "Failed to update CR status from Volcano Job")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+
+	log.Info("DilocoTorchDDP reconciled successfully")
+
+	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+}
+
+// isColonyMarkedForDeletion checks if the target colony is being deleted
+func (r *DilocoTorchDDPReconciler) isColonyMarkedForDeletion(ctx context.Context, colonyName, colonyNamespace string) (bool, error) {
+	log := log.FromContext(ctx)
+
+	colony := &infrav1.Colony{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      colonyName,
+		Namespace: colonyNamespace,
+	}, colony); err != nil {
+		if errors.IsNotFound(err) {
+			return false, fmt.Errorf("target colony %q not found", colonyName)
+		}
+		return false, fmt.Errorf("failed to get target colony: %w", err)
+	}
+
+	if colony.GetDeletionTimestamp() != nil {
+		log.Info("Target colony is being deleted",
+			"colony", colonyName,
+			"namespace", colonyNamespace)
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // getClientForTargetCluster gets a client for the specified cluster
 func (r *DilocoTorchDDPReconciler) getClientForTargetCluster(ctx context.Context, colonyName, colonyNamespace, clusterName string) (client.Client, error) {
 	log := log.FromContext(ctx)
@@ -100,74 +204,9 @@ func (r *DilocoTorchDDPReconciler) getClientForTargetCluster(ctx context.Context
 		return nil, fmt.Errorf("failed to create client for cluster %q: %w", clusterName, err)
 	}
 
+	log.Info("Created client for cluster", "cluster", clusterName)
+
 	return clusterClient, nil
-}
-
-// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/finalizers,verbs=update
-
-func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
-
-	var training trainingv1.DilocoTorchDDP
-	if err := r.Get(ctx, req.NamespacedName, &training); err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("DilocoTorchDDP resource not found. Ignoring since object must be deleted")
-			return ctrl.Result{}, nil
-		}
-		log.Error(err, "Failed to get DilocoTorchDDP")
-		return ctrl.Result{}, err
-	}
-
-	// Determine which colony to use for the training
-	var targetClient client.Client
-	if training.Spec.TargetColony != nil {
-		var err error
-
-		// check if a colony with the given name exists by checking if a Colony CR exists
-		colony := &infrav1.Colony{}
-		if err := r.Get(ctx, client.ObjectKey{Name: *training.Spec.TargetColony, Namespace: training.Namespace}, colony); err != nil {
-			if errors.IsNotFound(err) {
-				log.Error(err, "No colony found with name %s", "colony", *training.Spec.TargetColony)
-				return ctrl.Result{}, err
-			}
-			log.Error(err, "Failed to get Colony")
-			return ctrl.Result{}, err
-		}
-
-		// TODO: Currently a colony consists of a single cluster, but in the future we will support multiple clusters
-		if len(colony.Status.ClusterRefs) == 0 {
-			log.Error(fmt.Errorf("no clusters found in colony %q", colony.Name), "No colony found with name %s", "colony", *training.Spec.TargetColony)
-			return ctrl.Result{}, fmt.Errorf("no clusters found in colony %q", colony.Name)
-		}
-
-		clusterName := colony.Status.ClusterRefs[0].Name
-
-		targetClient, err = r.getClientForTargetCluster(ctx, colony.Name, colony.Namespace, clusterName)
-		if err != nil {
-			log.Error(err, "Failed to get cluster client")
-			return ctrl.Result{}, err
-		}
-	} else {
-		targetClient = r.Client
-	}
-
-	// Create the Volcano Job for the training.
-	if err := r.ensureDilocoTrainingVolcanoJob(ctx, &training, targetClient); err != nil {
-		log.Error(err, "Failed to ensure diloco training Volcano Job")
-		return ctrl.Result{}, err
-	}
-
-	// Update the CR status based on the Volcano Job status.
-	if err := r.updateCRStatusFromVolcanoJob(ctx, &training, targetClient); err != nil {
-		log.Error(err, "Failed to update CR status from Volcano Job")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-	}
-
-	log.Info("DilocoTorchDDP reconciled successfully")
-
-	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
 // ensureDilocoTrainingVolcanoJob creates a Volcano Job for distributed PyTorch training.
