@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -28,6 +29,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 )
 
@@ -145,15 +147,15 @@ var _ = Describe("DilocoTorchDDP Controller", func() {
 			Expect(errors.IsAlreadyExists(err)).To(BeTrue())
 		})
 
-		It("should return an error when a non-existing TargetCluster is used", func() {
-			By("Creating a DilocoTorchDDP with a missing TargetCluster")
+		It("should return an error when a non-existing TargetColony is used", func() {
+			By("Creating a DilocoTorchDDP with a missing TargetColony")
 			resource := &trainingv1.DilocoTorchDDP{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "missing-cluster-resource",
 					Namespace: "default",
 				},
 				Spec: trainingv1.DilocoTorchDDPSpec{
-					TargetCluster: pointerTo("non-existent-cluster"),
+					TargetColony: pointerTo("non-existent-cluster"),
 				},
 			}
 			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -166,9 +168,57 @@ var _ = Describe("DilocoTorchDDP Controller", func() {
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{Name: "missing-cluster-resource", Namespace: "default"},
 			})
-			Expect(err).To(HaveOccurred()) // Expect an error due to missing cluster
+			Expect(err).To(HaveOccurred()) // Expect an error due to missing colony
 		})
 
+		It("should successfully reconcile the resource and create a volcano job on a target cluster", func() {
+			By("Creating a colony")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "target-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ClusterName: "target-cluster",
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, colony)).To(Succeed())
+
+			// set a clusterref in the status
+			colony.Status = infrav1.ColonyStatus{
+				ClusterRefs: []*corev1.ObjectReference{
+					{
+						Name:      "target-cluster",
+						Namespace: "default",
+					},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, colony)).To(Succeed())
+
+			By("Creating a DilocoTorchDDP with a target colony")
+			resource := &trainingv1.DilocoTorchDDP{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-example-job",
+					Namespace: "default",
+				},
+				Spec: trainingv1.DilocoTorchDDPSpec{
+					TargetColony: pointerTo("target-colony"),
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			By("Reconciling the created resource")
+			controllerReconciler := &DilocoTorchDDPReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "target-cluster-resource", Namespace: "default"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 })
 

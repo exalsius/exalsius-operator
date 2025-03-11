@@ -35,6 +35,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 	volcanoalpha1 "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -119,6 +120,10 @@ var _ = BeforeSuite(func() {
 
 	By("adding volcano api scheme")
 	err = volcanoalpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("adding infra api scheme")
+	err = infrav1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
