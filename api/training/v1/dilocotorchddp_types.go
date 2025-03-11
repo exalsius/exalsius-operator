@@ -32,10 +32,36 @@ type DilocoTorchDDPSpec struct {
 	Args          []string `json:"args,omitempty"`          // Arguments to pass to the training script
 }
 
+// JobPhase defines the phase of the job.
+type JobPhase string
+
+const (
+	// Pending is the phase that job is pending in the queue, waiting for scheduling decision
+	Pending JobPhase = "Pending"
+	// Aborting is the phase that job is aborted, waiting for releasing pods
+	Aborting JobPhase = "Aborting"
+	// Aborted is the phase that job is aborted by user or error handling
+	Aborted JobPhase = "Aborted"
+	// Running is the phase that minimal available tasks of Job are running
+	Running JobPhase = "Running"
+	// Restarting is the phase that the Job is restarted, waiting for pod releasing and recreating
+	Restarting JobPhase = "Restarting"
+	// Completing is the phase that required tasks of job are completed, job starts to clean up
+	Completing JobPhase = "Completing"
+	// Completed is the phase that all tasks of Job are completed
+	Completed JobPhase = "Completed"
+	// Terminating is the phase that the Job is terminated, waiting for releasing pods
+	Terminating JobPhase = "Terminating"
+	// Terminated is the phase that the job is finished unexpected, e.g. events
+	Terminated JobPhase = "Terminated"
+	// Failed is the phase that the job is restarted failed reached the maximum number of retries.
+	Failed JobPhase = "Failed"
+)
+
 // DilocoTorchDDPStatus defines the observed state of DilocoTorchDDP.
 type DilocoTorchDDPStatus struct {
-	JobName string `json:"jobName,omitempty"` // Name of the training job
-	Status  string `json:"status,omitempty"`  // Status of the training job
+	JobName string   `json:"jobName,omitempty"` // Name of the training job
+	Phase   JobPhase `json:"phase,omitempty"`   // Phase of the training job
 }
 
 // +kubebuilder:object:root=true
