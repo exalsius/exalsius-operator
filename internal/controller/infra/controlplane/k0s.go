@@ -36,7 +36,7 @@ func EnsureK0sControlPlane(ctx context.Context, c client.Client, colony *infrav1
 			Version:        colony.Spec.K8sVersion,
 			UpdateStrategy: "Recreate",
 			K0sConfigSpec: bootstrapv1beta1.K0sConfigSpec{
-				Args: []string{"--enable-worker"},
+				Args: []string{"--enable-worker", "--no-taints"},
 				K0s: &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "k0s.k0sproject.io/v1beta1",
