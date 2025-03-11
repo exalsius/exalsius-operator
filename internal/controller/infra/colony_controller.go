@@ -18,6 +18,7 @@ package infra
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -133,9 +134,100 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	if err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {
+		log.Error(err, "Failed to ensure aggregated kubeconfig secret")
+		return ctrl.Result{}, err
+	}
+
 	log.Info("Colony reconciled successfully")
 
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Context, colony *infrav1.Colony) error {
+	log := log.FromContext(ctx)
+
+	references := make(map[string][]byte)
+
+	// iterate over all clusters in the colony
+	for _, clusterRef := range colony.Status.ClusterRefs {
+		kubeconfigSecretName := fmt.Sprintf("%s-kubeconfig", clusterRef.Name)
+
+		var kubeconfigSecret corev1.Secret
+		if err := r.Get(ctx, client.ObjectKey{Namespace: clusterRef.Namespace, Name: kubeconfigSecretName}, &kubeconfigSecret); err != nil {
+			if errors.IsNotFound(err) {
+				log.Error(err, "Kubeconfig secret not found for cluster", "cluster", fmt.Sprintf("%s/%s", clusterRef.Namespace, clusterRef.Name))
+			} else {
+				log.Error(err, "Failed to get Kubeconfig secret for cluster", "cluster", fmt.Sprintf("%s/%s", clusterRef.Namespace, clusterRef.Name))
+			}
+			return err
+		}
+
+		// Create an ObjectReference for the kubeconfig secret.
+		objRef := corev1.ObjectReference{
+			APIVersion: kubeconfigSecret.APIVersion,
+			Kind:       kubeconfigSecret.Kind,
+			Namespace:  kubeconfigSecret.Namespace,
+			Name:       kubeconfigSecret.Name,
+		}
+
+		// JSON-encode the ObjectReference.
+		refBytes, err := json.Marshal(objRef)
+		if err != nil {
+			log.Error(err, "Failed to marshal object reference", "cluster", clusterRef.Name)
+			return err
+		}
+		references[clusterRef.Name] = refBytes
+
+	}
+
+	aggregatedSecretName := colony.Name + "-kubeconfigs"
+	aggregatedSecretNamespace := colony.Namespace
+
+	var aggregatedKubeconfigSecret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{Namespace: aggregatedSecretNamespace, Name: aggregatedSecretName}, &aggregatedKubeconfigSecret); err != nil {
+		if errors.IsNotFound(err) {
+			// The secret doesn't exist, so create it.
+			log.Info("Aggregated kubeconfig secret not found. Creating...")
+			aggregatedKubeconfigSecret = corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      aggregatedSecretName,
+					Namespace: aggregatedSecretNamespace,
+				},
+				Data: references,
+			}
+			if err := r.Create(ctx, &aggregatedKubeconfigSecret); err != nil {
+				log.Error(err, "Failed to create aggregated kubeconfig secret")
+				return err
+			}
+			log.Info("Aggregated kubeconfig secret created",
+				"namespace", aggregatedSecretNamespace,
+				"name", aggregatedSecretName,
+			)
+			return nil
+		} else {
+			log.Error(err, "Failed to get aggregated kubeconfig secret")
+			return err
+		}
+	} else {
+		// The secret exists, update its Data field.
+		aggregatedKubeconfigSecret.Data = references
+		if err := r.Update(ctx, &aggregatedKubeconfigSecret); err != nil {
+			log.Error(err, "Failed to update aggregated kubeconfig secret")
+			return err
+		}
+		log.Info("Aggregated kubeconfig secret updated",
+			"namespace", aggregatedKubeconfigSecret.Namespace,
+			"name", aggregatedKubeconfigSecret.Name)
+	}
+
+	// set owner reference to the colony
+	if err := ctrl.SetControllerReference(colony, &aggregatedKubeconfigSecret, r.Scheme); err != nil {
+		log.Error(err, "Failed to set owner reference to the aggregated kubeconfig secret")
+		return err
+	}
+
+	return nil
 }
 
 // ensureCluster ensures that the cluster exists.
