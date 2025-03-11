@@ -91,8 +91,8 @@ func (in *DilocoTorchDDPSpec) DeepCopyInto(out *DilocoTorchDDPSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.TargetCluster != nil {
-		in, out := &in.TargetCluster, &out.TargetCluster
+	if in.TargetColony != nil {
+		in, out := &in.TargetColony, &out.TargetColony
 		*out = new(string)
 		**out = **in
 	}

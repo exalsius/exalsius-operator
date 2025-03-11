@@ -18,9 +18,9 @@ package training
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 )
@@ -43,55 +44,63 @@ import (
 type DilocoTorchDDPReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-	// ClusterClients stores the available k8s cluster to execute jobs on
-	ClusterClients sync.Map
 }
 
-// updateClusterClients refreshes the cluster clients from secrets
-func (r *DilocoTorchDDPReconciler) updateClusterClients(ctx context.Context) error {
+// getClientForTargetCluster gets a client for the specified cluster
+func (r *DilocoTorchDDPReconciler) getClientForTargetCluster(ctx context.Context, colonyName, colonyNamespace, clusterName string) (client.Client, error) {
 	log := log.FromContext(ctx)
 
-	secretList := &corev1.SecretList{}
-	if err := r.List(ctx, secretList); err != nil {
-		return fmt.Errorf("failed to list secrets: %w", err)
-	}
-
-	// Get all secrets which end with "-kubeconfig"
-	// TODO: This is a hack to get the kubeconfig secrets, we should add a label to the kubeconfig secret
-	for _, secret := range secretList.Items {
-		if strings.HasSuffix(secret.Name, "-kubeconfig") {
-			clusterName := strings.TrimSuffix(secret.Name, "-kubeconfig")
-			kubeconfigData := secret.Data["value"]
-
-			// Create rest config from kubeconfig
-			restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigData)
-			if err != nil {
-				log.Error(err, "Failed to create REST config", "cluster", clusterName)
-				continue
-			}
-
-			// Create new client
-			clusterClient, err := client.New(restConfig, client.Options{Scheme: r.Scheme})
-			if err != nil {
-				log.Error(err, "Failed to create client", "cluster", clusterName)
-				continue
-			}
-
-			// Store in sync.Map
-			r.ClusterClients.Store(clusterName, clusterClient)
-			log.Info("Updated client for cluster", "cluster", clusterName)
+	var colony infrav1.Colony
+	if err := r.Get(ctx, client.ObjectKey{Name: colonyName, Namespace: colonyNamespace}, &colony); err != nil {
+		if errors.IsNotFound(err) {
+			log.Error(err, "Colony not found")
+			return nil, err
 		}
+		log.Error(err, "Failed to get Colony")
+		return nil, err
 	}
 
-	return nil
-}
-
-// getClusterClient gets a client for the specified cluster
-func (r *DilocoTorchDDPReconciler) getClusterClient(clusterName string) (client.Client, error) {
-	if c, ok := r.ClusterClients.Load(clusterName); ok {
-		return c.(client.Client), nil
+	if len(colony.Status.ClusterRefs) == 0 {
+		return nil, fmt.Errorf("no clusters found in colony %q", colonyName)
 	}
-	return nil, fmt.Errorf("no client found for cluster %s", clusterName)
+
+	aggregatedKubeconfigSecretName := colonyName + "-kubeconfigs"
+	var aggregatedSecret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{Name: aggregatedKubeconfigSecretName, Namespace: colonyNamespace}, &aggregatedSecret); err != nil {
+		return nil, fmt.Errorf("failed to get aggregated kubeconfig secret %q: %w", aggregatedKubeconfigSecretName, err)
+	}
+
+	refBytes, ok := aggregatedSecret.Data[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("no kubeconfig secret found for cluster %q", clusterName)
+	}
+
+	var objRef corev1.ObjectReference
+	if err := json.Unmarshal(refBytes, &objRef); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal object reference for cluster %q: %w", clusterName, err)
+	}
+
+	var kubeconfigSecret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{Name: objRef.Name, Namespace: objRef.Namespace}, &kubeconfigSecret); err != nil {
+		return nil, fmt.Errorf("failed to get kubeconfig secret %q for cluster %q: %w", objRef.Name, clusterName, err)
+	}
+
+	kubeconfigBytes, ok := kubeconfigSecret.Data["value"]
+	if !ok {
+		return nil, fmt.Errorf("kubeconfig secret %q does not contain key 'value'", objRef.Name)
+	}
+
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create REST config for cluster %q: %w", clusterName, err)
+	}
+
+	clusterClient, err := client.New(restConfig, client.Options{Scheme: r.Scheme})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client for cluster %q: %w", clusterName, err)
+	}
+
+	return clusterClient, nil
 }
 
 // +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps,verbs=get;list;watch;create;update;patch;delete
@@ -100,12 +109,6 @@ func (r *DilocoTorchDDPReconciler) getClusterClient(clusterName string) (client.
 
 func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-
-	// Periodically update cluster clients
-	if err := r.updateClusterClients(ctx); err != nil {
-		log.Error(err, "Failed to update cluster clients")
-		return ctrl.Result{RequeueAfter: time.Minute}, err
-	}
 
 	var training trainingv1.DilocoTorchDDP
 	if err := r.Get(ctx, req.NamespacedName, &training); err != nil {
@@ -117,11 +120,31 @@ func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// Determine which cluster to use for the training
+	// Determine which colony to use for the training
 	var targetClient client.Client
-	if training.Spec.TargetCluster != nil {
+	if training.Spec.TargetColony != nil {
 		var err error
-		targetClient, err = r.getClusterClient(*training.Spec.TargetCluster)
+
+		// check if a colony with the given name exists by checking if a Colony CR exists
+		colony := &infrav1.Colony{}
+		if err := r.Get(ctx, client.ObjectKey{Name: *training.Spec.TargetColony, Namespace: training.Namespace}, colony); err != nil {
+			if errors.IsNotFound(err) {
+				log.Error(err, "No colony found with name %s", "colony", *training.Spec.TargetColony)
+				return ctrl.Result{}, err
+			}
+			log.Error(err, "Failed to get Colony")
+			return ctrl.Result{}, err
+		}
+
+		// TODO: Currently a colony consists of a single cluster, but in the future we will support multiple clusters
+		if len(colony.Status.ClusterRefs) == 0 {
+			log.Error(fmt.Errorf("no clusters found in colony %q", colony.Name), "No colony found with name %s", "colony", *training.Spec.TargetColony)
+			return ctrl.Result{}, fmt.Errorf("no clusters found in colony %q", colony.Name)
+		}
+
+		clusterName := colony.Status.ClusterRefs[0].Name
+
+		targetClient, err = r.getClientForTargetCluster(ctx, colony.Name, colony.Namespace, clusterName)
 		if err != nil {
 			log.Error(err, "Failed to get cluster client")
 			return ctrl.Result{}, err

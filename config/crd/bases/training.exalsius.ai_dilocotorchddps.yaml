@@ -57,7 +57,7 @@ spec:
                 type: integer
               scriptPath:
                 type: string
-              targetCluster:
+              targetColony:
                 type: string
               wandbApiKey:
                 type: string

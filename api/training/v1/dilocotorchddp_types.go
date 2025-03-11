@@ -22,14 +22,14 @@ import (
 
 // DilocoTorchDDPSpec defines the desired state of DilocoTorchDDP.
 type DilocoTorchDDPSpec struct {
-	GPUTypes      []string `json:"gpuTypes,omitempty"`      // List of GPU types to use for training
-	TargetCluster *string  `json:"targetCluster,omitempty"` // Target cluster to run the training job (optional)
-	Parallelism   int32    `json:"parallelism,omitempty"`   // Number of GPUs (Pods) to use for training
-	NProcPerNode  int32    `json:"nprocPerNode,omitempty"`  // Number of processes per node (GPU per pod)
-	Image         string   `json:"image,omitempty"`         // Docker image to use for training
-	ScriptPath    string   `json:"scriptPath,omitempty"`    // Path to the training script
-	WandBAPIKey   string   `json:"wandbApiKey,omitempty"`   // WandB API key
-	Args          []string `json:"args,omitempty"`          // Arguments to pass to the training script
+	GPUTypes     []string `json:"gpuTypes,omitempty"`     // List of GPU types to use for training
+	TargetColony *string  `json:"targetColony,omitempty"` // Target cluster to run the training job (optional)
+	Parallelism  int32    `json:"parallelism,omitempty"`  // Number of GPUs (Pods) to use for training
+	NProcPerNode int32    `json:"nprocPerNode,omitempty"` // Number of processes per node (GPU per pod)
+	Image        string   `json:"image,omitempty"`        // Docker image to use for training
+	ScriptPath   string   `json:"scriptPath,omitempty"`   // Path to the training script
+	WandBAPIKey  string   `json:"wandbApiKey,omitempty"`  // WandB API key
+	Args         []string `json:"args,omitempty"`         // Arguments to pass to the training script
 }
 
 // JobPhase defines the phase of the job.
