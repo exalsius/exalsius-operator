@@ -1,8 +1,11 @@
 # exalsius-operator
-// TODO(user): Add simple overview of use/purpose
+<p align="center">
+  <img src="docs/assets/logo.png" alt="Exalsius Logo" width="300"/>
+</p>
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+
+The **exalsius operator** is a **Kubernetes operator** designed to manage **cluster dependencies** and **distributed AI training workloads** in Kubernetes environments. It provides **automated installation, uninstallation, and health monitoring** of various critical components for AI infrastructure.
 
 ## Getting Started
 
