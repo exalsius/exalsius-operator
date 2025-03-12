@@ -68,11 +68,6 @@ func EnsureK0sControlPlane(ctx context.Context, c client.Client, colony *infrav1
 		},
 	}
 
-	// Set Colony as the owner for proper garbage collection.
-	//if err := controllerutil.SetControllerReference(colony, kcp, scheme); err != nil {
-	//	return err
-	//}
-
 	// Check if the K0sControlPlane already exists.
 	existing := &k0sv1beta1.K0sControlPlane{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: kcp.Namespace, Name: kcp.Name}, existing); err != nil {
