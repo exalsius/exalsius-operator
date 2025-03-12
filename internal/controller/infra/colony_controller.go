@@ -112,13 +112,14 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.Error(err, "Failed to ensure AWS resources")
 			return ctrl.Result{}, err
 		}
-	} else if colony.Spec.Azure != nil {
-		// create the Azure resources
-		// if err := r.ensureAzureResources(ctx, &colony); err != nil {
-		// 	log.Error(err, "Failed to ensure Azure resources")
-		// 	return ctrl.Result{}, err
-		// }
 	}
+	// else if colony.Spec.Azure != nil {
+	// create the Azure resources
+	// if err := r.ensureAzureResources(ctx, &colony); err != nil {
+	// 	log.Error(err, "Failed to ensure Azure resources")
+	// 	return ctrl.Result{}, err
+	// }
+	// }
 
 	if err := r.updateColonyStatusFromClusters(ctx, colony); err != nil {
 		log.Error(err, "Failed to update Colony status from clusters")

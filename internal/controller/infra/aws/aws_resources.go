@@ -25,12 +25,12 @@ func EnsureAWSResources(ctx context.Context, c client.Client, colony *infrav1.Co
 		return nil
 	}
 
-	if err := ensureAWSMachineTemplate(ctx, c, colony, scheme); err != nil {
+	if err := ensureAWSMachineTemplate(ctx, c, colony); err != nil {
 		log.Error(err, "Failed to ensure AWSMachineTemplate")
 		return err
 	}
 
-	if err := ensureAWSCluster(ctx, c, colony, scheme); err != nil {
+	if err := ensureAWSCluster(ctx, c, colony); err != nil {
 		log.Error(err, "Failed to ensure AWSCluster")
 		return err
 	}
@@ -39,7 +39,7 @@ func EnsureAWSResources(ctx context.Context, c client.Client, colony *infrav1.Co
 }
 
 // ensureAWSMachineTemplate creates the AWSMachineTemplate CR.
-func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
 	log := log.FromContext(ctx)
 
 	awsMT := &capav1beta2.AWSMachineTemplate{
@@ -90,7 +90,7 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 }
 
 // ensureAWSCluster creates the AWSCluster CR.
-func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
 	log := log.FromContext(ctx)
 
 	protocol := capav1beta2.ELBProtocolTCP
@@ -122,11 +122,6 @@ func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colo
 			},
 		},
 	}
-
-	// Set Colony as the owner of the AWSCluster.
-	//if err := controllerutil.SetControllerReference(colony, awsCluster, scheme); err != nil {
-	//	return err
-	//}
 
 	// Check if the AWSCluster already exists.
 	existing := &capav1beta2.AWSCluster{}

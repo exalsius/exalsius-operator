@@ -78,7 +78,11 @@ func ensureExternalCRDs() error {
 		if err != nil {
 			return fmt.Errorf("failed to download CRD %s: %w", name, err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				fmt.Printf("Failed to close response body: %v\n", err)
+			}
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("failed to download CRD %s: HTTP %d", name, resp.StatusCode)
@@ -88,7 +92,11 @@ func ensureExternalCRDs() error {
 		if err != nil {
 			return fmt.Errorf("failed to create file for CRD %s: %w", name, err)
 		}
-		defer out.Close()
+		defer func() {
+			if err := out.Close(); err != nil {
+				fmt.Printf("Failed to close output: %v\n", err)
+			}
+		}()
 
 		_, err = io.Copy(out, resp.Body)
 		if err != nil {
