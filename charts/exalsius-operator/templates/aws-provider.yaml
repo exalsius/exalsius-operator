@@ -1,0 +1,23 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+ name: aws-credentials
+ namespace: {{ .Release.Namespace }}
+type: Opaque
+data:
+ AWS_B64ENCODED_CREDENTIALS: {{ .Values.aws.credentials | b64enc }}
+
+---
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: InfrastructureProvider
+metadata:
+ name: aws
+ namespace: {{ .Release.Namespace }}
+ annotations:
+   helm.sh/hook: post-install,post-upgrade
+   helm.sh/hook-weight: "20"
+spec:
+ version: {{ .Values.capi.aws_provider_version }}
+ configSecret:
+   name: aws-credentials
