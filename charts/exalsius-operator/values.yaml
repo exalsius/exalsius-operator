@@ -3,13 +3,21 @@
 operator:
   enabled: true
   serviceAccount:
-    create: false
+    create: true
 
 
 # Dependencies of the exalsius operator.
 # Values for the cluster-api-operator chart.
 cluster-api-operator:
-  enabled: true
+  enabled: false
+  core: cluster-api:v1.9.5
+  infrastructure: "k0sproject-k0smotron:v1.4.3;aws:v2.7.1"
+  controlPlane: "k0sproject-k0smotron:v1.4.3"
+  bootstrap: "k0sproject-k0smotron:v1.4.3"
+  addon: "helm"
+  configSecret:
+    name: aws-credentials
+    namespace: exalsius-system
 
 capi:
   core_provider_version: v1.9.5
@@ -20,7 +28,7 @@ capi:
 
 # Credentials for the aws provider.
 aws:
-  # generate with 
+  # create with 
   # export AWS_ACCESS_KEY_ID=XXXXXXXXXX
   # export AWS_SECRET_ACCESS_KEY=XXXXXXXXXX
   # clusterawsadm bootstrap credentials encode-as-profile
@@ -40,7 +48,7 @@ skypilot:
     authCredentials: XXXXXXX
 
 volcano:
-  enabled: true
+  enabled: false
 
 nvidia-operator:
   enabled: false

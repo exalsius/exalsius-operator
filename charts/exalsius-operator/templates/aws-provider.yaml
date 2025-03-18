@@ -14,9 +14,9 @@ kind: InfrastructureProvider
 metadata:
  name: aws
  namespace: {{ .Release.Namespace }}
- annotations:
-   helm.sh/hook: post-install,post-upgrade
-   helm.sh/hook-weight: "20"
+# annotations:
+#   helm.sh/hook: post-install,post-upgrade
+#   helm.sh/hook-weight: "20"
 spec:
  version: {{ .Values.capi.aws_provider_version }}
  configSecret:

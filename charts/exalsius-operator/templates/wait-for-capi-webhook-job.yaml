@@ -56,7 +56,7 @@ spec:
           - sh
           - -c
           - |
-            until curl -k -sf https://capi-operator-webhook-service.{{ .Release.Namespace }}.svc:443/validate-operator-cluster-x-k8s-io-v1alpha2-coreprovider; do
+            until curl -k -sf https://capi-operator-webhook-service.capi-system.svc:443/validate-operator-cluster-x-k8s-io-v1alpha2-coreprovider; do
                 echo "Webhook not ready, retrying in 5 seconds..."
                 sleep 5
             done
