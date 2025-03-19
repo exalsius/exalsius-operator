@@ -10,6 +10,7 @@ capi:
   k0smotron_bootstrap_provider_version: v1.4.3
   k0smotron_infrastructure_provider_version: v1.4.3
   aws_provider_version: v2.7.1
+  helm_addon_provider_version: v0.3.1
 
 # Credentials for the aws provider.
 aws:
@@ -32,9 +33,6 @@ skypilot-nightly:
     # AUTH_STRING=$(htpasswd -nb $WEB_USERNAME $WEB_PASSWORD)
     authCredentials: XXXXXXX
     nodePortEnabled: false # we create an extra node port service for skypilot api 
-
-volcano:
-  enabled: false
 
 nvidia-operator:
   enabled: false

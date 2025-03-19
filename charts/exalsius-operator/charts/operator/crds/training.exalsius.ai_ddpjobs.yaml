@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: dilocotorchddps.training.exalsius.ai
+  name: ddpjobs.training.exalsius.ai
 spec:
   group: training.exalsius.ai
   names:
-    kind: DilocoTorchDDP
-    listKind: DilocoTorchDDPList
-    plural: dilocotorchddps
-    singular: dilocotorchddp
+    kind: DDPJob
+    listKind: DDPJobList
+    plural: ddpjobs
+    singular: ddpjob
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: DilocoTorchDDP is the Schema for the dilocotorchddps API.
+        description: DDPJob is the Schema for the ddpjobs API.
         properties:
           apiVersion:
             description: |-
@@ -37,7 +37,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: DilocoTorchDDPSpec defines the desired state of DilocoTorchDDP.
+            description: DDPJobSpec defines the desired state of DDPJob.
             properties:
               args:
                 items:
@@ -63,7 +63,7 @@ spec:
                 type: string
             type: object
           status:
-            description: DilocoTorchDDPStatus defines the observed state of DilocoTorchDDP.
+            description: DDPJobStatus defines the observed state of DDPJob.
             properties:
               jobName:
                 type: string
