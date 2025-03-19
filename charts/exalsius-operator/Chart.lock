@@ -2,17 +2,11 @@ dependencies:
 - name: operator
   repository: file://charts/operator
   version: 0.1.0
-- name: cluster-api-operator
-  repository: https://kubernetes-sigs.github.io/cluster-api-operator
-  version: 0.17.0
 - name: skypilot-nightly
   repository: https://helm.skypilot.co
-  version: 1.0.0-dev.20250218
-- name: volcano
-  repository: https://volcano-sh.github.io/helm-charts
-  version: 1.11.0
+  version: 1.0.0-dev.20250318
 - name: gpu-operator
   repository: https://helm.ngc.nvidia.com/nvidia
   version: v24.9.2
-digest: sha256:1736cfcfd974fbf12928d580b8a39035431ad04f36fe1e5320c63c5354e4ec13
-generated: "2025-03-12T16:28:11.341333517+01:00"
+digest: sha256:3f26700ebb962c48c03f7fea99a477bd339330b5d2bf570592ea90be9ebbe375
+generated: "2025-03-18T15:51:18.743694095+01:00"

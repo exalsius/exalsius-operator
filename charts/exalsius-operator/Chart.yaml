@@ -11,20 +11,10 @@ dependencies:
     repository: file://charts/operator
     condition: operator.enabled
 
-  - name: cluster-api-operator
-    version: "0.17.0"
-    repository: "https://kubernetes-sigs.github.io/cluster-api-operator"
-    condition: cluster-api-operator.enabled
-
   - name: skypilot-nightly
-    version: "1.0.0-dev.20250218"
+    version: "1.0.0-dev.20250318"
     repository: https://helm.skypilot.co
-    condition: skypilot.enabled
-
-  - name: volcano
-    version: "1.11.0"
-    repository: https://volcano-sh.github.io/helm-charts
-    condition: volcano.enabled
+    condition: skypilot-nightly.enabled
 
   - name: gpu-operator
     version: "v24.9.2"
