@@ -4,21 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: dilocopytorchtrainings.training.exalsius.ai
+  name: ddpjobs.training.exalsius.ai
 spec:
   group: training.exalsius.ai
   names:
-    kind: DilocoPytorchTraining
-    listKind: DilocoPytorchTrainingList
-    plural: dilocopytorchtrainings
-    singular: dilocopytorchtraining
+    kind: DDPJob
+    listKind: DDPJobList
+    plural: ddpjobs
+    singular: ddpjob
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: DilocoPytorchTraining is the Schema for the dilocopytorchtrainings
-          API.
+        description: DDPJob is the Schema for the ddpjobs API.
         properties:
           apiVersion:
             description: |-
@@ -38,9 +37,13 @@ spec:
           metadata:
             type: object
           spec:
-            description: DilocoPytorchTrainingSpec defines the desired state of DilocoPytorchTraining.
+            description: DDPJobSpec defines the desired state of DDPJob.
             properties:
               args:
+                items:
+                  type: string
+                type: array
+              gpuTypes:
                 items:
                   type: string
                 type: array
@@ -54,16 +57,18 @@ spec:
                 type: integer
               scriptPath:
                 type: string
+              targetColony:
+                type: string
               wandbApiKey:
                 type: string
             type: object
           status:
-            description: DilocoPytorchTrainingStatus defines the observed state of
-              DilocoPytorchTraining.
+            description: DDPJobStatus defines the observed state of DDPJob.
             properties:
               jobName:
                 type: string
-              status:
+              phase:
+                description: JobPhase defines the phase of the job.
                 type: string
             type: object
         type: object

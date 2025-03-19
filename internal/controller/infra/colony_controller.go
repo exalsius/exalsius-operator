@@ -37,6 +37,7 @@ import (
 
 	awsresources "github.com/exalsius/exalsius-operator/internal/controller/infra/aws"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/controlplane"
+	"sigs.k8s.io/cluster-api/util/conditions"
 )
 
 const (
@@ -365,10 +366,7 @@ func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, cluster *
 // all referenced Clusters have a ready condition.
 func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, colony *infrav1.Colony) error {
 	log := log.FromContext(ctx)
-
-	totalClusters := len(colony.Status.ClusterRefs)
-	readyCount := 0
-
+	allReady := true
 	var notReadyClusters []string
 
 	for _, ref := range colony.Status.ClusterRefs {
@@ -381,30 +379,30 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			if errors.IsNotFound(err) {
 				log.Info("Cluster not found", "cluster", fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s (not found)", ref.Namespace, ref.Name))
+				allReady = false
 				continue
 			}
 			return err
 		}
 
-		if meta.IsStatusConditionTrue(cluster.Status.V1Beta2.Conditions, "Available") {
-			log.Info("Cluster ready", "cluster", fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
-			readyCount++
-		} else {
+		if readyCondition := conditions.Get(cluster, clusterv1.ReadyCondition); readyCondition == nil ||
+			readyCondition.Status != corev1.ConditionTrue {
+			allReady = false
 			notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 		}
 	}
 
-	colony.Status.TotalClusters = int32(totalClusters)
-	colony.Status.ReadyClusters = int32(readyCount)
+	colony.Status.TotalClusters = int32(len(colony.Status.ClusterRefs))
+	colony.Status.ReadyClusters = int32(len(colony.Status.ClusterRefs) - len(notReadyClusters))
 
 	var condition metav1.Condition
-	if readyCount == totalClusters && totalClusters > 0 {
+	if allReady {
 		colony.Status.Phase = "Ready"
 		condition = metav1.Condition{
 			Type:    "ClustersReady",
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllClustersReady",
-			Message: fmt.Sprintf("All %d clusters of the colony are ready", totalClusters),
+			Message: fmt.Sprintf("All %d clusters of the colony are ready", len(colony.Status.ClusterRefs)),
 		}
 	} else {
 		colony.Status.Phase = "Provisioning"
@@ -412,7 +410,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			Type:    "ClustersReady",
 			Status:  metav1.ConditionFalse,
 			Reason:  "NotAllClustersReady",
-			Message: fmt.Sprintf("%d out of %d clusters are ready. Not ready clusters: %v", readyCount, totalClusters, notReadyClusters),
+			Message: fmt.Sprintf("%d out of %d clusters are ready. Not ready clusters: %v", colony.Status.ReadyClusters, colony.Status.TotalClusters, notReadyClusters),
 		}
 	}
 

@@ -20,8 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DilocoTorchDDPSpec defines the desired state of DilocoTorchDDP.
-type DilocoTorchDDPSpec struct {
+// DDPJobSpec defines the desired state of DDPJob.
+type DDPJobSpec struct {
 	GPUTypes     []string `json:"gpuTypes,omitempty"`     // List of GPU types to use for training
 	TargetColony *string  `json:"targetColony,omitempty"` // Target cluster to run the training job (optional)
 	Parallelism  int32    `json:"parallelism,omitempty"`  // Number of GPUs (Pods) to use for training
@@ -58,8 +58,8 @@ const (
 	Failed JobPhase = "Failed"
 )
 
-// DilocoTorchDDPStatus defines the observed state of DilocoTorchDDP.
-type DilocoTorchDDPStatus struct {
+// DDPJobStatus defines the observed state of DDPJob.
+type DDPJobStatus struct {
 	JobName string   `json:"jobName,omitempty"` // Name of the training job
 	Phase   JobPhase `json:"phase,omitempty"`   // Phase of the training job
 }
@@ -67,24 +67,24 @@ type DilocoTorchDDPStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// DilocoTorchDDP is the Schema for the dilocotorchddps API.
-type DilocoTorchDDP struct {
+// DDPJob is the Schema for the ddpjobs API.
+type DDPJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DilocoTorchDDPSpec   `json:"spec,omitempty"`
-	Status DilocoTorchDDPStatus `json:"status,omitempty"`
+	Spec   DDPJobSpec   `json:"spec,omitempty"`
+	Status DDPJobStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// DilocoTorchDDPList contains a list of DilocoTorchDDP.
-type DilocoTorchDDPList struct {
+// DDPJobList contains a list of DDPJob.
+type DDPJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []DilocoTorchDDP `json:"items"`
+	Items           []DDPJob `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&DilocoTorchDDP{}, &DilocoTorchDDPList{})
+	SchemeBuilder.Register(&DDPJob{}, &DDPJobList{})
 }

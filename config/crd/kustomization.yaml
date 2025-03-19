@@ -5,6 +5,7 @@ resources:
 - bases/training.exalsius.ai_dilocopytorchtrainings.yaml
 - bases/training.exalsius.ai_dilocotorchddps.yaml
 - bases/infra.exalsius.ai_colonies.yaml
+- bases/training.exalsius.ai_ddpjobs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

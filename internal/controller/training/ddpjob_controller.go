@@ -34,32 +34,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
-	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 )
 
-// DilocoTorchDDPReconciler reconciles a DilocoTorchDDP object
-type DilocoTorchDDPReconciler struct {
+// DDPJobReconciler reconciles a DDPJob object
+type DDPJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=training.exalsius.ai,resources=dilocotorchddps/finalizers,verbs=update
+// +kubebuilder:rbac:groups=training.exalsius.ai,resources=ddpjobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=training.exalsius.ai,resources=ddpjobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=training.exalsius.ai,resources=ddpjobs/finalizers,verbs=update
 
-func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DDPJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	var training trainingv1.DilocoTorchDDP
+	var training trainingv1.DDPJob
 	if err := r.Get(ctx, req.NamespacedName, &training); err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("DilocoTorchDDP resource not found. Ignoring since object must be deleted")
+			log.Info("DDPJob resource not found. Ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "Failed to get DilocoTorchDDP")
+		log.Error(err, "Failed to get DDPJob")
 		return ctrl.Result{}, err
 	}
 
@@ -109,8 +109,8 @@ func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Create the Volcano Job for the training.
-	if err := r.ensureDilocoTrainingVolcanoJob(ctx, &training, targetClient); err != nil {
-		log.Error(err, "Failed to ensure diloco training Volcano Job")
+	if err := r.ensureTrainingVolcanoJob(ctx, &training, targetClient); err != nil {
+		log.Error(err, "Failed to ensure training Volcano Job")
 		return ctrl.Result{}, err
 	}
 
@@ -120,13 +120,12 @@ func (r *DilocoTorchDDPReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
-	log.Info("DilocoTorchDDP reconciled successfully")
+	log.Info("DDPJob reconciled successfully")
 
 	return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
-// isColonyMarkedForDeletion checks if the target colony is being deleted
-func (r *DilocoTorchDDPReconciler) isColonyMarkedForDeletion(ctx context.Context, colonyName, colonyNamespace string) (bool, error) {
+func (r *DDPJobReconciler) isColonyMarkedForDeletion(ctx context.Context, colonyName, colonyNamespace string) (bool, error) {
 	log := log.FromContext(ctx)
 
 	colony := &infrav1.Colony{}
@@ -151,7 +150,7 @@ func (r *DilocoTorchDDPReconciler) isColonyMarkedForDeletion(ctx context.Context
 }
 
 // getClientForTargetCluster gets a client for the specified cluster
-func (r *DilocoTorchDDPReconciler) getClientForTargetCluster(ctx context.Context, colonyName, colonyNamespace, clusterName string) (client.Client, error) {
+func (r *DDPJobReconciler) getClientForTargetCluster(ctx context.Context, colonyName, colonyNamespace, clusterName string) (client.Client, error) {
 	log := log.FromContext(ctx)
 
 	var colony infrav1.Colony
@@ -209,9 +208,9 @@ func (r *DilocoTorchDDPReconciler) getClientForTargetCluster(ctx context.Context
 	return clusterClient, nil
 }
 
-// ensureDilocoTrainingVolcanoJob creates a Volcano Job for distributed PyTorch training.
-func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP, targetClient client.Client) error {
-	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
+// ensureTrainingVolcanoJob creates a Volcano Job for distributed PyTorch training.
+func (r *DDPJobReconciler) ensureTrainingVolcanoJob(ctx context.Context, training *trainingv1.DDPJob, targetClient client.Client) error {
+	jobName := fmt.Sprintf("ddp-job-%s", training.Name)
 	namespace := training.Namespace
 	log := log.FromContext(ctx)
 
@@ -363,8 +362,8 @@ func (r *DilocoTorchDDPReconciler) ensureDilocoTrainingVolcanoJob(ctx context.Co
 	return nil
 }
 
-func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Context, training *trainingv1.DilocoTorchDDP, targetClient client.Client) error {
-	jobName := fmt.Sprintf("diloco-job-%s", training.Name)
+func (r *DDPJobReconciler) updateCRStatusFromVolcanoJob(ctx context.Context, training *trainingv1.DDPJob, targetClient client.Client) error {
+	jobName := fmt.Sprintf("ddp-job-%s", training.Name)
 	namespace := training.Namespace
 	log := log.FromContext(ctx)
 
@@ -385,10 +384,10 @@ func (r *DilocoTorchDDPReconciler) updateCRStatusFromVolcanoJob(ctx context.Cont
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *DilocoTorchDDPReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *DDPJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&trainingv1.DilocoTorchDDP{}).
-		Named("dilocotorchddp").
+		For(&trainingv1.DDPJob{}).
+		Named("training-ddpjob").
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
