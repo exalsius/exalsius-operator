@@ -33,7 +33,7 @@ rules:
 - apiGroups:
   - training.exalsius.ai
   resources:
-  - dilocotorchddps
+  - ddpjobs
   verbs:
   - create
   - delete
@@ -45,13 +45,13 @@ rules:
 - apiGroups:
   - training.exalsius.ai
   resources:
-  - dilocotorchddps/finalizers
+  - ddpjobs/finalizers
   verbs:
   - update
 - apiGroups:
   - training.exalsius.ai
   resources:
-  - dilocotorchddps/status
+  - ddpjobs/status
   verbs:
   - get
   - patch

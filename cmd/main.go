@@ -40,13 +40,15 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 
+	capav1beta2 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
-	capav1beta2 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+
+	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
-	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -227,11 +229,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&trainingcontroller.DilocoTorchDDPReconciler{
+	if err = (&trainingcontroller.DDPJobReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DilocoTorchDDP")
+		setupLog.Error(err, "unable to create controller", "controller", "DDPJob")
 		os.Exit(1)
 	}
 	if err = (&infracontroller.ColonyReconciler{

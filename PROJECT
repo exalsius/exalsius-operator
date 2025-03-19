@@ -36,4 +36,13 @@ resources:
   kind: Colony
   path: github.com/exalsius/exalsius-operator/api/infra/v1
   version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: exalsius.ai
+  group: training
+  kind: DDPJob
+  path: github.com/exalsius/exalsius-operator/api/training/v1
+  version: v1
 version: "3"
