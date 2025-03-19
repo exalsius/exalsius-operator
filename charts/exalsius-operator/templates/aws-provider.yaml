@@ -2,12 +2,11 @@
 apiVersion: v1
 kind: Secret
 metadata:
- name: aws-credentials
+ name: capa-aws-credentials
  namespace: {{ .Release.Namespace }}
 type: Opaque
 data:
- AWS_B64ENCODED_CREDENTIALS: {{ .Values.aws.credentials | b64enc }}
-
+  AWS_B64ENCODED_CREDENTIALS: {{ (printf "[default]\naws_access_key_id = %s\naws_secret_access_key = %s\nregion = %s\n" .Values.aws.awsCredentials.accessKeyId .Values.aws.awsCredentials.secretAccessKey .Values.aws.awsCredentials.region) | b64enc | b64enc}}
 ---
 apiVersion: operator.cluster.x-k8s.io/v1alpha2
 kind: InfrastructureProvider
@@ -20,4 +19,5 @@ metadata:
 spec:
  version: {{ .Values.capi.aws_provider_version }}
  configSecret:
-   name: aws-credentials
+   name: capa-aws-credentials
+   namespace: {{ .Release.Namespace }}

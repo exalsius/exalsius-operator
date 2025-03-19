@@ -2,22 +2,7 @@
 # See charts/operator/values.yaml for more information.
 operator:
   enabled: true
-  serviceAccount:
-    create: true
 
-
-# Dependencies of the exalsius operator.
-# Values for the cluster-api-operator chart.
-cluster-api-operator:
-  enabled: false
-  core: cluster-api:v1.9.5
-  infrastructure: "k0sproject-k0smotron:v1.4.3;aws:v2.7.1"
-  controlPlane: "k0sproject-k0smotron:v1.4.3"
-  bootstrap: "k0sproject-k0smotron:v1.4.3"
-  addon: "helm"
-  configSecret:
-    name: aws-credentials
-    namespace: exalsius-system
 
 capi:
   core_provider_version: v1.9.5
@@ -28,13 +13,13 @@ capi:
 
 # Credentials for the aws provider.
 aws:
-  # create with 
-  # export AWS_ACCESS_KEY_ID=XXXXXXXXXX
-  # export AWS_SECRET_ACCESS_KEY=XXXXXXXXXX
-  # clusterawsadm bootstrap credentials encode-as-profile
-  credentials: XXXXXX
+  enabled: true
+  awsCredentials:
+    accessKeyId: XXXXXXXXXX
+    secretAccessKey: XXXXXXXXXX
+    region: eu-central-1
 
-skypilot:
+skypilot-nightly:
   enabled: true
   apiService:
     image: berkeleyskypilot/skypilot-nightly:1.0.0.dev20250305
@@ -46,6 +31,7 @@ skypilot:
     # export WEB_PASSWORD=yourpassword
     # AUTH_STRING=$(htpasswd -nb $WEB_USERNAME $WEB_PASSWORD)
     authCredentials: XXXXXXX
+    nodePortEnabled: false # we create an extra node port service for skypilot api 
 
 volcano:
   enabled: false
