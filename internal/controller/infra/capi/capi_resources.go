@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
@@ -22,19 +23,32 @@ func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony,
 	log := log.FromContext(ctx)
 
 	labels := make(map[string]string)
-	for _, workloadDependency := range colony.Spec.WorkloadDependencies {
-		var hcp helmv1alpha1.HelmChartProxy
-		err := c.Get(ctx, types.NamespacedName{
-			Name:      workloadDependency.Name,
-			Namespace: colony.Namespace,
-		}, &hcp)
-		if err == nil {
-			// Merge the HelmChartProxy labels with existing labels
-			for k, v := range hcp.Spec.ClusterSelector.MatchLabels {
-				labels[k] = v
+	if colony.Spec.WorkloadDependencies != nil {
+		for _, workloadDependency := range *colony.Spec.WorkloadDependencies {
+			var hcp helmv1alpha1.HelmChartProxy
+			err := c.Get(ctx, types.NamespacedName{
+				Name:      workloadDependency.Name,
+				Namespace: "default", // TODO: at some point we need to discuss what resources should have their own namespace
+			}, &hcp)
+			if err == nil {
+				// Merge the HelmChartProxy labels with existing labels
+				for k, v := range hcp.Spec.ClusterSelector.MatchLabels {
+					labels[k] = v
+				}
+			} else {
+				log.Error(err, "Failed to get HelmChartProxy", "HelmChartProxy.Namespace", hcp.Namespace, "HelmChartProxy.Name", hcp.Name)
 			}
-		} else {
-			log.Error(err, "Failed to get HelmChartProxy", "HelmChartProxy.Namespace", hcp.Namespace, "HelmChartProxy.Name", hcp.Name)
+		}
+	}
+
+	if colony.Spec.AdditionalDependencies != nil {
+		newLabels, err := ensureAdditionalDependencies(ctx, c, colony, scheme)
+		if err != nil {
+			log.Error(err, "Failed to ensure additional dependencies")
+		}
+
+		for k, v := range newLabels {
+			labels[k] = v
 		}
 	}
 
@@ -145,7 +159,6 @@ func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infra
 							APIVersion: "bootstrap.cluster.x-k8s.io/v1beta1",
 							Kind:       "K0sWorkerConfigTemplate",
 							Name:       colony.Spec.ClusterName + "-machine-config",
-							Namespace:  colony.Namespace,
 						},
 					},
 					InfrastructureRef: getMachineInfrastructureRef(colony),
@@ -231,4 +244,66 @@ func getMachineInfrastructureRef(colony *infrav1.Colony) corev1.ObjectReference 
 		Name:       colony.Spec.ClusterName + "-mt",
 		Namespace:  colony.Namespace,
 	}
+}
+
+func ensureAdditionalDependencies(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) (map[string]string, error) {
+	log := log.FromContext(ctx)
+
+	// for now we only support one namespace for additional dependencies
+	namespace := "default"
+	newLabels := make(map[string]string)
+
+	if colony.Spec.AdditionalDependencies == nil {
+		return newLabels, nil
+	}
+
+	for _, chart := range *colony.Spec.AdditionalDependencies {
+		existingChart := &helmv1alpha1.HelmChartProxy{}
+		err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: chart.Name}, existingChart)
+
+		if err == nil {
+			log.Info("HelmChartProxy already exists", "HelmChartProxy.Namespace", namespace, "HelmChartProxy.Name", chart.Name)
+			for k, v := range existingChart.Spec.ClusterSelector.MatchLabels {
+				newLabels[k] = v
+			}
+			continue
+		}
+
+		if !errors.IsNotFound(err) {
+			log.Error(err, "failed to get HelmChartProxy", "HelmChartProxy.Namespace", namespace, "HelmChartProxy.Name", chart.Name)
+			return nil, err
+		}
+
+		// HelmChartProxy does not exist, create it
+		newChart := &helmv1alpha1.HelmChartProxy{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: helmv1alpha1.GroupVersion.String(),
+				Kind:       "HelmChartProxy",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      chart.Name,
+				Namespace: namespace,
+			},
+			Spec: chart.Spec,
+		}
+
+		// Set the owner reference for garbage collection
+		if err := controllerutil.SetControllerReference(colony, newChart, scheme); err != nil {
+			log.Error(err, "failed to set owner reference for HelmChartProxy", "HelmChartProxy.Namespace", newChart.Namespace, "HelmChartProxy.Name", newChart.Name)
+			return nil, err
+		}
+
+		if err := c.Create(ctx, newChart); err != nil {
+			log.Error(err, "failed to create HelmChartProxy", "HelmChartProxy.Namespace", newChart.Namespace, "HelmChartProxy.Name", newChart.Name)
+			return nil, err
+		}
+
+		log.Info("Created HelmChartProxy", "HelmChartProxy.Namespace", newChart.Namespace, "HelmChartProxy.Name", newChart.Name)
+
+		for k, v := range newChart.Spec.ClusterSelector.MatchLabels {
+			newLabels[k] = v
+		}
+	}
+
+	return newLabels, nil
 }
