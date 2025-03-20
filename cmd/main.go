@@ -37,7 +37,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	helmv1alpha1 "sigs.k8s.io/cluster-api-addon-provider-helm/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta1"
 	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 
 	capav1beta2 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
@@ -49,6 +51,7 @@ import (
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
+	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -77,6 +80,18 @@ func init() {
 	}
 	if err := k0sv1beta1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add K0s to scheme")
+		os.Exit(1)
+	}
+	if err := helmv1alpha1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Helm to scheme")
+		os.Exit(1)
+	}
+	if err := capdv1beta1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Cluster API Provider Docker to scheme")
+		os.Exit(1)
+	}
+	if err := bootstrapv1beta1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Bootstrap to scheme")
 		os.Exit(1)
 	}
 }
