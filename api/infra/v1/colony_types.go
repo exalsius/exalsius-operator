@@ -21,9 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ColonySpec defines the desired state of Colony.
 type ColonySpec struct {
 	// ClusterName is the name of the cluster.
@@ -33,17 +30,39 @@ type ColonySpec struct {
 	// WorkloadDependencies is the list of workload dependencies to use for the colony.
 	// +optional
 	WorkloadDependencies []WorkloadDependency `json:"workloadDependencies,omitempty"`
+
+	// HostedControlPlaneEnabled indicates if the hosted control plane is enabled.
+	// If this is true, the colony will create a hosted control plane in the management cluster.
+	// If this is false, the colony will create a control plane in the colony cluster.
+	// If this is not set, the colony will create a control plane in the colony cluster.
+	// +optional
+	HostedControlPlaneEnabled *bool `json:"hostedControlPlaneEnabled,omitempty"`
+
+	// DockerEnabled indicates if the docker provider is enabled.
+	// This should be only used for local development and testing.
+	DockerEnabled *bool `json:"dockerEnabled,omitempty"`
+	// Docker is the specification for the docker resources.
+	Docker *DockerSpec `json:"docker,omitempty"`
+
+	// AWSEnabled indicates if the AWS provider is enabled.
+	// setting this to true requires also setting the AWS spec.
+	AWSEnabled *bool `json:"awsEnabled,omitempty"`
 	// AWS is the specification for the AWS resources.
 	AWS *AWSSpec `json:"aws,omitempty"`
+
+	// AzureEnabled indicates if the Azure provider is enabled.
+	// setting this to true requires also setting the Azure spec.
+	AzureEnabled *bool `json:"azureEnabled,omitempty"`
 	// Azure is the specification for the Azure resources.
 	Azure *AzureSpec `json:"azure,omitempty"`
 }
 
+// WorkloadDependency is a workload dependency to be installed on the colony.
+// It currently maps to a HelmChartProxy resource
 type WorkloadDependency struct {
-	// Name is the name of the workload dependency.
+	// Name is the name of the workload dependency, it maps to the name of the HelmChartProxy resource that
+	// has to exist in the cluster.
 	Name string `json:"name"`
-	// Version is the version of the workload dependency.
-	Version string `json:"version"`
 }
 
 type AWSSpec struct {
@@ -64,6 +83,11 @@ type AWSSpec struct {
 type AzureSpec struct {
 	// Region is the Azure region.
 	Region string `json:"region"`
+}
+
+type DockerSpec struct {
+	// Replicas is the number of "Docker Nodes" to create.
+	Replicas int32 `json:"replicas"`
 }
 
 // ColonyStatus defines the observed state of Colony.
