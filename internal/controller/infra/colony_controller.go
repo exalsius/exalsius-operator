@@ -36,7 +36,10 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	awsresources "github.com/exalsius/exalsius-operator/internal/controller/infra/aws"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/bootstrap"
+	capiresources "github.com/exalsius/exalsius-operator/internal/controller/infra/capi"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/controlplane"
+	dockerresources "github.com/exalsius/exalsius-operator/internal/controller/infra/docker"
 	"sigs.k8s.io/cluster-api/util/conditions"
 )
 
@@ -96,21 +99,43 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// ensure the Cluster exsits
-	if err := r.ensureCluster(ctx, colony); err != nil {
+	if err := capiresources.EnsureCluster(ctx, r.Client, colony, r.Scheme); err != nil {
 		log.Error(err, "Failed to ensure cluster")
 		return ctrl.Result{}, err
 	}
 
-	// ensure the K0sControlPlane exists
-	if err := controlplane.EnsureK0sControlPlane(ctx, r.Client, colony, r.Scheme); err != nil {
-		log.Error(err, "Failed to ensure K0sControlPlane")
+	// ensure the K0sWorkerConfigTemplate exists
+	if err := bootstrap.EnsureK0sWorkerConfigTemplate(ctx, r.Client, colony, r.Scheme); err != nil {
+		log.Error(err, "Failed to ensure K0sWorkerConfigTemplate")
 		return ctrl.Result{}, err
+	}
+
+	if colony.Spec.HostedControlPlaneEnabled != nil && *colony.Spec.HostedControlPlaneEnabled {
+		log.Info("Ensuring a hosted K0smotron control plane")
+		if err := controlplane.EnsureK0smotronControlPlane(ctx, r.Client, colony, r.Scheme); err != nil {
+			log.Error(err, "Failed to ensure K0smotronControlPlane")
+			return ctrl.Result{}, err
+		}
+	} else {
+		log.Info("Ensuring a control plane in the colony cluster")
+		if err := controlplane.EnsureK0sControlPlane(ctx, r.Client, colony, r.Scheme); err != nil {
+			log.Error(err, "Failed to ensure K0sControlPlane")
+			return ctrl.Result{}, err
+		}
 	}
 
 	if colony.Spec.AWS != nil {
 		// create the AWS resources
 		if err := awsresources.EnsureAWSResources(ctx, r.Client, colony, r.Scheme); err != nil {
 			log.Error(err, "Failed to ensure AWS resources")
+			return ctrl.Result{}, err
+		}
+	}
+
+	if colony.Spec.Docker != nil {
+		// create the Docker resources
+		if err := dockerresources.EnsureDockerResources(ctx, r.Client, colony, r.Scheme); err != nil {
+			log.Error(err, "Failed to ensure Docker resources")
 			return ctrl.Result{}, err
 		}
 	}
@@ -227,90 +252,6 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	if err := ctrl.SetControllerReference(colony, &aggregatedKubeconfigSecret, r.Scheme); err != nil {
 		log.Error(err, "Failed to set owner reference to the aggregated kubeconfig secret")
 		return err
-	}
-
-	return nil
-}
-
-// ensureCluster ensures that the cluster exists.
-func (r *ColonyReconciler) ensureCluster(ctx context.Context, colony *infrav1.Colony) error {
-	log := log.FromContext(ctx)
-
-	cluster := &clusterv1.Cluster{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: clusterv1.GroupVersion.String(),
-			Kind:       "Cluster",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName,
-			Namespace: colony.Namespace,
-			Labels: map[string]string{
-				"nvidiaOperator": "enabled",
-				"volcano":        "enabled",
-			},
-		},
-		Spec: clusterv1.ClusterSpec{
-			ClusterNetwork: &clusterv1.ClusterNetwork{
-				Pods: &clusterv1.NetworkRanges{
-					CIDRBlocks: []string{"192.168.0.0/16"},
-				},
-				ServiceDomain: "cluster.local",
-				Services: &clusterv1.NetworkRanges{
-					CIDRBlocks: []string{"10.128.0.0/12"},
-				},
-			},
-			ControlPlaneRef: &corev1.ObjectReference{
-				APIVersion: "controlplane.cluster.x-k8s.io/v1beta1",
-				Kind:       "K0sControlPlane",
-				Name:       colony.Spec.ClusterName,
-			},
-			InfrastructureRef: &corev1.ObjectReference{
-				APIVersion: "infrastructure.cluster.x-k8s.io/v1beta2",
-				Kind:       "AWSCluster",
-				Name:       colony.Spec.ClusterName,
-			},
-		},
-	}
-
-	existingCluster := &clusterv1.Cluster{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(cluster), existingCluster)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("Cluster not found. Creating...")
-			if err := r.Client.Create(ctx, cluster); err != nil {
-				log.Error(err, "failed to create Cluster", "Cluster.Namespace", cluster.Namespace, "Cluster.Name", cluster.Name)
-				return err
-			}
-			log.Info("Created Cluster", "Cluster.Namespace", cluster.Namespace, "Cluster.Name", cluster.Name)
-			existingCluster = cluster
-		} else {
-			log.Error(err, "failed to get Cluster", "Cluster.Namespace", cluster.Namespace, "Cluster.Name", cluster.Name)
-			return err
-		}
-	}
-
-	clusterRef := &corev1.ObjectReference{
-		APIVersion: existingCluster.APIVersion,
-		Kind:       existingCluster.Kind,
-		Name:       existingCluster.Name,
-		Namespace:  existingCluster.Namespace,
-	}
-
-	exists := false
-	for _, ref := range colony.Status.ClusterRefs {
-		if ref.Name == clusterRef.Name && ref.Namespace == clusterRef.Namespace {
-			exists = true
-			break
-		}
-	}
-
-	if !exists {
-		colony.Status.ClusterRefs = append(colony.Status.ClusterRefs, clusterRef)
-		if err := r.Client.Status().Update(ctx, colony); err != nil {
-			log.Error(err, "failed to update Colony status")
-			return err
-		}
-		log.Info("Updated Colony status", "Colony.Namespace", colony.Namespace, "Colony.Name", colony.Name)
 	}
 
 	return nil

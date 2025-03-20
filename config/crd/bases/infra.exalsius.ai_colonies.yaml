@@ -80,6 +80,11 @@ spec:
                 - replicas
                 - sshKeyName
                 type: object
+              awsEnabled:
+                description: |-
+                  AWSEnabled indicates if the AWS provider is enabled.
+                  setting this to true requires also setting the AWS spec.
+                type: boolean
               azure:
                 description: Azure is the specification for the Azure resources.
                 properties:
@@ -89,9 +94,36 @@ spec:
                 required:
                 - region
                 type: object
+              azureEnabled:
+                description: |-
+                  AzureEnabled indicates if the Azure provider is enabled.
+                  setting this to true requires also setting the Azure spec.
+                type: boolean
               clusterName:
                 description: ClusterName is the name of the cluster.
                 type: string
+              docker:
+                description: Docker is the specification for the docker resources.
+                properties:
+                  replicas:
+                    description: Replicas is the number of "Docker Nodes" to create.
+                    format: int32
+                    type: integer
+                required:
+                - replicas
+                type: object
+              dockerEnabled:
+                description: |-
+                  DockerEnabled indicates if the docker provider is enabled.
+                  This should be only used for local development and testing.
+                type: boolean
+              hostedControlPlaneEnabled:
+                description: |-
+                  HostedControlPlaneEnabled indicates if the hosted control plane is enabled.
+                  If this is true, the colony will create a hosted control plane in the management cluster.
+                  If this is false, the colony will create a control plane in the colony cluster.
+                  If this is not set, the colony will create a control plane in the colony cluster.
+                type: boolean
               k8sVersion:
                 description: K8sVersion is the version of Kubernetes to use for the
                   cluster.
@@ -100,16 +132,17 @@ spec:
                 description: WorkloadDependencies is the list of workload dependencies
                   to use for the colony.
                 items:
+                  description: |-
+                    WorkloadDependency is a workload dependency to be installed on the colony.
+                    It currently maps to a HelmChartProxy resource
                   properties:
                     name:
-                      description: Name is the name of the workload dependency.
-                      type: string
-                    version:
-                      description: Version is the version of the workload dependency.
+                      description: |-
+                        Name is the name of the workload dependency, it maps to the name of the HelmChartProxy resource that
+                        has to exist in the cluster.
                       type: string
                   required:
                   - name
-                  - version
                   type: object
                 type: array
             required:

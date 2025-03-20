@@ -10,6 +10,7 @@ capi:
   k0smotron_bootstrap_provider_version: v1.4.3
   k0smotron_infrastructure_provider_version: v1.4.3
   aws_provider_version: v2.7.1
+  docker_provider_version: v1.4.2
   helm_addon_provider_version: v0.3.1
 
 # Credentials for the aws provider.
@@ -19,6 +20,10 @@ aws:
     accessKeyId: XXXXXXXXXX
     secretAccessKey: XXXXXXXXXX
     region: eu-central-1
+
+# If true, the docker provider will be enabled for local development.
+docker:
+  enabled: false
 
 skypilot-nightly:
   enabled: true
