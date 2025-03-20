@@ -19,6 +19,7 @@ package v1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	helmv1alpha1 "sigs.k8s.io/cluster-api-addon-provider-helm/api/v1alpha1"
 )
 
 // ColonySpec defines the desired state of Colony.
@@ -28,8 +29,15 @@ type ColonySpec struct {
 	// K8sVersion is the version of Kubernetes to use for the cluster.
 	K8sVersion string `json:"k8sVersion"`
 	// WorkloadDependencies is the list of workload dependencies to use for the colony.
+	// This is a list of already pre-installed HelmChartProxy resources that can be specified by name.
 	// +optional
-	WorkloadDependencies []WorkloadDependency `json:"workloadDependencies,omitempty"`
+	WorkloadDependencies *[]WorkloadDependency `json:"workloadDependencies,omitempty"`
+
+	// AdditionalDependencies is the list of additional dependencies to use for the colony.
+	// This is a list of HelmChartProxy resources that will be installed on the colony.
+	// See https://cluster-api-addon-provider-helm.sigs.k8s.io/getting-started/
+	// +optional
+	AdditionalDependencies *[]HelmChartProxyReference `json:"additionalDependencies,omitempty"`
 
 	// HostedControlPlaneEnabled indicates if the hosted control plane is enabled.
 	// If this is true, the colony will create a hosted control plane in the management cluster.
@@ -63,6 +71,11 @@ type WorkloadDependency struct {
 	// Name is the name of the workload dependency, it maps to the name of the HelmChartProxy resource that
 	// has to exist in the cluster.
 	Name string `json:"name"`
+}
+
+type HelmChartProxyReference struct {
+	Name string                          `json:"name"`
+	Spec helmv1alpha1.HelmChartProxySpec `json:"spec"`
 }
 
 type AWSSpec struct {
