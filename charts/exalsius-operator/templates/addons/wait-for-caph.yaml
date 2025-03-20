@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wait-for-caaph
+  annotations:
+    helm.sh/hook: post-install, post-upgrade
+    helm.sh/hook-weight: "10"
+spec:
+  template:
+    spec:
+      serviceAccountName: wait-for-webhook-sa
+      restartPolicy: Never
+      containers:
+        - name: wait-for-deployment
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for CAAPH deployment to be ready..."
+              until kubectl rollout status deployment/caaph-controller-manager -n exalsius-system; do
+                sleep 10
+              done
