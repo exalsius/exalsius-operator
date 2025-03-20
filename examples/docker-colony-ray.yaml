@@ -1,0 +1,31 @@
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  name: docker-colony-ray
+spec:
+  clusterName: docker-cluster-ray
+  k8sVersion: v1.27.2
+  workloadDependencies:
+    - name: volcano-sh
+
+  additionalDependencies:
+    - name: kuberay
+      spec:
+        clusterSelector:
+          matchLabels:
+            ray: enabled
+        repoURL: https://ray-project.github.io/kuberay-helm/
+        chartName: kuberay-operator
+        options:
+          waitForJobs: true
+          wait: true
+          timeout: 5m
+          install:
+            createNamespace: true
+
+
+  hostedControlPlaneEnabled: true 
+
+  dockerEnabled: true
+  docker:
+    replicas: 2
