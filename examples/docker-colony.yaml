@@ -1,0 +1,15 @@
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  name: docker-colony
+spec:
+  clusterName: docker-cluster
+  k8sVersion: v1.27.2
+  workloadDependencies:
+    - name: volcano-sh
+
+  hostedControlPlaneEnabled: true 
+
+  dockerEnabled: true
+  docker:
+    replicas: 2
