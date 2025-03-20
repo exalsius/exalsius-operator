@@ -3,8 +3,5 @@ kind: AddonProvider
 metadata:
  name: helm
  namespace: {{ .Release.Namespace }}
-# annotations:
-#   helm.sh/hook: post-install,post-upgrade
-#   helm.sh/hook-weight: "20"
 spec:
  version: {{ .Values.capi.helm_addon_provider_version }}
