@@ -1,3 +1,4 @@
+{{- if .Values.aws.enabled }}
 ---
 apiVersion: v1
 kind: Secret
@@ -21,3 +22,4 @@ spec:
  configSecret:
    name: capa-aws-credentials
    namespace: {{ .Release.Namespace }}
+{{- end }}

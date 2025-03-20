@@ -2,8 +2,6 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/training.exalsius.ai_dilocopytorchtrainings.yaml
-- bases/training.exalsius.ai_dilocotorchddps.yaml
 - bases/infra.exalsius.ai_colonies.yaml
 - bases/training.exalsius.ai_ddpjobs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
