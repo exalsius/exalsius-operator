@@ -22,15 +22,40 @@ import (
 
 // DDPJobSpec defines the desired state of DDPJob.
 type DDPJobSpec struct {
-	CPUJob       *bool    `json:"cpuJob,omitempty"`       // If true, the job will be a CPU job. Defaults to false if not provided
-	GPUTypes     []string `json:"gpuTypes,omitempty"`     // List of GPU types to use for training
-	TargetColony *string  `json:"targetColony,omitempty"` // Target cluster to run the training job (optional)
-	Parallelism  int32    `json:"parallelism,omitempty"`  // Number of GPUs (Pods) to use for training
-	NProcPerNode int32    `json:"nprocPerNode,omitempty"` // Number of processes per node (GPU per pod)
-	Image        string   `json:"image,omitempty"`        // Docker image to use for training
-	ScriptPath   string   `json:"scriptPath,omitempty"`   // Path to the training script
-	WandBAPIKey  string   `json:"wandbApiKey,omitempty"`  // WandB API key
-	Args         []string `json:"args,omitempty"`         // Arguments to pass to the training script
+	// CPUJob describes if the job should be running on a CPU.
+	// Mainly used for testing purposes, defaults to false if not provided
+	// +optional
+	CPUJob *bool `json:"cpuJob,omitempty"`
+
+	// GPUTypes describes the list of GPU types to use for training
+	// Currently, the user can specify different GPU types which the exalsius-cli uses to find the cheapest prices
+	// across different cloud providers and regions. When specified in the CRD, it does not have an effect yet-
+	// TODO: think about removing this field from the CRD and create a specific exalsius Job description file?
+	// +optional
+	GPUTypes []string `json:"gpuTypes,omitempty"`
+
+	// TargetColony describes the colony to run the training job on.
+	// If not provided, the job will be run on the management cluster.
+	// +optional
+	TargetColony *string `json:"targetColony,omitempty"`
+
+	// Parallelism describes the number of GPUs (Pods) to use for training
+	Parallelism int32 `json:"parallelism,omitempty"`
+
+	// NProcPerNode describes the number of processes per node (GPU per pod)
+	NProcPerNode int32 `json:"nprocPerNode,omitempty"`
+
+	// Image describes the docker image with the training code
+	Image string `json:"image,omitempty"`
+
+	// ScriptPath describes the path to the training script
+	ScriptPath string `json:"scriptPath,omitempty"`
+
+	// WandBAPIKey describes the WandB API key
+	WandBAPIKey string `json:"wandbApiKey,omitempty"`
+
+	// Args describes the arguments to pass to the training script
+	Args []string `json:"args,omitempty"`
 }
 
 // JobPhase defines the phase of the job.
