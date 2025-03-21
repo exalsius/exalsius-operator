@@ -240,8 +240,6 @@ func (r *DDPJobReconciler) ensureTrainingVolcanoJob(ctx context.Context, trainin
 	joinedArgs := strings.Join(scriptArgs, " ")
 	cmd := fmt.Sprintf(`torchrun --nproc_per_node=%d %s`, nprocPerNode, joinedArgs)
 
-	runtimeClassName := "nvidia"
-
 	// Create the Volcano Job object.
 	volJob := &vol.Job{
 		TypeMeta: metav1.TypeMeta{
@@ -256,6 +254,7 @@ func (r *DDPJobReconciler) ensureTrainingVolcanoJob(ctx context.Context, trainin
 		Spec: vol.JobSpec{
 			MinAvailable:  training.Spec.Parallelism,
 			SchedulerName: "volcano",
+			Queue:         "default",
 			Plugins: map[string][]string{
 				"pytorch": {"--master=master", "--worker=worker", "--port=23456"},
 			},
@@ -278,17 +277,13 @@ func (r *DDPJobReconciler) ensureTrainingVolcanoJob(ctx context.Context, trainin
 						},
 						Spec: corev1.PodSpec{
 							RestartPolicy:    corev1.RestartPolicyOnFailure,
-							RuntimeClassName: &runtimeClassName,
+							RuntimeClassName: getRuntimeClassName(training),
 							Containers: []corev1.Container{
 								{
 									Name:            "master",
 									Image:           image,
 									ImagePullPolicy: corev1.PullAlways,
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											"nvidia.com/gpu": *resource.NewQuantity(int64(training.Spec.NProcPerNode), resource.DecimalSI),
-										},
-									},
+									Resources:       getResourceRequirements(training),
 									Env: []corev1.EnvVar{
 										{
 											Name:  "WANDB_API_KEY",
@@ -317,18 +312,14 @@ func (r *DDPJobReconciler) ensureTrainingVolcanoJob(ctx context.Context, trainin
 						},
 						Spec: corev1.PodSpec{
 							RestartPolicy:    corev1.RestartPolicyOnFailure,
-							RuntimeClassName: &runtimeClassName,
+							RuntimeClassName: getRuntimeClassName(training),
 							Containers: []corev1.Container{
 								{
 									Name:            "worker",
 									Image:           image,
 									ImagePullPolicy: corev1.PullAlways,
 									WorkingDir:      "/app",
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											"nvidia.com/gpu": *resource.NewQuantity(int64(training.Spec.NProcPerNode), resource.DecimalSI),
-										},
-									},
+									Resources:       getResourceRequirements(training),
 									Env: []corev1.EnvVar{
 										{
 											Name:  "WANDB_API_KEY",
@@ -391,4 +382,30 @@ func (r *DDPJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
+}
+
+// getRuntimeClassName returns the runtime class name for the given training job.
+// If the job is a CPU job, it returns nil.
+// Otherwise, it returns the runtime class name for the GPU job.
+func getRuntimeClassName(training *trainingv1.DDPJob) *string {
+	if training.Spec.CPUJob != nil && *training.Spec.CPUJob {
+		return nil
+	} else {
+		runtimeClassName := "nvidia"
+		return &runtimeClassName
+	}
+
+}
+
+// getResourceRequirements returns the resource requirements for the given training job.
+func getResourceRequirements(training *trainingv1.DDPJob) corev1.ResourceRequirements {
+	if training.Spec.CPUJob != nil && *training.Spec.CPUJob {
+		return corev1.ResourceRequirements{} // Return empty requirements for CPU jobs
+	}
+
+	return corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			"nvidia.com/gpu": *resource.NewQuantity(int64(training.Spec.NProcPerNode), resource.DecimalSI),
+		},
+	}
 }
