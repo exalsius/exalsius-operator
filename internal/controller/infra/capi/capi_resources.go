@@ -45,6 +45,7 @@ func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony,
 		newLabels, err := ensureAdditionalDependencies(ctx, c, colony, scheme)
 		if err != nil {
 			log.Error(err, "Failed to ensure additional dependencies")
+			return err
 		}
 
 		for k, v := range newLabels {
