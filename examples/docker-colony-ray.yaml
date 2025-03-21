@@ -5,6 +5,7 @@ metadata:
 spec:
   clusterName: docker-cluster-ray
   k8sVersion: v1.27.2
+  
   workloadDependencies:
     - name: volcano-sh
 
