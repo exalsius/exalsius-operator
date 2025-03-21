@@ -66,6 +66,10 @@ aws:
     secretAccessKey: XXXX
     region: eu-central-1
 
+# Enable/Disable the docker provider (useful for local development)
+docker:
+  enabled: true
+
 skypilot-nightly:
   enabled: true
   awsCredentials:
@@ -98,14 +102,23 @@ A colony can be defined as follows:
 ```yaml
 #
 # This example creates a colony with 2 nodes in us-east-1 using a g5.xlarge instance type.
-#
+# As dependencies, the volcano scheduler and nvidia-operator are installed.
+# The hostedControlPlaneEnabled is set to false, meaning that the operator will not create a control plane for the cluster on the provisioned AWS resources.
 apiVersion: infra.exalsius.ai/v1
 kind: Colony
 metadata:
   name: test-colony
 spec:
   clusterName: test-cluster
-  k8sVersion: v1.30.3+k0s.0
+  k8sVersion: v1.30.3
+
+  workloadDependencies:
+    - name: volcano-sh
+    - name: nvidia-operator
+
+  hostedControlPlaneEnabled: false
+
+  awsEnabled: true
   aws:
     replicas: 2
     ami: ami-084568db4383264d4 # us-east-1
@@ -113,6 +126,50 @@ spec:
     instanceType: g5.xlarge
     sshKeyName: exalsius
     iamInstanceProfile: nodes.cluster-api-provider-aws.sigs.k8s.io
+```
+
+```yaml
+# This example creates a colony with 3 nodes on the local machine using Kind.
+# As dependencies, the volcano scheduler and KubeRay are installed.
+# The hostedControlPlaneEnabled is set to true, meaning that the operator will
+# create control plane pods on the exalsius mangement cluster, the specified
+# resources will only be used as worker nodes.
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  name: docker-colony-ray
+spec:
+  clusterName: docker-cluster-ray
+  k8sVersion: v1.27.2
+  
+  workloadDependencies:
+    - name: volcano-sh
+
+  # Additional dependencies (Helm charts), that are not pre-installed in the management cluster can be specified like this
+  # This follows the specs of a HelmChartProxy CRD
+  # see https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm/blob/main/docs/quick-start.md
+  additionalDependencies:
+    - name: kuberay
+      spec:
+        clusterSelector:
+          matchLabels:
+            ray: enabled
+        repoURL: https://ray-project.github.io/kuberay-helm/
+        chartName: kuberay-operator
+        options:
+          waitForJobs: true
+          wait: true
+          timeout: 5m
+          install:
+            createNamespace: true
+
+  # The control-plane will be created on the exalsius management cluster
+  hostedControlPlaneEnabled: true 
+
+  # We are using the docker provider to create local Kubernetes clusters based on Docker
+  dockerEnabled: true
+  docker:
+    replicas: 2 # number of worker nodes
 ```
 
 It can be deployed using `kubectl`:
@@ -212,12 +269,10 @@ For more information on the exalsius-cli, please refer to the [exalsius-cli READ
 
 
 ## Roadmap
-
 - [ ] Support for additional cloud providers
-- [ ] Integration and support for furter distributed AI training frameworks and jobs
+- [x] Integration and support for furter distributed AI training frameworks and jobs
 - [ ] Improved auto-shutdown policies
 - [ ] Advanced scheduling policies for distributed workloads
-
 
 
 ## Contributing
