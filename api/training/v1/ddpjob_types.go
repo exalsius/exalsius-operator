@@ -22,6 +22,7 @@ import (
 
 // DDPJobSpec defines the desired state of DDPJob.
 type DDPJobSpec struct {
+	CPUJob       *bool    `json:"cpuJob,omitempty"`       // If true, the job will be a CPU job. Defaults to false if not provided
 	GPUTypes     []string `json:"gpuTypes,omitempty"`     // List of GPU types to use for training
 	TargetColony *string  `json:"targetColony,omitempty"` // Target cluster to run the training job (optional)
 	Parallelism  int32    `json:"parallelism,omitempty"`  // Number of GPUs (Pods) to use for training
