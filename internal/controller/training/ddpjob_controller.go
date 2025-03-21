@@ -40,6 +40,8 @@ import (
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 )
 
+const ddpJobFinalizer = "training.exalsius.ai/ddpjob-protection"
+
 // DDPJobReconciler reconciles a DDPJob object
 type DDPJobReconciler struct {
 	client.Client
@@ -63,49 +65,63 @@ func (r *DDPJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	// Determine which colony to use for the training
+	// Get target client early as we need it for both creation and deletion
 	var targetClient client.Client
 	if training.Spec.TargetColony != nil {
 		var err error
 
-		// check if a colony with the given name exists by checking if a Colony CR exists
-		colony := &infrav1.Colony{}
-		if err := r.Get(ctx, client.ObjectKey{Name: *training.Spec.TargetColony, Namespace: training.Namespace}, colony); err != nil {
-			if errors.IsNotFound(err) {
-				log.Error(err, "No colony found with name %s", "colony", *training.Spec.TargetColony)
-				return ctrl.Result{}, err
-			}
-			log.Error(err, "Failed to get Colony")
-			return ctrl.Result{}, err
-		}
-
-		if len(colony.Status.ClusterRefs) == 0 {
-			log.Error(fmt.Errorf("no clusters found in colony %q", colony.Name), "No colony found with name %s", "colony", *training.Spec.TargetColony)
-			return ctrl.Result{}, fmt.Errorf("no clusters found in colony %q", colony.Name)
-		}
-
-		isColonyMarkedForDeletion, err := r.isColonyMarkedForDeletion(ctx, colony.Name, colony.Namespace)
-
+		// check if the colony is marked for deletion
+		isColonyMarkedForDeletion, err := r.isColonyMarkedForDeletion(ctx, *training.Spec.TargetColony, training.Namespace)
 		if err != nil {
 			log.Error(err, "Failed to check if colony is marked for deletion")
 			return ctrl.Result{}, err
 		}
 
 		if isColonyMarkedForDeletion {
-			log.Info("Colony is marked for deletion. Ignoring since object must be deleted")
+			log.Info("Target colony is being deleted. Skipping DDPJob creation.")
 			return ctrl.Result{}, nil
 		}
 
-		// TODO: Currently a colony consists of a single cluster, but in the future we will support multiple clusters
-		clusterName := colony.Status.ClusterRefs[0].Name
-
-		targetClient, err = r.getClientForTargetCluster(ctx, colony.Name, colony.Namespace, clusterName)
+		// get the cluster name from the colony
+		clusterName, err := r.getClusterNameFromColony(ctx, *training.Spec.TargetColony, training.Namespace)
 		if err != nil {
-			log.Error(err, "Failed to get cluster client")
+			log.Error(err, "Failed to get cluster name from colony")
+			return ctrl.Result{}, err
+		}
+
+		targetClient, err = r.getClientForTargetCluster(ctx, *training.Spec.TargetColony, training.Namespace, clusterName)
+		if err != nil {
+			log.Error(err, "Failed to get target client")
 			return ctrl.Result{}, err
 		}
 	} else {
 		targetClient = r.Client
+	}
+
+	// Handle deletion
+	if !training.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(&training, ddpJobFinalizer) {
+			// Delete the Volcano Job in the target cluster
+			if err := r.deleteVolcanoJob(ctx, &training, targetClient); err != nil {
+				log.Error(err, "Failed to delete Volcano Job")
+				return ctrl.Result{}, err
+			}
+
+			// Remove finalizer
+			controllerutil.RemoveFinalizer(&training, ddpJobFinalizer)
+			if err := r.Update(ctx, &training); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer if it doesn't exist
+	if !controllerutil.ContainsFinalizer(&training, ddpJobFinalizer) {
+		controllerutil.AddFinalizer(&training, ddpJobFinalizer)
+		if err := r.Update(ctx, &training); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Create the Volcano Job for the training.
@@ -408,4 +424,35 @@ func getResourceRequirements(training *trainingv1.DDPJob) corev1.ResourceRequire
 			"nvidia.com/gpu": *resource.NewQuantity(int64(training.Spec.NProcPerNode), resource.DecimalSI),
 		},
 	}
+}
+
+func (r *DDPJobReconciler) deleteVolcanoJob(ctx context.Context, training *trainingv1.DDPJob, targetClient client.Client) error {
+	jobName := fmt.Sprintf("ddp-job-%s", training.Name)
+
+	job := &vol.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: training.Namespace,
+		},
+	}
+
+	err := targetClient.Delete(ctx, job)
+	if err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	return nil
+}
+
+func (r *DDPJobReconciler) getClusterNameFromColony(ctx context.Context, colonyName, colonyNamespace string) (string, error) {
+	colony := &infrav1.Colony{}
+	if err := r.Get(ctx, client.ObjectKey{Name: colonyName, Namespace: colonyNamespace}, colony); err != nil {
+		return "", err
+	}
+
+	if len(colony.Status.ClusterRefs) == 0 {
+		return "", fmt.Errorf("no clusters found in colony %q", colonyName)
+	}
+	// TODO: Handle multiple clusters
+	return colony.Status.ClusterRefs[0].Name, nil
 }
