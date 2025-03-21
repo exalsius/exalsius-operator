@@ -1,9 +1,0 @@
-apiVersion: training.exalsius.ai/v1
-kind: DilocoTorchDDP
-metadata:
-  labels:
-    app.kubernetes.io/name: exalsius-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: dilocotorchddp-sample
-spec:
-  # TODO(user): Add fields here
