@@ -43,6 +43,8 @@ spec:
                 items:
                   type: string
                 type: array
+              cpuJob:
+                type: boolean
               gpuTypes:
                 items:
                   type: string
