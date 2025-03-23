@@ -66,7 +66,7 @@ func (r *DDPJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Get target client early as we need it for both creation and deletion
-	var targetClient client.Client
+	targetClient := r.Client
 	if training.Spec.TargetColony != nil {
 		var err error
 
@@ -94,12 +94,13 @@ func (r *DDPJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.Error(err, "Failed to get target client")
 			return ctrl.Result{}, err
 		}
-	} else {
-		targetClient = r.Client
 	}
 
 	// Handle deletion
 	if !training.DeletionTimestamp.IsZero() {
+		log.Info("Processing DDPJob deletion",
+			"hasFinalizer", controllerutil.ContainsFinalizer(&training, ddpJobFinalizer))
+
 		if controllerutil.ContainsFinalizer(&training, ddpJobFinalizer) {
 			// Delete the Volcano Job in the target cluster
 			if err := r.deleteVolcanoJob(ctx, &training, targetClient); err != nil {
@@ -112,6 +113,7 @@ func (r *DDPJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if err := r.Update(ctx, &training); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.Info("Successfully removed finalizer")
 		}
 		return ctrl.Result{}, nil
 	}
