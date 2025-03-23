@@ -37,6 +37,11 @@ import (
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 )
 
+const (
+	jobName   = "test-job"
+	namespace = "default"
+)
+
 var _ = Describe("DDPJob Controller", func() {
 	ctx := context.Background()
 
@@ -45,7 +50,7 @@ var _ = Describe("DDPJob Controller", func() {
 		return &trainingv1.DDPJob{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
-				Namespace: "default",
+				Namespace: namespace,
 			},
 			Spec: spec,
 		}
@@ -84,7 +89,7 @@ var _ = Describe("DDPJob Controller", func() {
 		}, "30s", "1s").Should(Succeed(), "Volcano job should exist")
 
 		By("Verifying Volcano job configuration")
-		Expect(volcanoJob.Spec.MinAvailable).To(Equal(int32(ddpJob.Spec.Parallelism)),
+		Expect(volcanoJob.Spec.MinAvailable).To(Equal(ddpJob.Spec.Parallelism),
 			"Volcano job parallelism should match DDPJob spec")
 		Expect(volcanoJob.Spec.SchedulerName).To(Equal("volcano"),
 			"Scheduler name should be volcano")
@@ -314,7 +319,6 @@ var _ = Describe("DDPJob Controller", func() {
 		})
 
 		It("should create a DDPJob with a specified number of GPUs", func() {
-			jobName := "test-job"
 			ddpJob := createDDPJob(jobName, trainingv1.DDPJobSpec{
 				Parallelism:  2,
 				NProcPerNode: 1,
@@ -330,7 +334,6 @@ var _ = Describe("DDPJob Controller", func() {
 
 		It("should create a CPU job", func() {
 			// Test CPU job creation
-			jobName := "test-job"
 			ddpJob := createDDPJob(jobName, trainingv1.DDPJobSpec{
 				CPUJob:       pointerTo(true),
 				Parallelism:  2,
@@ -357,8 +360,6 @@ var _ = Describe("DDPJob Controller", func() {
 		})
 
 		It("should create a DDPJob with a targetColony", func() {
-			jobName := "test-job"
-
 			ddpJob := createDDPJob(jobName, trainingv1.DDPJobSpec{
 				TargetColony: pointerTo(colonyName),
 				Parallelism:  2,
@@ -376,8 +377,6 @@ var _ = Describe("DDPJob Controller", func() {
 	})
 
 	Context("When handling job lifecycle", func() {
-		jobName := "test-job"
-
 		BeforeEach(func() {
 			ddpJob := createDDPJob(jobName, trainingv1.DDPJobSpec{
 				Parallelism:  2,
@@ -415,10 +414,12 @@ var _ = Describe("DDPJob Controller", func() {
 			By("Verifying the DDPJob status was updated")
 			Eventually(func() trainingv1.JobPhase {
 				ddpJob := &trainingv1.DDPJob{}
-				k8sClient.Get(ctx, types.NamespacedName{
+				err := k8sClient.Get(ctx, types.NamespacedName{
 					Name:      jobName,
 					Namespace: "default",
 				}, ddpJob)
+				Expect(err).NotTo(HaveOccurred())
+
 				return ddpJob.Status.Phase
 			}).Should(Equal(trainingv1.JobPhase(volcanoalpha1.Running)))
 		})
@@ -445,7 +446,6 @@ var _ = Describe("DDPJob Controller", func() {
 		Context("Validation errors", func() {
 			It("should reject invalid target-colony configuration", func() {
 				By("Creating a job with a non-existent target-colony")
-				jobName := "test-job"
 				ddpJob := createDDPJob(jobName, trainingv1.DDPJobSpec{
 					TargetColony: pointerTo("non-existent-colony"),
 				})
