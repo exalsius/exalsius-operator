@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - ci/image_build_push
 
 permissions:
   contents: read
