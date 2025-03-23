@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: srnbckr/exalsius-operator
+  repository: ghcr.io/exalsius/exalsius-operator
   pullPolicy: Always
-  tag: "latest"
+  tag: "main"
 
 imagePullSecrets: []
 nameOverride: ""
