@@ -14,25 +14,25 @@ import (
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta1"
 )
 
-func EnsureDockerResources(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func EnsureDockerResources(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
-	if colony.Spec.Docker == nil {
-		log.Info("No Docker configuration provided in Colony; skipping Docker resources creation")
+	if colonyCluster.Docker == nil {
+		log.Info("No Docker configuration provided in ColonyCluster; skipping Docker resources creation")
 		return nil
 	}
 
-	if err := capiresources.EnsureMachineDeployment(ctx, c, colony); err != nil {
+	if err := capiresources.EnsureMachineDeployment(ctx, c, colony, colonyCluster); err != nil {
 		log.Error(err, "Failed to ensure MachineDeployment")
 		return err
 	}
 
-	if err := ensureDockerMachineTemplate(ctx, c, colony); err != nil {
+	if err := ensureDockerMachineTemplate(ctx, c, colony, colonyCluster); err != nil {
 		log.Error(err, "Failed to ensure DockerMachineTemplate")
 		return err
 	}
 
-	if err := ensureDockerCluster(ctx, c, colony); err != nil {
+	if err := ensureDockerCluster(ctx, c, colony, colonyCluster); err != nil {
 		log.Error(err, "Failed to ensure DockerCluster")
 		return err
 	}
@@ -41,7 +41,7 @@ func EnsureDockerResources(ctx context.Context, c client.Client, colony *infrav1
 }
 
 // ensureDockerMachineTemplate ensures that the DockerMachineTemplate CR is created.
-func ensureDockerMachineTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+func ensureDockerMachineTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 
 	dockerMT := &capdv1beta1.DockerMachineTemplate{
@@ -50,7 +50,7 @@ func ensureDockerMachineTemplate(ctx context.Context, c client.Client, colony *i
 			Kind:       "DockerMachineTemplate",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName + "-mt",
+			Name:      colony.Name + "-" + colonyCluster.ClusterName + "-mt",
 			Namespace: colony.Namespace,
 		},
 		Spec: capdv1beta1.DockerMachineTemplateSpec{
@@ -78,7 +78,7 @@ func ensureDockerMachineTemplate(ctx context.Context, c client.Client, colony *i
 	return nil
 }
 
-func ensureDockerCluster(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+func ensureDockerCluster(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 
 	dockerCluster := &capdv1beta1.DockerCluster{
@@ -87,7 +87,7 @@ func ensureDockerCluster(ctx context.Context, c client.Client, colony *infrav1.C
 			Kind:       "DockerCluster",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName,
+			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 			Annotations: map[string]string{
 				"cluster.x-k8s.io/managed-by": "k0smotron",

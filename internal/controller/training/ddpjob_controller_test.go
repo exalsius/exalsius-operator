@@ -226,11 +226,15 @@ var _ = Describe("DDPJob Controller", func() {
 				Namespace: namespace,
 			},
 			Spec: infrav1.ColonySpec{
-				ClusterName:   name,
-				K8sVersion:    "v1.28.0",
-				DockerEnabled: pointerTo(true),
-				Docker: &infrav1.DockerSpec{
-					Replicas: 1,
+				K8sVersion: "v1.28.0",
+				ColonyClusters: []infrav1.ColonyCluster{
+					{
+						ClusterName:   name,
+						DockerEnabled: pointerTo(true),
+						Docker: &infrav1.DockerSpec{
+							Replicas: 1,
+						},
+					},
 				},
 			},
 		}

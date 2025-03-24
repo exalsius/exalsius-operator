@@ -24,9 +24,7 @@ import (
 
 // ColonySpec defines the desired state of Colony.
 type ColonySpec struct {
-	// ClusterName is the name of the cluster.
-	ClusterName string `json:"clusterName"`
-	// K8sVersion is the version of Kubernetes to use for the cluster.
+	// K8sVersion is the version of Kubernetes to use for the colony.
 	K8sVersion string `json:"k8sVersion"`
 	// WorkloadDependencies is the list of workload dependencies to use for the colony.
 	// This is a list of already pre-installed HelmChartProxy resources that can be specified by name.
@@ -45,6 +43,14 @@ type ColonySpec struct {
 	// If this is not set, the colony will create a control plane in the colony cluster.
 	// +optional
 	HostedControlPlaneEnabled *bool `json:"hostedControlPlaneEnabled,omitempty"`
+
+	// ColonyClusters is the list of clusters to create.
+	ColonyClusters []ColonyCluster `json:"colonyClusters,omitempty"`
+}
+
+type ColonyCluster struct {
+	// Name is the name of the cluster.
+	ClusterName string `json:"clusterName"`
 
 	// DockerEnabled indicates if the docker provider is enabled.
 	// This should be only used for local development and testing.

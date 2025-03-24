@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func EnsureK0sWorkerConfigTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func EnsureK0sWorkerConfigTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
 	k0sWorkerConfigTemplate := &bootstrapv1beta1.K0sWorkerConfigTemplate{
@@ -22,7 +22,7 @@ func EnsureK0sWorkerConfigTemplate(ctx context.Context, c client.Client, colony 
 			Kind:       "K0sWorkerConfigTemplate",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName + "-machine-config",
+			Name:      colony.Name + "-" + colonyCluster.ClusterName + "-machine-config",
 			Namespace: colony.Namespace,
 		},
 		Spec: bootstrapv1beta1.K0sWorkerConfigTemplateSpec{

@@ -19,7 +19,7 @@ import (
 )
 
 // ensureCluster ensures that the cluster exists.
-func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
 	labels := make(map[string]string)
@@ -53,13 +53,14 @@ func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony,
 		}
 	}
 
+	log.Info("Ensuring cluster", "Cluster.Name", colonyCluster.ClusterName)
 	cluster := &clusterv1.Cluster{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: clusterv1.GroupVersion.String(),
 			Kind:       "Cluster",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName,
+			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 			Labels:    labels,
 		},
@@ -73,8 +74,8 @@ func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony,
 					CIDRBlocks: []string{"10.128.0.0/12"},
 				},
 			},
-			ControlPlaneRef:   getControlPlaneRef(colony),
-			InfrastructureRef: getInfrastructureRef(colony),
+			ControlPlaneRef:   getControlPlaneRef(colony, colonyCluster),
+			InfrastructureRef: getInfrastructureRef(colony, colonyCluster),
 		},
 	}
 
@@ -122,7 +123,7 @@ func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony,
 	return nil
 }
 
-func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 
 	md := &clusterv1.MachineDeployment{
@@ -131,38 +132,38 @@ func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infra
 			Kind:       "MachineDeployment",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName + "-md",
+			Name:      colony.Name + "-" + colonyCluster.ClusterName + "-md",
 			Namespace: colony.Namespace,
 		},
 		Spec: clusterv1.MachineDeploymentSpec{
-			ClusterName: colony.Spec.ClusterName,
-			Replicas:    ptr.To(colony.Spec.Docker.Replicas),
+			ClusterName: colony.Name + "-" + colonyCluster.ClusterName,
+			Replicas:    ptr.To(colonyCluster.Docker.Replicas),
 			Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"cluster.x-k8s.io/cluster-name": colony.Spec.ClusterName,
+					"cluster.x-k8s.io/cluster-name": colony.Name + "-" + colonyCluster.ClusterName,
 					// TODO: make this dynamic
-					"pool": "worker-pool-1",
+					"pool": colony.Name + "-" + colonyCluster.ClusterName + "-pool",
 				},
 			},
 			Template: clusterv1.MachineTemplateSpec{
 				ObjectMeta: clusterv1.ObjectMeta{
 					Labels: map[string]string{
-						"cluster.x-k8s.io/cluster-name": colony.Spec.ClusterName,
+						"cluster.x-k8s.io/cluster-name": colony.Name + "-" + colonyCluster.ClusterName,
 						// TODO: make this dynamic
-						"pool": "worker-pool-1",
+						"pool": colony.Name + "-" + colonyCluster.ClusterName + "-pool",
 					},
 				},
 				Spec: clusterv1.MachineSpec{
-					ClusterName: colony.Spec.ClusterName,
+					ClusterName: colony.Name + "-" + colonyCluster.ClusterName,
 					Version:     ptr.To(colony.Spec.K8sVersion),
 					Bootstrap: clusterv1.Bootstrap{
 						ConfigRef: &corev1.ObjectReference{
 							APIVersion: "bootstrap.cluster.x-k8s.io/v1beta1",
 							Kind:       "K0sWorkerConfigTemplate",
-							Name:       colony.Spec.ClusterName + "-machine-config",
+							Name:       colony.Name + "-" + colonyCluster.ClusterName + "-machine-config",
 						},
 					},
-					InfrastructureRef: getMachineInfrastructureRef(colony),
+					InfrastructureRef: getMachineInfrastructureRef(colony, colonyCluster),
 				},
 			},
 		},
@@ -186,36 +187,36 @@ func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infra
 	return nil
 }
 
-func getControlPlaneRef(colony *infrav1.Colony) *corev1.ObjectReference {
+func getControlPlaneRef(colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) *corev1.ObjectReference {
 	if colony.Spec.HostedControlPlaneEnabled != nil && *colony.Spec.HostedControlPlaneEnabled {
 		return &corev1.ObjectReference{
 			APIVersion: "controlplane.cluster.x-k8s.io/v1beta1",
 			Kind:       "K0smotronControlPlane",
-			Name:       colony.Spec.ClusterName + "-cp",
+			Name:       colony.Name + "-" + colonyCluster.ClusterName + "-cp",
 		}
 	}
 
 	return &corev1.ObjectReference{
 		APIVersion: "controlplane.cluster.x-k8s.io/v1beta1",
 		Kind:       "K0sControlPlane",
-		Name:       colony.Spec.ClusterName,
+		Name:       colony.Name + "-" + colonyCluster.ClusterName + "-cp",
 	}
 }
 
-func getInfrastructureRef(colony *infrav1.Colony) *corev1.ObjectReference {
+func getInfrastructureRef(colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) *corev1.ObjectReference {
 	// TODO: check if infrastructureRef can contain multiple providers/clusters
-	if colony.Spec.AWS != nil {
+	if colonyCluster.AWS != nil {
 		return &corev1.ObjectReference{
 			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta2",
 			Kind:       "AWSCluster",
-			Name:       colony.Spec.ClusterName,
+			Name:       colony.Name + "-" + colonyCluster.ClusterName,
 		}
 	}
-	if colony.Spec.Docker != nil {
+	if colonyCluster.Docker != nil {
 		return &corev1.ObjectReference{
 			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
 			Kind:       "DockerCluster",
-			Name:       colony.Spec.ClusterName,
+			Name:       colony.Name + "-" + colonyCluster.ClusterName,
 		}
 	}
 	// if colony.Spec.Azure != nil {
@@ -229,12 +230,12 @@ func getInfrastructureRef(colony *infrav1.Colony) *corev1.ObjectReference {
 	return nil
 }
 
-func getMachineInfrastructureRef(colony *infrav1.Colony) corev1.ObjectReference {
-	if colony.Spec.AWS != nil {
+func getMachineInfrastructureRef(colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) corev1.ObjectReference {
+	if colonyCluster.AWS != nil {
 		return corev1.ObjectReference{
 			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta2",
 			Kind:       "AWSMachineTemplate",
-			Name:       colony.Spec.ClusterName + "-mt",
+			Name:       colony.Name + "-" + colonyCluster.ClusterName + "-mt",
 			Namespace:  colony.Namespace,
 		}
 	}
@@ -242,7 +243,7 @@ func getMachineInfrastructureRef(colony *infrav1.Colony) corev1.ObjectReference 
 	return corev1.ObjectReference{
 		APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
 		Kind:       "DockerMachineTemplate",
-		Name:       colony.Spec.ClusterName + "-mt",
+		Name:       colony.Name + "-" + colonyCluster.ClusterName + "-mt",
 		Namespace:  colony.Namespace,
 	}
 }

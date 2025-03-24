@@ -18,7 +18,7 @@ import (
 
 // EnsureK0sControlPlane ensures that the K0sControlPlane CR exists.
 // It creates the resource based on the provided Colony object.
-func EnsureK0sControlPlane(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func EnsureK0sControlPlane(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	logger := log.FromContext(ctx)
 
 	kcp := &k0sv1beta1.K0sControlPlane{
@@ -28,11 +28,11 @@ func EnsureK0sControlPlane(ctx context.Context, c client.Client, colony *infrav1
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			// Derive the name from the Colony spec (e.g. "aws-test")
-			Name:      colony.Spec.ClusterName,
+			Name:      colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 		},
 		Spec: k0sv1beta1.K0sControlPlaneSpec{
-			Replicas:       colony.Spec.AWS.Replicas,
+			Replicas:       colonyCluster.AWS.Replicas,
 			Version:        colony.Spec.K8sVersion,
 			UpdateStrategy: "Recreate",
 			K0sConfigSpec: bootstrapv1beta1.K0sConfigSpec{
@@ -61,7 +61,7 @@ func EnsureK0sControlPlane(ctx context.Context, c client.Client, colony *infrav1
 				InfrastructureRef: corev1.ObjectReference{
 					APIVersion: "infrastructure.cluster.x-k8s.io/v1beta2",
 					Kind:       "AWSMachineTemplate",
-					Name:       colony.Spec.ClusterName + "-mt",
+					Name:       colony.Name + "-" + colonyCluster.ClusterName + "-mt",
 					Namespace:  colony.Namespace,
 				},
 			},
