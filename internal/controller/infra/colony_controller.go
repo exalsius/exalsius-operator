@@ -40,6 +40,7 @@ import (
 	capiresources "github.com/exalsius/exalsius-operator/internal/controller/infra/capi"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/controlplane"
 	dockerresources "github.com/exalsius/exalsius-operator/internal/controller/infra/docker"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/infrastructure"
 	"sigs.k8s.io/cluster-api/util/conditions"
 )
 
@@ -139,6 +140,14 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// create the Docker resources
 			if err := dockerresources.EnsureDockerResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
 				log.Error(err, "Failed to ensure Docker resources")
+				return ctrl.Result{}, err
+			}
+		}
+
+		if colonyCluster.RemoteClusterEnabled != nil && *colonyCluster.RemoteClusterEnabled {
+			// create the RemoteCluster resources
+			if err := infrastructure.EnsureRemoteClusterResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+				log.Error(err, "Failed to ensure RemoteCluster resources")
 				return ctrl.Result{}, err
 			}
 		}
