@@ -16,21 +16,21 @@ import (
 
 // EnsureAWSResources ensures that the AWS resources exist.
 // It calls separate functions to create AWSMachineTemplate and AWSCluster.
-func EnsureAWSResources(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func EnsureAWSResources(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
 	// Only proceed if the Colony spec has AWS configuration.
-	if colony.Spec.AWS == nil {
-		log.Info("No AWS configuration provided in Colony; skipping AWS resources creation")
+	if colonyCluster.AWS == nil {
+		log.Info("No AWS configuration provided in ColonyCluster; skipping AWS resources creation")
 		return nil
 	}
 
-	if err := ensureAWSMachineTemplate(ctx, c, colony); err != nil {
+	if err := ensureAWSMachineTemplate(ctx, c, colony, colonyCluster); err != nil {
 		log.Error(err, "Failed to ensure AWSMachineTemplate")
 		return err
 	}
 
-	if err := ensureAWSCluster(ctx, c, colony); err != nil {
+	if err := ensureAWSCluster(ctx, c, colony, colonyCluster); err != nil {
 		log.Error(err, "Failed to ensure AWSCluster")
 		return err
 	}
@@ -39,7 +39,7 @@ func EnsureAWSResources(ctx context.Context, c client.Client, colony *infrav1.Co
 }
 
 // ensureAWSMachineTemplate creates the AWSMachineTemplate CR.
-func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 
 	awsMT := &capav1beta2.AWSMachineTemplate{
@@ -48,7 +48,7 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 			Kind:       "AWSMachineTemplate",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName + "-mt",
+			Name:      colony.Name + "-" + colonyCluster.ClusterName + "-mt",
 			Namespace: colony.Namespace,
 		},
 		Spec: capav1beta2.AWSMachineTemplateSpec{
@@ -56,15 +56,15 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 				Spec: capav1beta2.AWSMachineSpec{
 					UncompressedUserData: ptr.To(false),
 					AMI: capav1beta2.AMIReference{
-						ID: &colony.Spec.AWS.AMI,
+						ID: &colonyCluster.AWS.AMI,
 					},
-					InstanceType:       colony.Spec.AWS.InstanceType,
+					InstanceType:       colonyCluster.AWS.InstanceType,
 					PublicIP:           ptr.To(true),
-					IAMInstanceProfile: colony.Spec.AWS.IAMInstanceProfile, // e.g. "nodes.cluster-api-provider-aws.sigs.k8s.io"
+					IAMInstanceProfile: colonyCluster.AWS.IAMInstanceProfile, // e.g. "nodes.cluster-api-provider-aws.sigs.k8s.io"
 					CloudInit: capav1beta2.CloudInit{
 						InsecureSkipSecretsManager: true,
 					},
-					SSHKeyName: &colony.Spec.AWS.SSHKeyName, // e.g. "exalsius"
+					SSHKeyName: &colonyCluster.AWS.SSHKeyName, // e.g. "exalsius"
 				},
 			},
 		},
@@ -90,7 +90,7 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 }
 
 // ensureAWSCluster creates the AWSCluster CR.
-func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 
 	protocol := capav1beta2.ELBProtocolTCP
@@ -101,12 +101,12 @@ func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colo
 			Kind:       "AWSCluster",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName,
+			Name:      colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 		},
 		Spec: capav1beta2.AWSClusterSpec{
-			Region:     colony.Spec.AWS.Region,      // e.g. "eu-central-1"
-			SSHKeyName: &colony.Spec.AWS.SSHKeyName, // e.g. "exalsius"
+			Region:     colonyCluster.AWS.Region,      // e.g. "eu-central-1"
+			SSHKeyName: &colonyCluster.AWS.SSHKeyName, // e.g. "exalsius"
 			ControlPlaneLoadBalancer: &capav1beta2.AWSLoadBalancerSpec{
 				HealthCheckProtocol: &protocol,
 			},

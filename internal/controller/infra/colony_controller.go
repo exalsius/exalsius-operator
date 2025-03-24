@@ -75,9 +75,11 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.Error(err, "Failed to update Colony status to deleting")
 			return ctrl.Result{}, err
 		}
-		if err := r.cleanupAssociatedResources(ctx, colony); err != nil {
-			log.Error(err, "Failed to cleanup associated cluster resources")
-			return ctrl.Result{}, err
+		for _, colonyCluster := range colony.Spec.ColonyClusters {
+			if err := r.cleanupAssociatedResources(ctx, colony, &colonyCluster); err != nil {
+				log.Error(err, "Failed to cleanup associated cluster resources for ColonyCluster", "ColonyCluster.Name", colonyCluster.ClusterName)
+				return ctrl.Result{}, err
+			}
 		}
 		controllerutil.RemoveFinalizer(colony, colonyFinalizer)
 		if err := r.Update(ctx, colony); err != nil {
@@ -98,54 +100,57 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	// ensure the Cluster exsits
-	if err := capiresources.EnsureCluster(ctx, r.Client, colony, r.Scheme); err != nil {
-		log.Error(err, "Failed to ensure cluster")
-		return ctrl.Result{}, err
-	}
-
-	// ensure the K0sWorkerConfigTemplate exists
-	if err := bootstrap.EnsureK0sWorkerConfigTemplate(ctx, r.Client, colony, r.Scheme); err != nil {
-		log.Error(err, "Failed to ensure K0sWorkerConfigTemplate")
-		return ctrl.Result{}, err
-	}
-
-	if colony.Spec.HostedControlPlaneEnabled != nil && *colony.Spec.HostedControlPlaneEnabled {
-		log.Info("Ensuring a hosted K0smotron control plane")
-		if err := controlplane.EnsureK0smotronControlPlane(ctx, r.Client, colony, r.Scheme); err != nil {
-			log.Error(err, "Failed to ensure K0smotronControlPlane")
+	// ensure the Clusters exists
+	for _, colonyCluster := range colony.Spec.ColonyClusters {
+		if err := capiresources.EnsureCluster(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+			log.Error(err, "Failed to ensure cluster")
 			return ctrl.Result{}, err
 		}
-	} else {
-		log.Info("Ensuring a control plane in the colony cluster")
-		if err := controlplane.EnsureK0sControlPlane(ctx, r.Client, colony, r.Scheme); err != nil {
-			log.Error(err, "Failed to ensure K0sControlPlane")
-			return ctrl.Result{}, err
-		}
-	}
 
-	if colony.Spec.AWS != nil {
-		// create the AWS resources
-		if err := awsresources.EnsureAWSResources(ctx, r.Client, colony, r.Scheme); err != nil {
-			log.Error(err, "Failed to ensure AWS resources")
+		// ensure the K0sWorkerConfigTemplate exists
+		if err := bootstrap.EnsureK0sWorkerConfigTemplate(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+			log.Error(err, "Failed to ensure K0sWorkerConfigTemplate")
 			return ctrl.Result{}, err
 		}
-	}
 
-	if colony.Spec.Docker != nil {
-		// create the Docker resources
-		if err := dockerresources.EnsureDockerResources(ctx, r.Client, colony, r.Scheme); err != nil {
-			log.Error(err, "Failed to ensure Docker resources")
-			return ctrl.Result{}, err
+		if colony.Spec.HostedControlPlaneEnabled != nil && *colony.Spec.HostedControlPlaneEnabled {
+			log.Info("Ensuring a hosted K0smotron control plane")
+			if err := controlplane.EnsureK0smotronControlPlane(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+				log.Error(err, "Failed to ensure K0smotronControlPlane")
+				return ctrl.Result{}, err
+			}
+		} else {
+			log.Info("Ensuring a control plane in the colony cluster")
+			if err := controlplane.EnsureK0sControlPlane(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+				log.Error(err, "Failed to ensure K0sControlPlane")
+				return ctrl.Result{}, err
+			}
 		}
+
+		if colonyCluster.AWS != nil {
+			// create the AWS resources
+			if err := awsresources.EnsureAWSResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+				log.Error(err, "Failed to ensure AWS resources")
+				return ctrl.Result{}, err
+			}
+		}
+
+		if colonyCluster.Docker != nil {
+			// create the Docker resources
+			if err := dockerresources.EnsureDockerResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+				log.Error(err, "Failed to ensure Docker resources")
+				return ctrl.Result{}, err
+			}
+		}
+		// else if colony.Spec.Azure != nil {
+		// create the Azure resources
+		// if err := r.ensureAzureResources(ctx, &colony); err != nil {
+		// 	log.Error(err, "Failed to ensure Azure resources")
+		// 	return ctrl.Result{}, err
+		// }
+		// }
+
 	}
-	// else if colony.Spec.Azure != nil {
-	// create the Azure resources
-	// if err := r.ensureAzureResources(ctx, &colony); err != nil {
-	// 	log.Error(err, "Failed to ensure Azure resources")
-	// 	return ctrl.Result{}, err
-	// }
-	// }
 
 	if err := r.updateColonyStatusFromClusters(ctx, colony); err != nil {
 		log.Error(err, "Failed to update Colony status from clusters")
@@ -257,12 +262,12 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	return nil
 }
 
-func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony) error {
+func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 	// Delete the Cluster object which will trigger the deletion of all associated resources
 	cluster := &clusterv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName,
+			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 		},
 	}

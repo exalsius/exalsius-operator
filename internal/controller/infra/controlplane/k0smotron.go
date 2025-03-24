@@ -2,10 +2,13 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
 	kmapi "github.com/k0sproject/k0smotron/api/k0smotron.io/v1beta1"
+	"golang.org/x/exp/rand"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,8 +18,13 @@ import (
 )
 
 // EnsureK0smotronControlPlane ensures that a hosted K0smotron control plane exists in the management cluster.
-func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
+func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
+
+	apiPort, konnectivityPort, err := getAvailableNodePorts(ctx, c)
+	if err != nil {
+		return fmt.Errorf("failed to get available NodePort: %w", err)
+	}
 
 	k0smotronControlPlane := &k0sv1beta1.K0smotronControlPlane{
 		TypeMeta: metav1.TypeMeta{
@@ -24,7 +32,7 @@ func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *i
 			Kind:       "K0smotronControlPlane",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Spec.ClusterName + "-cp",
+			Name:      colony.Name + "-" + colonyCluster.ClusterName + "-cp",
 			Namespace: colony.Namespace,
 		},
 		Spec: kmapi.ClusterSpec{
@@ -33,7 +41,9 @@ func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *i
 				Type: "emptyDir",
 			},
 			Service: kmapi.ServiceSpec{
-				Type: "NodePort",
+				Type:             "NodePort",
+				APIPort:          apiPort,
+				KonnectivityPort: konnectivityPort,
 			},
 			Etcd: kmapi.EtcdSpec{
 				AutoDeletePVCs: false,
@@ -61,4 +71,49 @@ func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *i
 	}
 
 	return nil
+}
+
+// getAvailableNodePort returns an available NodePort from the default range (30000-32767)
+func getAvailableNodePorts(ctx context.Context, c client.Client) (int, int, error) {
+	// Get all services across all namespaces
+	serviceList := &v1.ServiceList{}
+	if err := c.List(ctx, serviceList); err != nil {
+		return 0, 0, fmt.Errorf("failed to list services: %w", err)
+	}
+
+	// Create a map of used ports
+	usedPorts := make(map[int]bool)
+	for _, svc := range serviceList.Items {
+		if svc.Spec.Type == v1.ServiceTypeNodePort || svc.Spec.Type == v1.ServiceTypeLoadBalancer {
+			// Check NodePort in service ports
+			for _, port := range svc.Spec.Ports {
+				if port.NodePort != 0 {
+					usedPorts[int(port.NodePort)] = true
+				}
+			}
+		}
+	}
+
+	// get all available ports to be able to choose a random port from there
+	availablePorts := make([]int, 0)
+	for port := 30000; port <= 32767; port++ {
+		if !usedPorts[port] {
+			availablePorts = append(availablePorts, port)
+		}
+	}
+
+	if len(availablePorts) < 2 {
+		return 0, 0, fmt.Errorf("not enough available ports found in range 30000-32767")
+	}
+
+	// choose two random ports from the available ports
+	// the problem here is that if we create a colony with multiple clusters,
+	// those clusters cannot have the same ports. But when creating the colony, the respective
+	// control planes and services are not created yet. Therefore, here we choose two random ports
+	// and hope for the best.
+	// TODO: find a better solution
+	apiPort := availablePorts[rand.Intn(len(availablePorts))]
+	konnectivityPort := availablePorts[rand.Intn(len(availablePorts))]
+
+	return apiPort, konnectivityPort, nil
 }
