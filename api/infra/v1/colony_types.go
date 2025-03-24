@@ -69,6 +69,13 @@ type ColonyCluster struct {
 	AzureEnabled *bool `json:"azureEnabled,omitempty"`
 	// Azure is the specification for the Azure resources.
 	Azure *AzureSpec `json:"azure,omitempty"`
+
+	// RemoteClusterEnabled indicates that this cluster is a remote cluster.
+	// It won't create any resources itself, but arbitrary nodes can be added
+	// to the cluster via ssh or token-based authentication.
+	RemoteClusterEnabled *bool `json:"remoteClusterEnabled,omitempty"`
+	// RemoteCluster is the specification for the remote cluster resources.
+	//RemoteCluster *RemoteClusterSpec `json:"remoteCluster,omitempty"`
 }
 
 // WorkloadDependency is a workload dependency to be installed on the colony.
