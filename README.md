@@ -109,7 +109,6 @@ kind: Colony
 metadata:
   name: test-colony
 spec:
-  clusterName: test-cluster
   k8sVersion: v1.30.3
 
   workloadDependencies:
@@ -118,14 +117,16 @@ spec:
 
   hostedControlPlaneEnabled: false
 
-  awsEnabled: true
-  aws:
-    replicas: 2
-    ami: ami-084568db4383264d4 # us-east-1
-    region: us-east-1
-    instanceType: g5.xlarge
-    sshKeyName: exalsius
-    iamInstanceProfile: nodes.cluster-api-provider-aws.sigs.k8s.io
+  colonyClusters:
+    - clusterName: aws-cluster
+      awsEnabled: true
+      aws:
+        replicas: 2
+        ami: ami-084568db4383264d4 # us-east-1
+        region: us-east-1
+        instanceType: g5.xlarge
+        sshKeyName: exalsius
+        iamInstanceProfile: nodes.cluster-api-provider-aws.sigs.k8s.io
 ```
 
 ```yaml
@@ -139,7 +140,6 @@ kind: Colony
 metadata:
   name: docker-colony-ray
 spec:
-  clusterName: docker-cluster-ray
   k8sVersion: v1.27.2
   
   workloadDependencies:
@@ -166,10 +166,13 @@ spec:
   # The control-plane will be created on the exalsius management cluster
   hostedControlPlaneEnabled: true 
 
-  # We are using the docker provider to create local Kubernetes clusters based on Docker
-  dockerEnabled: true
-  docker:
-    replicas: 2 # number of worker nodes
+  # We are using the docker provider to create a local Kubernetes clusters based on Docker
+  colonyClusters:
+    - clusterName: docker-1
+      dockerEnabled: true
+      docker:
+        replicas: 2
+
 ```
 
 It can be deployed using `kubectl`:

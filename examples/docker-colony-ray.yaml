@@ -3,7 +3,6 @@ kind: Colony
 metadata:
   name: docker-colony-ray
 spec:
-  clusterName: docker-cluster-ray
   k8sVersion: v1.27.2
   
   workloadDependencies:
@@ -27,6 +26,8 @@ spec:
 
   hostedControlPlaneEnabled: true 
 
-  dockerEnabled: true
-  docker:
-    replicas: 2
+  colonyClusters:
+    - clusterName: docker-1
+      dockerEnabled: true
+      docker:
+        replicas: 2

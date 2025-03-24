@@ -14,3 +14,7 @@ spec:
       dockerEnabled: true
       docker:
         replicas: 2
+    - clusterName: docker-2
+      dockerEnabled: true
+      docker:
+        replicas: 2
