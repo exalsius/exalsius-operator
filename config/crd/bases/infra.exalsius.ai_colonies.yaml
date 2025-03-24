@@ -338,74 +338,84 @@ spec:
                   - spec
                   type: object
                 type: array
-              aws:
-                description: AWS is the specification for the AWS resources.
-                properties:
-                  ami:
-                    description: AMI is the ID of the AWS Machine Image.
-                    type: string
-                  iamInstanceProfile:
-                    description: IAMInstanceProfile is the IAM instance profile to
-                      use for the AWS instances.
-                    type: string
-                  instanceType:
-                    description: InstanceType is the type of the AWS instance.
-                    type: string
-                  region:
-                    description: Region is the AWS region.
-                    type: string
-                  replicas:
-                    description: Replicas is the number of AWS instances to create.
-                    format: int32
-                    type: integer
-                  sshKeyName:
-                    description: SSHKeyName is the name of the SSH key to use for
-                      the AWS instances.
-                    type: string
-                required:
-                - ami
-                - iamInstanceProfile
-                - instanceType
-                - replicas
-                - sshKeyName
-                type: object
-              awsEnabled:
-                description: |-
-                  AWSEnabled indicates if the AWS provider is enabled.
-                  setting this to true requires also setting the AWS spec.
-                type: boolean
-              azure:
-                description: Azure is the specification for the Azure resources.
-                properties:
-                  region:
-                    description: Region is the Azure region.
-                    type: string
-                required:
-                - region
-                type: object
-              azureEnabled:
-                description: |-
-                  AzureEnabled indicates if the Azure provider is enabled.
-                  setting this to true requires also setting the Azure spec.
-                type: boolean
-              clusterName:
-                description: ClusterName is the name of the cluster.
-                type: string
-              docker:
-                description: Docker is the specification for the docker resources.
-                properties:
-                  replicas:
-                    description: Replicas is the number of "Docker Nodes" to create.
-                    format: int32
-                    type: integer
-                required:
-                - replicas
-                type: object
-              dockerEnabled:
-                description: |-
-                  DockerEnabled indicates if the docker provider is enabled.
-                  This should be only used for local development and testing.
-                type: boolean
+              colonyClusters:
+                description: ColonyClusters is the list of clusters to create.
+                items:
+                  properties:
+                    aws:
+                      description: AWS is the specification for the AWS resources.
+                      properties:
+                        ami:
+                          description: AMI is the ID of the AWS Machine Image.
+                          type: string
+                        iamInstanceProfile:
+                          description: IAMInstanceProfile is the IAM instance profile
+                            to use for the AWS instances.
+                          type: string
+                        instanceType:
+                          description: InstanceType is the type of the AWS instance.
+                          type: string
+                        region:
+                          description: Region is the AWS region.
+                          type: string
+                        replicas:
+                          description: Replicas is the number of AWS instances to
+                            create.
+                          format: int32
+                          type: integer
+                        sshKeyName:
+                          description: SSHKeyName is the name of the SSH key to use
+                            for the AWS instances.
+                          type: string
+                      required:
+                      - ami
+                      - iamInstanceProfile
+                      - instanceType
+                      - replicas
+                      - sshKeyName
+                      type: object
+                    awsEnabled:
+                      description: |-
+                        AWSEnabled indicates if the AWS provider is enabled.
+                        setting this to true requires also setting the AWS spec.
+                      type: boolean
+                    azure:
+                      description: Azure is the specification for the Azure resources.
+                      properties:
+                        region:
+                          description: Region is the Azure region.
+                          type: string
+                      required:
+                      - region
+                      type: object
+                    azureEnabled:
+                      description: |-
+                        AzureEnabled indicates if the Azure provider is enabled.
+                        setting this to true requires also setting the Azure spec.
+                      type: boolean
+                    clusterName:
+                      description: Name is the name of the cluster.
+                      type: string
+                    docker:
+                      description: Docker is the specification for the docker resources.
+                      properties:
+                        replicas:
+                          description: Replicas is the number of "Docker Nodes" to
+                            create.
+                          format: int32
+                          type: integer
+                      required:
+                      - replicas
+                      type: object
+                    dockerEnabled:
+                      description: |-
+                        DockerEnabled indicates if the docker provider is enabled.
+                        This should be only used for local development and testing.
+                      type: boolean
+                  required:
+                  - clusterName
+                  type: object
+                type: array
               hostedControlPlaneEnabled:
                 description: |-
                   HostedControlPlaneEnabled indicates if the hosted control plane is enabled.
@@ -415,7 +425,7 @@ spec:
                 type: boolean
               k8sVersion:
                 description: K8sVersion is the version of Kubernetes to use for the
-                  cluster.
+                  colony.
                 type: string
               workloadDependencies:
                 description: |-
@@ -436,7 +446,6 @@ spec:
                   type: object
                 type: array
             required:
-            - clusterName
             - k8sVersion
             type: object
           status:
