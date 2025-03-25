@@ -7,7 +7,11 @@ spec:
   workloadDependencies:
     - name: volcano-sh
 
-  hostedControlPlaneEnabled: true 
+  hostedControlPlaneEnabled: true
+  # In case the nodes of the management cluster have the external IP not set,
+  # you can set the external address here.
+  # This is used for hosted control planes as the API Server NodePort IP.
+  externalAddress: "192.168.1.100"
 
   colonyClusters:
     - clusterName: remote-1
