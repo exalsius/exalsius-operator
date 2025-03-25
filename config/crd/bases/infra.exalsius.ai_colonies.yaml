@@ -422,6 +422,12 @@ spec:
                   - clusterName
                   type: object
                 type: array
+              externalAddress:
+                description: |-
+                  ExternalAddress is the external address of the colony cluster.
+                  This is used to set the external address of the control plane.
+                  If this is not set, the colony will try to find an external address for the control plane.
+                type: string
               hostedControlPlaneEnabled:
                 description: |-
                   HostedControlPlaneEnabled indicates if the hosted control plane is enabled.

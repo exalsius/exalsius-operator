@@ -43,6 +43,11 @@ type ColonySpec struct {
 	// If this is not set, the colony will create a control plane in the colony cluster.
 	// +optional
 	HostedControlPlaneEnabled *bool `json:"hostedControlPlaneEnabled,omitempty"`
+	// ExternalAddress is the external address of the colony cluster.
+	// This is used to set the external address of the control plane.
+	// If this is not set, the colony will try to find an external address for the control plane.
+	// +optional
+	ExternalAddress *string `json:"externalAddress,omitempty"`
 
 	// ColonyClusters is the list of clusters to create.
 	ColonyClusters []ColonyCluster `json:"colonyClusters,omitempty"`

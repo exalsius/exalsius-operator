@@ -193,6 +193,11 @@ func (in *ColonySpec) DeepCopyInto(out *ColonySpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.ExternalAddress != nil {
+		in, out := &in.ExternalAddress, &out.ExternalAddress
+		*out = new(string)
+		**out = **in
+	}
 	if in.ColonyClusters != nil {
 		in, out := &in.ColonyClusters, &out.ColonyClusters
 		*out = make([]ColonyCluster, len(*in))
