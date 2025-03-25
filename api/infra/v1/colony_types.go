@@ -74,8 +74,6 @@ type ColonyCluster struct {
 	// It won't create any resources itself, but arbitrary nodes can be added
 	// to the cluster via ssh or token-based authentication.
 	RemoteClusterEnabled *bool `json:"remoteClusterEnabled,omitempty"`
-	// RemoteCluster is the specification for the remote cluster resources.
-	//RemoteCluster *RemoteClusterSpec `json:"remoteCluster,omitempty"`
 }
 
 // WorkloadDependency is a workload dependency to be installed on the colony.
