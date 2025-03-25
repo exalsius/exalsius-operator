@@ -34,6 +34,19 @@ func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *i
 		if err != nil {
 			return fmt.Errorf("failed to get external address: %w", err)
 		}
+
+		// edge-case: a local docker cluster needs to have a static nodePort
+		// so that kind-based port-forwarding works
+		// TODO: this currently only works for a single docker cluster
+		for _, cluster := range colony.Spec.ColonyClusters {
+			if cluster.DockerEnabled != nil && *cluster.DockerEnabled {
+				externalAddress = ""
+				apiPort = 30333
+				konnectivityPort = 30334
+				break
+			}
+		}
+
 	}
 
 	k0smotronControlPlane := &k0sv1beta1.K0smotronControlPlane{
