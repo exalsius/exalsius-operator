@@ -26,6 +26,16 @@ func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *i
 		return fmt.Errorf("failed to get available NodePort: %w", err)
 	}
 
+	var externalAddress string
+	if colony.Spec.ExternalAddress != nil {
+		externalAddress = *colony.Spec.ExternalAddress
+	} else {
+		externalAddress, err = getExternalAddress(ctx, c)
+		if err != nil {
+			return fmt.Errorf("failed to get external address: %w", err)
+		}
+	}
+
 	k0smotronControlPlane := &k0sv1beta1.K0smotronControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "controlplane.cluster.x-k8s.io/v1beta1",
@@ -36,7 +46,8 @@ func EnsureK0smotronControlPlane(ctx context.Context, c client.Client, colony *i
 			Namespace: colony.Namespace,
 		},
 		Spec: kmapi.ClusterSpec{
-			Version: colony.Spec.K8sVersion + "-k0s.0",
+			Version:         colony.Spec.K8sVersion + "-k0s.0",
+			ExternalAddress: externalAddress,
 			Persistence: kmapi.PersistenceSpec{
 				Type: "emptyDir",
 			},
@@ -116,4 +127,29 @@ func getAvailableNodePorts(ctx context.Context, c client.Client) (int, int, erro
 	konnectivityPort := availablePorts[rand.Intn(len(availablePorts))]
 
 	return apiPort, konnectivityPort, nil
+}
+
+// getExternalAddress returns the external IP/hostname of the current cluster
+func getExternalAddress(ctx context.Context, c client.Client) (string, error) {
+	// Get all nodes
+	nodeList := &v1.NodeList{}
+	if err := c.List(ctx, nodeList); err != nil {
+		return "", fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	// Look through node addresses to find ExternalIP or Hostname
+	for _, node := range nodeList.Items {
+		for _, addr := range node.Status.Addresses {
+			// Prefer ExternalIP if available
+			if addr.Type == v1.NodeExternalIP {
+				return addr.Address, nil
+			}
+			// Fallback to Hostname if no ExternalIP found
+			if addr.Type == v1.NodeHostName {
+				return addr.Address, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no external address found for any node")
 }
