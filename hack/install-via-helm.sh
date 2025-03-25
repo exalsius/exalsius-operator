@@ -41,12 +41,14 @@ helm upgrade --install volcano volcano-sh/volcano \
 
 echo "installing cluster-api operator"
 # install cluster-api-provider
+helm repo add capi-operator https://kubernetes-sigs.github.io/cluster-api-operator
 helm install capi-operator capi-operator/cluster-api-operator \
   --create-namespace \
   --namespace capi-system \
   --wait
 
 echo "installing exalsius-operator umbrella chart"
+helm dependency update ../charts/exalsius-operator
 helm upgrade --install exalsius ../charts/exalsius-operator \
   --namespace $NAMESPACE \
   --create-namespace \
