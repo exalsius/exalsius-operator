@@ -412,6 +412,12 @@ spec:
                         DockerEnabled indicates if the docker provider is enabled.
                         This should be only used for local development and testing.
                       type: boolean
+                    remoteClusterEnabled:
+                      description: |-
+                        RemoteClusterEnabled indicates that this cluster is a remote cluster.
+                        It won't create any resources itself, but arbitrary nodes can be added
+                        to the cluster via ssh or token-based authentication.
+                      type: boolean
                   required:
                   - clusterName
                   type: object

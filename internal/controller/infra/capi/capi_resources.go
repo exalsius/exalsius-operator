@@ -219,6 +219,13 @@ func getInfrastructureRef(colony *infrav1.Colony, colonyCluster *infrav1.ColonyC
 			Name:       colony.Name + "-" + colonyCluster.ClusterName,
 		}
 	}
+	if colonyCluster.RemoteClusterEnabled != nil && *colonyCluster.RemoteClusterEnabled {
+		return &corev1.ObjectReference{
+			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+			Kind:       "RemoteCluster",
+			Name:       colony.Name + "-" + colonyCluster.ClusterName,
+		}
+	}
 	// if colony.Spec.Azure != nil {
 	//     return &corev1.ObjectReference{
 	//         APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",

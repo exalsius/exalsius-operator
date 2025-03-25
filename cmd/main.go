@@ -48,6 +48,7 @@ import (
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
+	k0sinfrav1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
@@ -94,6 +95,11 @@ func init() {
 		setupLog.Error(err, "unable to add Bootstrap to scheme")
 		os.Exit(1)
 	}
+	if err := k0sinfrav1beta1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add K0s Infrastructure to scheme")
+		os.Exit(1)
+	}
+
 }
 
 // nolint:gocyclo
