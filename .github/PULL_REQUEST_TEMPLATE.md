@@ -1,3 +1,9 @@
+## Description
+
+This PR fixes #
+
+## Notes for Reviewers
+
 <!-- 
 ## PR Title Format (Conventional Commits)
 
@@ -30,9 +36,3 @@ Co-authored-by: Bob <bob@example.com>
 
 More information: Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
 -->
-
-## Description
-
-This PR fixes #
-
-## Notes for Reviewers
