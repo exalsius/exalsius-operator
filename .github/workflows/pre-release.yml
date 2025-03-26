@@ -1,11 +1,12 @@
-name: Test Chart Deployment
+name: Release PR - Pre-Release E2E Tests
 
 on:
   pull_request:
+    branches: [main]
 
 jobs:
-  test-e2e:
-    name: Run on Ubuntu
+  test-helm:
+    if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
