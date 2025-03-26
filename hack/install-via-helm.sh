@@ -2,6 +2,8 @@
 
 NAMESPACE=exalsius-system
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 VALUES_FILE=${1:-""}
 VALUES_ARG=""
 
@@ -48,8 +50,8 @@ helm install capi-operator capi-operator/cluster-api-operator \
   --wait
 
 echo "installing exalsius-operator umbrella chart"
-helm dependency update ../charts/exalsius-operator
-helm upgrade --install exalsius ../charts/exalsius-operator \
+helm dependency update "${SCRIPT_DIR}/../charts/exalsius-operator"
+helm upgrade --install exalsius "${SCRIPT_DIR}/../charts/exalsius-operator" \
   --namespace $NAMESPACE \
   --create-namespace \
   $VALUES_ARG \
