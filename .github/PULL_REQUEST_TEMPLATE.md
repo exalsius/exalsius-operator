@@ -1,21 +1,38 @@
-**Description**
+<!-- 
+## PR Title Format (Conventional Commits)
+
+Please use one of the following prefixes in your PR title (the scope is optional):
+
+- `feat(scope): ...` – New features or significant enhancements
+- `fix(scope): ...` – Bug fixes
+- `docs(scope): ...` – Documentation changes
+- `refactor(scope): ...` – Code changes that neither fix bugs nor add features
+- `chore(scope): ...` – Maintenance tasks, dependency updates, etc.
+- `test(scope): ...` – Adding or modifying tests
+- `ci(scope): ...` – Changes to CI configuration files and scripts
+
+**Example:** `feat(auth): add OAuth2 login support`
+
+Please also aim to use Conventional Commits for your individual commits, or squash your commits before merging.  
+The **CHANGELOG is automatically generated** based on `feat:` and `fix:` messages.
+
+## Multiple Contributors?
+
+If this PR includes commits from multiple authors and you're going to squash-merge it, please consider adding  
+`Co-authored-by:` lines to the final squash commit message to give proper credit.
+
+Example:
+
+```
+Co-authored-by: Alice <alice@example.com>
+Co-authored-by: Bob <bob@example.com>
+```
+
+More information: Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+-->
+
+## Description
 
 This PR fixes #
 
-**Notes for Reviewers**
-
-
-<!--
-Thank you for contributing to exalsius! 
-
-Contributing Conventions
--------------------------
-
-The draft above helps to give a quick overview of your PR.
-
-Remember to remove this comment and to at least:
-
-1. Include descriptive PR titles with [<component-name>] prepended. We use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/).
-2. Build and test your changes before submitting a PR. 
-3. Ensure correct formatting of your code by e.g. installing the pre-commit-hooks.
--->
+## Notes for Reviewers
