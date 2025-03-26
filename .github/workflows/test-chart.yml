@@ -1,0 +1,54 @@
+name: Test Chart Deployment
+
+on:
+  pull_request:
+
+jobs:
+  test-e2e:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install the latest version of kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Verify kind installation
+        run: kind version
+
+      - name: Create kind cluster
+        run: ./hack/start-dev-env.sh
+
+      - name: Prepare exalsius-operator
+        run: |
+          go mod tidy
+          make docker-build IMG=exalsius-operator:ci-test
+          kind load docker-image exalsius-operator:ci-test
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Verify Helm installation
+        run: helm version
+
+      - name: Lint Helm Chart
+        run: |
+          helm lint charts/exalsius-operator/ --with-subcharts
+
+      - name: Install exalsius-operator umbrella helm chart
+        run: |
+          ./hack/install-dev-env.sh example-values.yml
+
+      - name: Check Helm release status
+        run: |
+          helm status exalsius --namespace exalsius-system
