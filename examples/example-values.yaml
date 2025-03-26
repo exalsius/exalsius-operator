@@ -1,0 +1,28 @@
+# Values for the actual operator chart.
+# See charts/operator/values.yaml for more information.
+operator:
+  enabled: true
+
+# Credentials for the aws provider.
+aws:
+  enabled: true
+  awsCredentials:
+    accessKeyId: AXXXXXXXXXXXXXXXXXXXXX
+    secretAccessKey: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    region: eu-central-1
+
+docker:
+  enabled: true
+
+skypilot-nightly:
+  enabled: true
+  apiService:
+    image: berkeleyskypilot/skypilot-nightly:1.0.0.dev20250305
+  awsCredentials:
+    enabled: true
+  ingress:
+    authCredentials: skypilot:$apr1$zV6AUMNr$wZvIpvvDbPQmZuOn7mk5Q0
+
+
+nvidia-operator:
+  enabled: false
