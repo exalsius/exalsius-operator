@@ -14,24 +14,6 @@ resources:
     namespaced: true
   controller: true
   domain: exalsius.ai
-  group: training
-  kind: DilocoPytorchTraining
-  path: github.com/exalsius/exalsius-operator/api/training/v1
-  version: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: exalsius.ai
-  group: training
-  kind: DilocoTorchDDP
-  path: github.com/exalsius/exalsius-operator/api/training/v1
-  version: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: exalsius.ai
   group: infra
   kind: Colony
   path: github.com/exalsius/exalsius-operator/api/infra/v1
