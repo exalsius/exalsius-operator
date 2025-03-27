@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/exalsius/exalsius-operator
   pullPolicy: Always
-  tag: "main"
+  tag: "latest"
 
 imagePullSecrets: []
 nameOverride: ""
