@@ -35,6 +35,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:dev
-            ${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+          tags: ${{ env.IMAGE_NAME }}:dev,${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
