@@ -48,7 +48,7 @@ jobs:
 
       - name: Install exalsius-operator umbrella helm chart
         run: |
-          ./hack/install-via-helm.sh examples/example-values.yaml
+          ./hack/install-ci.sh hack/ci-values.yaml
 
       - name: Check Helm release status
         run: |
