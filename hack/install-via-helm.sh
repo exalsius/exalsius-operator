@@ -71,5 +71,5 @@ helm upgrade --install exalsius "${SCRIPT_DIR}/../charts/exalsius-operator" \
   --namespace $NAMESPACE \
   --create-namespace \
   $VALUES_ARG \
+  --timeout 30m \
   --wait
-
