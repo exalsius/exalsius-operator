@@ -48,7 +48,10 @@ jobs:
 
       - name: Install exalsius-operator umbrella helm chart
         run: |
+          set +e
           ./hack/install-ci.sh hack/ci-values.yaml
+          echo "HELM_EXIT_CODE=$?" >> $GITHUB_ENV
+          set -e
         continue-on-error: true
 
       - name: Show pod status
@@ -69,7 +72,7 @@ jobs:
           helm status exalsius --namespace exalsius-system
 
       - name: Fail workflow if Helm install failed
-        if: ${{ failure() }}
+        if: ${{ env.HELM_EXIT_CODE != '0' }}
         run: |
           echo "Helm install failed. See debug output above."
           exit 1
