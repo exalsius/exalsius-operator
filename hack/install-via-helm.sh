@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 NAMESPACE=exalsius-system
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -19,6 +21,20 @@ fi
 # print path to values file if set
 if [ -n "$VALUES_FILE" ]; then
     echo "Using values file for exalsius-operator: $VALUES_FILE"
+fi
+
+# set ulimit and sysctls
+ulimit -n 65535
+if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+  echo "Running sysctl updates with sudo"
+  sudo sysctl -w fs.inotify.max_user_watches=524288
+  sudo sysctl -w fs.inotify.max_user_instances=8192
+else
+  echo "[WARNING] Skipping sysctl updates (no sudo permissions)"
+  echo "Consider setting the following sysctls manually:"
+  echo "sysctl -w fs.inotify.max_user_watches=524288"
+  echo "sysctl -w fs.inotify.max_user_instances=8192"
+  echo "ulimit -n 65535"
 fi
 
 # install cert manager

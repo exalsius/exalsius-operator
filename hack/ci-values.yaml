@@ -4,8 +4,8 @@ operator:
   enabled: true
   image:
     repository: exalsius-operator
-    pullPolicy: Always
-    tag: "ci-test"
+    pullPolicy: IfNotPresent
+    tag: ci-test
 # Credentials for the aws provider.
 aws:
   enabled: true
