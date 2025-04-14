@@ -13,6 +13,7 @@ safe_helm_uninstall() {
 
 echo "uninstalling exalsius-operator"
 safe_helm_uninstall exalsius $NAMESPACE
+
 # clean up namespace
 if kubectl get pods -n "$NAMESPACE" --no-headers --ignore-not-found | grep -q .; then
   echo "Cleaning up exalsius pods"
