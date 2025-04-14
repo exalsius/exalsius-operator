@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+    #if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -49,7 +49,27 @@ jobs:
       - name: Install exalsius-operator umbrella helm chart
         run: |
           ./hack/install-ci.sh hack/ci-values.yaml
+        continue-on-error: true
+
+      - name: Show pod status
+        run: kubectl get pods -n exalsius-system -o wide
+
+      - name: Describe all pods
+        run: |
+          for pod in $(kubectl get pods -n exalsius-system -o name); do
+            echo "==== $pod ===="
+            kubectl describe "$pod" -n exalsius-system || true
+          done
+
+      - name: Get events
+        run: kubectl get events -n exalsius-system --sort-by=.metadata.creationTimestamp
 
       - name: Check Helm release status
         run: |
           helm status exalsius --namespace exalsius-system
+
+      - name: Fail workflow if Helm install failed
+        if: ${{ failure() }}
+        run: |
+          echo "Helm install failed. See debug output above."
+          exit 1
