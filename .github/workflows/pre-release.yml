@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+    #if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -76,3 +76,19 @@ jobs:
         run: |
           echo "Helm install failed. See debug output above."
           exit 1
+
+      - name: Create a docker colony
+        run: kubectl apply -f examples/docker-colony.yaml
+
+      - name: Wait for docker colony to be ready
+        run: |
+          echo "Waiting for docker colony to be ready..."
+          while true; do
+            status=$(kubectl get colony docker-colony -o jsonpath='{.status.phase}')
+            if [ "$status" = "Ready" ]; then
+              echo "Docker colony is ready!"
+              break
+            fi
+            echo "Current status: $status"
+            sleep 10
+          done
