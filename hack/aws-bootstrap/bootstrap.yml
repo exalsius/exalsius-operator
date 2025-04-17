@@ -1,0 +1,119 @@
+---
+- name: Bootstrap exalsius management cluster on AWS
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - credentials.yml
+
+  vars:
+    project_tag: "exalsius-dev-env"
+
+  tasks:
+    - name: Create directory for fetched kubeconfig
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/fetched"
+        state: directory
+
+    - name: Create experiment network (VPC)
+      amazon.aws.ec2_vpc_net:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        name: exalsius-net
+        cidr_block: 10.10.0.0/16
+        region: "{{ aws_region }}"
+        tenancy: default
+        tags:
+          Project: "{{ project_tag }}"
+      register: vpc_network
+
+    - name: Create Internet gateway
+      amazon.aws.ec2_vpc_igw:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        vpc_id: "{{ vpc_network.vpc.id }}"
+        state: present
+        tags:
+          Project: "{{ project_tag }}"
+      register: igw
+
+    - name: Create subnet for exalsius-net
+      amazon.aws.ec2_vpc_subnet:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        state: present
+        vpc_id: "{{ vpc_network.vpc.id }}"
+        region: "{{ aws_region }}"
+        cidr: 10.10.1.0/24
+        tags:
+          Project: "{{ project_tag }}"
+      register: exalsius_subnet
+
+    - name: Set up public subnet route table
+      amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ vpc_network.vpc.id }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        tags:
+          Name: Public
+          Project: "{{ project_tag }}"
+        subnets:
+          - "{{ exalsius_subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id }}"
+
+    - name: Create EC2 security group
+      amazon.aws.ec2_group:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        name: exalsius-security-group
+        vpc_id: "{{ vpc_network.vpc.id }}"
+        description: exalsius security group
+        region: "{{ aws_region }}"
+        rules:
+          - proto: all
+            from_port: 0
+            to_port: 65535
+            cidr_ip: 0.0.0.0/0
+            rule_desc: allow everything (unsecure!)
+        tags:
+          Project: "{{ project_tag }}"
+      register: exalsius_sg
+
+    - name: Create k3s master instance
+      include_tasks: _create_aws_instance.yml
+      vars:
+        ansible_group: control
+        instance_tags:
+          Project: "{{ project_tag }}"
+      loop:
+        - hostname: k3s-master
+          machine_type: t3.large
+
+    - name: Create k3s worker instances
+      include_tasks: _create_aws_instance.yml
+      vars:
+        ansible_group: worker
+        instance_tags:
+          Project: "{{ project_tag }}"
+      loop:
+        - hostname: k3s-worker
+          machine_type: t3.large
+
+- name: Install k3s
+  hosts:
+    - control
+    - worker
+  become: true
+  pre_tasks:
+    - name: Setup hostname
+      command: hostnamectl set-hostname {{ inventory_hostname }}
+  roles:
+    - exalsius.k3s
+  vars:
+    ansible_user: ubuntu
+    fetch_dir_path: "{{ playbook_dir }}/fetched"
+    k3s_version: v1.32.2+k3s1
+    master_ip: "{{ hostvars[groups['control'][0]]['ansible_host'] }}"

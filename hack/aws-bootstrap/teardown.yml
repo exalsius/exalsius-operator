@@ -1,0 +1,164 @@
+---
+- name: Teardown all AWS resources for project "exalsius-dev-env"
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - credentials.yml
+
+  vars:
+    project_tag: "exalsius-dev-env"
+
+  tasks:
+    - name: Terminate EC2 instances
+      amazon.aws.ec2_instance:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        state: absent
+        filters:
+          "tag:Project": "{{ project_tag }}"
+
+    - name: Wait until instances are gone
+      amazon.aws.ec2_instance_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+      register: ec2_info
+      until: ec2_info.instances | rejectattr('state.name','equalto','terminated') | list | length == 0
+      retries: 10
+      delay: 15
+
+    - name: Gather subnets
+      amazon.aws.ec2_vpc_subnet_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+      register: subnets
+
+    - name: Gather all ENIs
+      amazon.aws.ec2_eni_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+      register: enis
+
+    - name: Delete all ENIs
+      amazon.aws.ec2_eni:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        eni_id: "{{ item.id }}"
+        state: absent
+      loop: "{{ enis.network_interfaces }}"
+      when: item.attachment is not defined
+
+    - name: Gather NAT gateways
+      amazon.aws.ec2_vpc_nat_gateway_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+      register: nat_gws
+
+    - name: Delete NAT gateways
+      amazon.aws.ec2_vpc_nat_gateway:
+        region:        "{{ aws_region }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        state:         absent
+        nat_gateway_id: "{{ item.nat_gateway_id }}"
+      loop: "{{ nat_gws.result }}"
+
+    - name: Gather ENIs per subnet
+      amazon.aws.ec2_eni_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          subnet-id: "{{ item.subnet_id }}"
+      loop: "{{ subnets.subnets }}"
+      register: subnet_enis
+      loop_control:
+        label: "{{ item.subnet_id }}"
+
+    - name: Delete ENIs in each subnet
+      amazon.aws.ec2_eni:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        eni_id: "{{ item.id }}"
+        state: absent
+      loop: "{{ subnet_enis.results | map(attribute='network_interfaces') | flatten }}"
+      when: item.attachment is not defined
+
+    - name: Delete subnets
+      amazon.aws.ec2_vpc_subnet:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        vpc_id: "{{ item.vpc_id }}"
+        cidr: "{{ item.cidr_block }}"
+        state: absent
+      loop: "{{ subnets.subnets }}"
+
+    - name: Gather internet gateways
+      amazon.aws.ec2_vpc_igw_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+      register: igws
+
+    - name: Detach and delete internet gateways
+      amazon.aws.ec2_vpc_igw:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        internet_gateway_id: "{{ item.internet_gateway_id }}"
+        vpc_id: "{{ item.attachments[0].vpc_id }}"
+        state: absent
+      loop: "{{ igws.internet_gateways }}"
+
+    - name: Delete security group
+      amazon.aws.ec2_group:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        name: exalsius-security-group
+        state: absent
+
+    - name: Gather VPCs
+      amazon.aws.ec2_vpc_net_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+      register: vpcs
+
+    - name: Gather VPC endpoints
+      amazon.aws.ec2_vpc_endpoint_info:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        filters:
+          vpc-id: "{{ item.vpc_id }}"
+      loop: "{{ vpcs.vpcs }}"
+      register: endpoints
+
+    - name: Delete VPC endpoints
+      amazon.aws.ec2_vpc_endpoint:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        vpc_endpoint_id: "{{ item.vpc_endpoint_id }}"
+        state: absent
+      loop: "{{ endpoints.results | map(attribute='vpc_endpoints') | flatten }}"
