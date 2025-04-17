@@ -1,0 +1,7 @@
+ansible
+requests
+boto3
+botocore
+kubernetes
+jsonpatch
+jmespath

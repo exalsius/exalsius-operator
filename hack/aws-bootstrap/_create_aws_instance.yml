@@ -1,0 +1,29 @@
+---
+- name: Create an instance with a public IP address
+  amazon.aws.ec2_instance:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+    name: "{{ item.hostname }}"
+    key_name: "{{ aws_keyname }}"
+    vpc_subnet_id: "{{  exalsius_subnet.subnet.id }}"
+    instance_type: "{{ item.machine_type }}"
+    security_group: "{{  exalsius_sg.group_id }}"
+    state: running
+    ebs_optimized: false
+    volumes:
+      - device_name: /dev/sda1
+        ebs:
+          volume_size: 16
+          delete_on_termination: true
+    network:
+      assign_public_ip: true
+    image_id: "{{ aws_image_ami_id }}"
+    tags: "{{ instance_tags }}"
+  register: ec2_vm
+
+- name: Wait for host
+  ansible.builtin.wait_for: host={{ ec2_vm.instances[0].public_ip_address }} port=22 delay=10 timeout=60
+
+- name: Add host to group
+  ansible.builtin.add_host: hostname={{ item.hostname }} ansible_host={{ ec2_vm.instances[0].public_ip_address }} groupname={{ ansible_group }}
