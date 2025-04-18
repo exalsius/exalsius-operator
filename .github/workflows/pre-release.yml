@@ -92,3 +92,21 @@ jobs:
             echo "Current status: $status"
             sleep 10
           done
+
+      - name: Wait for CAPI machine resources to be running
+        run: |
+          echo "Waiting for CAPI machine resources to be running..."
+          while true; do
+            status=$(kubectl get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
+            if [ -n "$status" ]; then
+              echo "CAPI machine resources are running!"
+              break
+            fi
+            echo "Current running machines: $status"
+            sleep 10
+          done
+
+      - name: Show all colony resources
+        run: kubectl get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
+
+        
