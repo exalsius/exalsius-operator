@@ -60,7 +60,6 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 		Spec: capav1beta2.AWSMachineTemplateSpec{
 			Template: capav1beta2.AWSMachineTemplateResource{
 				Spec: capav1beta2.AWSMachineSpec{
-					//UncompressedUserData: ptr.To(false),
 					AMI: capav1beta2.AMIReference{
 						ID: &colonyCluster.AWS.AMI,
 					},
