@@ -123,8 +123,22 @@ func EnsureCluster(ctx context.Context, c client.Client, colony *infrav1.Colony,
 	return nil
 }
 
+// getClusterReplicas returns the number of replicas based on the colony cluster type
+func getClusterReplicas(colonyCluster *infrav1.ColonyCluster) int32 {
+	if colonyCluster.AWS != nil {
+		return colonyCluster.AWS.Replicas
+	}
+	if colonyCluster.Docker != nil {
+		return colonyCluster.Docker.Replicas
+	}
+	// Default to 1 replica if no provider is specified
+	return 1
+}
+
 func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
+
+	replicas := getClusterReplicas(colonyCluster)
 
 	md := &clusterv1.MachineDeployment{
 		TypeMeta: metav1.TypeMeta{
@@ -137,7 +151,7 @@ func EnsureMachineDeployment(ctx context.Context, c client.Client, colony *infra
 		},
 		Spec: clusterv1.MachineDeploymentSpec{
 			ClusterName: colony.Name + "-" + colonyCluster.ClusterName,
-			Replicas:    ptr.To(colonyCluster.Docker.Replicas),
+			Replicas:    ptr.To(replicas),
 			Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"cluster.x-k8s.io/cluster-name": colony.Name + "-" + colonyCluster.ClusterName,
