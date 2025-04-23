@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	capiresources "github.com/exalsius/exalsius-operator/internal/controller/infra/capi"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	capav1beta2 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
@@ -27,6 +28,11 @@ func EnsureAWSResources(ctx context.Context, c client.Client, colony *infrav1.Co
 
 	if err := ensureAWSMachineTemplate(ctx, c, colony, colonyCluster); err != nil {
 		log.Error(err, "Failed to ensure AWSMachineTemplate")
+		return err
+	}
+
+	if err := capiresources.EnsureMachineDeployment(ctx, c, colony, colonyCluster); err != nil {
+		log.Error(err, "Failed to ensure MachineDeployment")
 		return err
 	}
 
@@ -54,7 +60,7 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 		Spec: capav1beta2.AWSMachineTemplateSpec{
 			Template: capav1beta2.AWSMachineTemplateResource{
 				Spec: capav1beta2.AWSMachineSpec{
-					UncompressedUserData: ptr.To(false),
+					//UncompressedUserData: ptr.To(false),
 					AMI: capav1beta2.AMIReference{
 						ID: &colonyCluster.AWS.AMI,
 					},
@@ -93,33 +99,21 @@ func ensureAWSMachineTemplate(ctx context.Context, c client.Client, colony *infr
 func ensureAWSCluster(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 
-	protocol := capav1beta2.ELBProtocolTCP
-
 	awsCluster := &capav1beta2.AWSCluster{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta2",
 			Kind:       "AWSCluster",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colonyCluster.ClusterName,
+			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
+			Annotations: map[string]string{
+				"cluster.x-k8s.io/managed-by": "exalsius-operator",
+			},
 		},
 		Spec: capav1beta2.AWSClusterSpec{
-			Region:     colonyCluster.AWS.Region,      // e.g. "eu-central-1"
-			SSHKeyName: &colonyCluster.AWS.SSHKeyName, // e.g. "exalsius"
-			ControlPlaneLoadBalancer: &capav1beta2.AWSLoadBalancerSpec{
-				HealthCheckProtocol: &protocol,
-			},
-			NetworkSpec: capav1beta2.NetworkSpec{
-				AdditionalControlPlaneIngressRules: []capav1beta2.IngressRule{
-					{
-						Description: "k0s controller join API",
-						Protocol:    "tcp",
-						FromPort:    9443,
-						ToPort:      9443,
-					},
-				},
-			},
+			Region:     colonyCluster.AWS.Region,
+			SSHKeyName: &colonyCluster.AWS.SSHKeyName,
 		},
 	}
 
