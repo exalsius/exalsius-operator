@@ -33,15 +33,9 @@ import (
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-	awsresources "github.com/exalsius/exalsius-operator/internal/controller/infra/aws"
-	"github.com/exalsius/exalsius-operator/internal/controller/infra/bootstrap"
-	capiresources "github.com/exalsius/exalsius-operator/internal/controller/infra/capi"
-	"github.com/exalsius/exalsius-operator/internal/controller/infra/controlplane"
-	dockerresources "github.com/exalsius/exalsius-operator/internal/controller/infra/docker"
-	"github.com/exalsius/exalsius-operator/internal/controller/infra/infrastructure"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
+	clusterdeployment "github.com/exalsius/exalsius-operator/internal/controller/infra/clusterdeployment"
 )
 
 const (
@@ -57,7 +51,6 @@ type ColonyReconciler struct {
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies/finalizers,verbs=update
-
 func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -72,7 +65,7 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if colony.GetDeletionTimestamp() != nil {
 		log.Info("Colony marked for deletion. Shutting down cluster resources and removing finalizer.")
 		colony.Status.Phase = "Deleting"
-		if err := r.Update(ctx, colony); err != nil {
+		if err := r.Status().Update(ctx, colony); err != nil {
 			log.Error(err, "Failed to update Colony status to deleting")
 			return ctrl.Result{}, err
 		}
@@ -82,6 +75,10 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return ctrl.Result{}, err
 			}
 		}
+		if err := r.Get(ctx, req.NamespacedName, colony); err != nil {
+			log.Error(err, "Failed to refetch Colony before removing finalizer")
+			return ctrl.Result{}, err
+		}
 		controllerutil.RemoveFinalizer(colony, colonyFinalizer)
 		if err := r.Update(ctx, colony); err != nil {
 			log.Error(err, "Failed to remove finalizer from Colony")
@@ -90,7 +87,6 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	// Add finalizer if it doesn't exist
 	if !controllerutil.ContainsFinalizer(colony, colonyFinalizer) {
 		log.Info("Adding finalizer to Colony", "Colony.Namespace", colony.Namespace, "Colony.Name", colony.Name)
 		controllerutil.AddFinalizer(colony, colonyFinalizer)
@@ -101,63 +97,13 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	// ensure the Clusters exists
 	for _, colonyCluster := range colony.Spec.ColonyClusters {
-		if err := capiresources.EnsureCluster(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-			log.Error(err, "Failed to ensure cluster")
-			return ctrl.Result{}, err
-		}
-
-		// ensure the K0sWorkerConfigTemplate exists
-		if err := bootstrap.EnsureK0sWorkerConfigTemplate(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-			log.Error(err, "Failed to ensure K0sWorkerConfigTemplate")
-			return ctrl.Result{}, err
-		}
-
-		if colony.Spec.HostedControlPlaneEnabled != nil && *colony.Spec.HostedControlPlaneEnabled {
-			log.Info("Ensuring a hosted K0smotron control plane")
-			if err := controlplane.EnsureK0smotronControlPlane(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-				log.Error(err, "Failed to ensure K0smotronControlPlane")
-				return ctrl.Result{}, err
-			}
-		} else {
-			log.Info("Ensuring a control plane in the colony cluster")
-			if err := controlplane.EnsureK0sControlPlane(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-				log.Error(err, "Failed to ensure K0sControlPlane")
+		if colonyCluster.ClusterDeploymentSpec != nil {
+			if err := clusterdeployment.EnsureClusterDeployment(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+				log.Error(err, "Failed to ensure cluster deployment")
 				return ctrl.Result{}, err
 			}
 		}
-
-		if colonyCluster.AWS != nil {
-			// create the AWS resources
-			if err := awsresources.EnsureAWSResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-				log.Error(err, "Failed to ensure AWS resources")
-				return ctrl.Result{}, err
-			}
-		}
-
-		if colonyCluster.Docker != nil {
-			// create the Docker resources
-			if err := dockerresources.EnsureDockerResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-				log.Error(err, "Failed to ensure Docker resources")
-				return ctrl.Result{}, err
-			}
-		}
-
-		if colonyCluster.RemoteClusterEnabled != nil && *colonyCluster.RemoteClusterEnabled {
-			// create the RemoteCluster resources
-			if err := infrastructure.EnsureRemoteClusterResources(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-				log.Error(err, "Failed to ensure RemoteCluster resources")
-				return ctrl.Result{}, err
-			}
-		}
-		// else if colony.Spec.Azure != nil {
-		// create the Azure resources
-		// if err := r.ensureAzureResources(ctx, &colony); err != nil {
-		// 	log.Error(err, "Failed to ensure Azure resources")
-		// 	return ctrl.Result{}, err
-		// }
-		// }
 
 	}
 
@@ -175,9 +121,11 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	if err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {
+	if result, err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {
 		log.Error(err, "Failed to ensure aggregated kubeconfig secret")
-		return ctrl.Result{}, err
+		return result, err
+	} else if result.Requeue || result.RequeueAfter > 0 {
+		return result, nil
 	}
 
 	log.Info("Colony reconciled successfully")
@@ -185,23 +133,24 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
-func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Context, colony *infrav1.Colony) error {
+func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Context, colony *infrav1.Colony) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	references := make(map[string][]byte)
 
 	// iterate over all clusters in the colony
-	for _, clusterRef := range colony.Status.ClusterRefs {
-		kubeconfigSecretName := fmt.Sprintf("%s-kubeconfig", clusterRef.Name)
+	for _, clusterDeploymentRef := range colony.Status.ClusterDeploymentRefs {
+		kubeconfigSecretName := fmt.Sprintf("%s-kubeconfig", clusterDeploymentRef.Name)
 
 		var kubeconfigSecret corev1.Secret
-		if err := r.Get(ctx, client.ObjectKey{Namespace: clusterRef.Namespace, Name: kubeconfigSecretName}, &kubeconfigSecret); err != nil {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: clusterDeploymentRef.Namespace, Name: kubeconfigSecretName}, &kubeconfigSecret); err != nil {
 			if errors.IsNotFound(err) {
-				log.Error(err, "Kubeconfig secret not found for cluster", "cluster", fmt.Sprintf("%s/%s", clusterRef.Namespace, clusterRef.Name))
+				log.Info("Kubeconfig secret not found for cluster, will retry", "cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 			} else {
-				log.Error(err, "Failed to get Kubeconfig secret for cluster", "cluster", fmt.Sprintf("%s/%s", clusterRef.Namespace, clusterRef.Name))
+				log.Error(err, "Failed to get Kubeconfig secret for cluster", "cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
+				return ctrl.Result{}, err
 			}
-			return err
 		}
 
 		// Create an ObjectReference for the kubeconfig secret.
@@ -215,10 +164,10 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 		// JSON-encode the ObjectReference.
 		refBytes, err := json.Marshal(objRef)
 		if err != nil {
-			log.Error(err, "Failed to marshal object reference", "cluster", clusterRef.Name)
-			return err
+			log.Error(err, "Failed to marshal object reference", "cluster", clusterDeploymentRef.Name)
+			return ctrl.Result{}, err
 		}
-		references[clusterRef.Name] = refBytes
+		references[clusterDeploymentRef.Name] = refBytes
 
 	}
 
@@ -239,23 +188,23 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 			}
 			if err := r.Create(ctx, &aggregatedKubeconfigSecret); err != nil {
 				log.Error(err, "Failed to create aggregated kubeconfig secret")
-				return err
+				return ctrl.Result{}, err
 			}
 			log.Info("Aggregated kubeconfig secret created",
 				"namespace", aggregatedSecretNamespace,
 				"name", aggregatedSecretName,
 			)
-			return nil
+			return ctrl.Result{}, nil
 		} else {
 			log.Error(err, "Failed to get aggregated kubeconfig secret")
-			return err
+			return ctrl.Result{}, err
 		}
 	} else {
 		// The secret exists, update its Data field.
 		aggregatedKubeconfigSecret.Data = references
 		if err := r.Update(ctx, &aggregatedKubeconfigSecret); err != nil {
 			log.Error(err, "Failed to update aggregated kubeconfig secret")
-			return err
+			return ctrl.Result{}, err
 		}
 		log.Info("Aggregated kubeconfig secret updated",
 			"namespace", aggregatedKubeconfigSecret.Namespace,
@@ -265,28 +214,28 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	// set owner reference to the colony
 	if err := ctrl.SetControllerReference(colony, &aggregatedKubeconfigSecret, r.Scheme); err != nil {
 		log.Error(err, "Failed to set owner reference to the aggregated kubeconfig secret")
-		return err
+		return ctrl.Result{}, err
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
 func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
-	// Delete the Cluster object which will trigger the deletion of all associated resources
-	cluster := &clusterv1.Cluster{
+	// Delete the ClusterDeployment object which will trigger the deletion of all associated resources
+	clusterDeployment := &k0rdentv1alpha1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 		},
 	}
-	if err := r.Client.Delete(ctx, cluster); err != nil && !errors.IsNotFound(err) {
-		log.Error(err, "Failed to delete Cluster", "Cluster.Namespace", cluster.Namespace, "Cluster.Name", cluster.Name)
+	if err := r.Client.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
+		log.Error(err, "Failed to delete ClusterDeployment", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 		return err
 	}
 
 	// wait for the cluster to be deleted
-	if err := r.waitForClusterDeletion(ctx, cluster, 10*time.Minute, 10*time.Second); err != nil {
+	if err := r.waitForClusterDeletion(ctx, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
 		log.Error(err, "Failed to wait for Cluster deletion")
 		return err
 	}
@@ -294,7 +243,7 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 }
 
 // waitForDeletion polls until the given Cluster is no longer found.
-func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, cluster *clusterv1.Cluster, timeout, interval time.Duration) error {
+func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, clusterDeployment *k0rdentv1alpha1.ClusterDeployment, timeout, interval time.Duration) error {
 	log := log.FromContext(ctx)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -303,15 +252,15 @@ func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, cluster *
 	for {
 		select {
 		case <-timeoutCh:
-			return fmt.Errorf("timeout waiting for cluster %s deletion", cluster.Name)
+			return fmt.Errorf("timeout waiting for cluster %s deletion", clusterDeployment.Name)
 		case <-ticker.C:
-			temp := &clusterv1.Cluster{}
-			err := r.Client.Get(ctx, client.ObjectKeyFromObject(cluster), temp)
+			temp := &k0rdentv1alpha1.ClusterDeployment{}
+			err := r.Client.Get(ctx, client.ObjectKeyFromObject(clusterDeployment), temp)
 			if errors.IsNotFound(err) {
-				log.Info("Cluster deleted", "Cluster.Namespace", cluster.Namespace, "Cluster.Name", cluster.Name)
+				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 				return nil
 			}
-			log.Info("Waiting for cluster deletion", "Cluster.Namespace", cluster.Namespace, "Cluster.Name", cluster.Name)
+			log.Info("Waiting for cluster deletion", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 		}
 	}
 }
@@ -324,15 +273,17 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	allReady := true
 	var notReadyClusters []string
 
-	for _, ref := range colony.Status.ClusterRefs {
-		cluster := &clusterv1.Cluster{}
+	orig := colony.DeepCopy()
+
+	for _, ref := range colony.Status.ClusterDeploymentRefs {
+		clusterDeployment := &k0rdentv1alpha1.ClusterDeployment{}
 		key := client.ObjectKey{
 			Namespace: ref.Namespace,
 			Name:      ref.Name,
 		}
-		if err := r.Client.Get(ctx, key, cluster); err != nil {
+		if err := r.Client.Get(ctx, key, clusterDeployment); err != nil {
 			if errors.IsNotFound(err) {
-				log.Info("Cluster not found", "cluster", fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
+				log.Info("ClusterDeployment not found", "clusterDeployment", fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s (not found)", ref.Namespace, ref.Name))
 				allReady = false
 				continue
@@ -340,15 +291,17 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			return err
 		}
 
-		if readyCondition := conditions.Get(cluster, clusterv1.ReadyCondition); readyCondition == nil ||
-			readyCondition.Status != corev1.ConditionTrue {
-			allReady = false
-			notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
+		clusterDeploymentConditions := clusterDeployment.GetConditions()
+		for _, condition := range *clusterDeploymentConditions {
+			if condition.Type == k0rdentv1alpha1.ReadyCondition && condition.Status == metav1.ConditionFalse {
+				allReady = false
+				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
+			}
 		}
 	}
 
-	colony.Status.TotalClusters = int32(len(colony.Status.ClusterRefs))
-	colony.Status.ReadyClusters = int32(len(colony.Status.ClusterRefs) - len(notReadyClusters))
+	colony.Status.TotalClusters = int32(len(colony.Status.ClusterDeploymentRefs))
+	colony.Status.ReadyClusters = int32(len(colony.Status.ClusterDeploymentRefs) - len(notReadyClusters))
 
 	var condition metav1.Condition
 	if allReady {
@@ -357,7 +310,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			Type:    "ClustersReady",
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllClustersReady",
-			Message: fmt.Sprintf("All %d clusters of the colony are ready", len(colony.Status.ClusterRefs)),
+			Message: fmt.Sprintf("All %d clusters of the colony are ready", len(colony.Status.ClusterDeploymentRefs)),
 		}
 	} else {
 		colony.Status.Phase = "Provisioning"
@@ -371,7 +324,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 
 	meta.SetStatusCondition(&colony.Status.Conditions, condition)
 
-	if err := r.Client.Status().Update(ctx, colony); err != nil {
+	if err := r.Client.Status().Patch(ctx, colony, client.MergeFrom(orig)); err != nil {
 		return fmt.Errorf("failed to update Colony status: %w", err)
 	}
 
