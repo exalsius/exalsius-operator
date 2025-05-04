@@ -181,7 +181,7 @@ func (r *DDPJobReconciler) getClientForTargetCluster(ctx context.Context, colony
 		return nil, err
 	}
 
-	if len(colony.Status.ClusterRefs) == 0 {
+	if len(colony.Status.ClusterDeploymentRefs) == 0 {
 		return nil, fmt.Errorf("no clusters found in colony %q", colonyName)
 	}
 
@@ -452,9 +452,9 @@ func (r *DDPJobReconciler) getClusterNameFromColony(ctx context.Context, colonyN
 		return "", err
 	}
 
-	if len(colony.Status.ClusterRefs) == 0 {
+	if len(colony.Status.ClusterDeploymentRefs) == 0 {
 		return "", fmt.Errorf("no clusters found in colony %q", colonyName)
 	}
 	// TODO: Handle multiple clusters
-	return colony.Status.ClusterRefs[0].Name, nil
+	return colony.Status.ClusterDeploymentRefs[0].Name, nil
 }
