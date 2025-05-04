@@ -45,4 +45,16 @@ spec:
           config:
             clusterLabels: {}
             workersNumber: 2
+    - clusterName: aws-1
+      clusterDeploymentSpec:
+          template: aws-standalone-cp-0-2-0
+          credential: aws-cluster-identity-cred
+          config:
+            clusterLabels: {}
+            region: eu-central-1
+            controlPlane:
+              instanceType: t3.small
+            worker:
+              instanceType: t3.small
+
 

@@ -1,0 +1,21 @@
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  name: aws-colony
+  namespace: default
+spec:
+  k8sVersion: v1.30.0
+  colonyClusters:
+    - clusterName: aws-1
+      clusterDeploymentSpec:
+        template: aws-standalone-cp-0-2-1
+        credential: aws-credentials
+        config:
+          clusterLabels: {}
+          region: eu-central-1
+          controlPlaneNumber: 1
+          controlPlane:
+            instanceType: t3.small
+          workersNumber: 1
+          worker:
+            instanceType: t3.small
