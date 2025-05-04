@@ -108,5 +108,3 @@ jobs:
 
       - name: Show all colony resources
         run: kubectl get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
-
-        
