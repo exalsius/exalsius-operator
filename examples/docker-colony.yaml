@@ -36,7 +36,6 @@ metadata:
   name: k0rdent-docker-colony
   namespace: kcm-system
 spec:
-  k8sVersion: v1.30.0
   colonyClusters:
     - clusterName: docker-1
       clusterDeploymentSpec:
