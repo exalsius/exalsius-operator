@@ -375,25 +375,6 @@ spec:
                   - clusterName
                   type: object
                 type: array
-              externalAddress:
-                description: |-
-                  ExternalAddress is the external address of the colony cluster.
-                  This is used to set the external address of the control plane.
-                  If this is not set, the colony will try to find an external address for the control plane.
-                type: string
-              hostedControlPlaneEnabled:
-                description: |-
-                  HostedControlPlaneEnabled indicates if the hosted control plane is enabled.
-                  If this is true, the colony will create a hosted control plane in the management cluster.
-                  If this is false, the colony will create a control plane in the colony cluster.
-                  If this is not set, the colony will create a control plane in the colony cluster.
-                type: boolean
-              k8sVersion:
-                description: K8sVersion is the version of Kubernetes to use for the
-                  colony.
-                type: string
-            required:
-            - k8sVersion
             type: object
           status:
             description: ColonyStatus defines the observed state of Colony.
