@@ -33,7 +33,7 @@ metadata:
 apiVersion: infra.exalsius.ai/v1
 kind: Colony
 metadata:
-  name: k0rdent-docker-colony
+  name: docker-colony
   namespace: kcm-system
 spec:
   colonyClusters:
