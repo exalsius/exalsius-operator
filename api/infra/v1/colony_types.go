@@ -24,31 +24,6 @@ import (
 
 // ColonySpec defines the desired state of Colony.
 type ColonySpec struct {
-	// K8sVersion is the version of Kubernetes to use for the colony.
-	K8sVersion string `json:"k8sVersion"`
-	// WorkloadDependencies is the list of workload dependencies to use for the colony.
-	// This is a list of already pre-installed HelmChartProxy resources that can be specified by name.
-	// +optional
-	//WorkloadDependencies *[]WorkloadDependency `json:"workloadDependencies,omitempty"`
-
-	// AdditionalDependencies is the list of additional dependencies to use for the colony.
-	// This is a list of HelmChartProxy resources that will be installed on the colony.
-	// See https://cluster-api-addon-provider-helm.sigs.k8s.io/getting-started/
-	// +optional
-	//AdditionalDependencies *[]HelmChartProxyReference `json:"additionalDependencies,omitempty"`
-
-	// HostedControlPlaneEnabled indicates if the hosted control plane is enabled.
-	// If this is true, the colony will create a hosted control plane in the management cluster.
-	// If this is false, the colony will create a control plane in the colony cluster.
-	// If this is not set, the colony will create a control plane in the colony cluster.
-	// +optional
-	HostedControlPlaneEnabled *bool `json:"hostedControlPlaneEnabled,omitempty"`
-	// ExternalAddress is the external address of the colony cluster.
-	// This is used to set the external address of the control plane.
-	// If this is not set, the colony will try to find an external address for the control plane.
-	// +optional
-	ExternalAddress *string `json:"externalAddress,omitempty"`
-
 	// ColonyClusters is the list of clusters to create.
 	ColonyClusters []ColonyCluster `json:"colonyClusters,omitempty"`
 }
@@ -59,19 +34,6 @@ type ColonyCluster struct {
 	// ClusterDeployment is the specification for the cluster deployment.
 	ClusterDeploymentSpec *k0rdentv1alpha1.ClusterDeploymentSpec `json:"clusterDeploymentSpec,omitempty"`
 }
-
-// WorkloadDependency is a workload dependency to be installed on the colony.
-// It currently maps to a HelmChartProxy resource
-//type WorkloadDependency struct {
-//	// Name is the name of the workload dependency, it maps to the name of the HelmChartProxy resource that
-//	// has to exist in the cluster.
-//	Name string `json:"name"`
-//}
-
-//type HelmChartProxyReference struct {
-//	Name string                          `json:"name"`
-//	Spec helmv1alpha1.HelmChartProxySpec `json:"spec"`
-//}
 
 // ColonyStatus defines the observed state of Colony.
 type ColonyStatus struct {

@@ -37,12 +37,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	//helmv1alpha1 "sigs.k8s.io/cluster-api-addon-provider-helm/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta1"
 	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
-
-	//capav1beta2 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"

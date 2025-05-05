@@ -229,7 +229,7 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 			Namespace: colony.Namespace,
 		},
 	}
-	if err := r.Client.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
+	if err := r.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
 		log.Error(err, "Failed to delete ClusterDeployment", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 		return err
 	}
@@ -255,7 +255,7 @@ func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, clusterDe
 			return fmt.Errorf("timeout waiting for cluster %s deletion", clusterDeployment.Name)
 		case <-ticker.C:
 			temp := &k0rdentv1alpha1.ClusterDeployment{}
-			err := r.Client.Get(ctx, client.ObjectKeyFromObject(clusterDeployment), temp)
+			err := r.Get(ctx, client.ObjectKeyFromObject(clusterDeployment), temp)
 			if errors.IsNotFound(err) {
 				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 				return nil
@@ -281,7 +281,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			Namespace: ref.Namespace,
 			Name:      ref.Name,
 		}
-		if err := r.Client.Get(ctx, key, clusterDeployment); err != nil {
+		if err := r.Get(ctx, key, clusterDeployment); err != nil {
 			if errors.IsNotFound(err) {
 				log.Info("ClusterDeployment not found", "clusterDeployment", fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s (not found)", ref.Namespace, ref.Name))
