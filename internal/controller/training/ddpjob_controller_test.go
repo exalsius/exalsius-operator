@@ -33,8 +33,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 const (
@@ -226,13 +228,15 @@ var _ = Describe("DDPJob Controller", func() {
 				Namespace: namespace,
 			},
 			Spec: infrav1.ColonySpec{
-				K8sVersion: "v1.28.0",
 				ColonyClusters: []infrav1.ColonyCluster{
 					{
-						ClusterName:   name,
-						DockerEnabled: pointerTo(true),
-						Docker: &infrav1.DockerSpec{
-							Replicas: 1,
+						ClusterName: "test-cluster",
+						ClusterDeploymentSpec: &k0rdentv1alpha1.ClusterDeploymentSpec{
+							Template:   "test-template",
+							Credential: "test-credential",
+							Config: &apiextensionsv1.JSON{
+								Raw: []byte(`{"test": "test"}`),
+							},
 						},
 					},
 				},
@@ -246,8 +250,8 @@ var _ = Describe("DDPJob Controller", func() {
 			Phase:         "Ready",
 			ReadyClusters: 1,
 			TotalClusters: 1,
-			ClusterRefs: []*corev1.ObjectReference{{
-				Name:      name,
+			ClusterDeploymentRefs: []*corev1.ObjectReference{{
+				Name:      "test-cluster",
 				Namespace: namespace,
 			}},
 		}

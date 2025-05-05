@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+    #if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -54,18 +54,31 @@ jobs:
           set -e
         continue-on-error: true
 
-      - name: Show pod status
+      - name: Show pod status in exalsius-system namespace
         run: kubectl get pods -n exalsius-system -o wide
 
-      - name: Describe all pods
+      - name: Show pod status in kcm-system namespace
+        run: kubectl get pods -n kcm-system -o wide
+
+      - name: Describe all pods in exalsius-system namespace
         run: |
           for pod in $(kubectl get pods -n exalsius-system -o name); do
             echo "==== $pod ===="
             kubectl describe "$pod" -n exalsius-system || true
           done
 
-      - name: Get events
+      - name: Describe all pods in kcm-system namespace
+        run: |
+          for pod in $(kubectl get pods -n kcm-system -o name); do
+            echo "==== $pod ===="
+            kubectl describe "$pod" -n kcm-system || true
+          done
+
+      - name: Get events in exalsius-system namespace
         run: kubectl get events -n exalsius-system --sort-by=.metadata.creationTimestamp
+
+      - name: Get events in kcm-system namespace
+        run: kubectl get events -n kcm-system --sort-by=.metadata.creationTimestamp
 
       - name: Check Helm release status
         run: |
@@ -77,6 +90,32 @@ jobs:
           echo "Helm install failed. See debug output above."
           exit 1
 
+      - name: Wait for all pods in kcm-system namespace to be running
+        run: |
+          echo "Waiting for all pods in kcm-system namespace to be running..."
+          while true; do
+            not_running=$(kubectl -n kcm-system get pods --no-headers | awk '$3 != "Running" {print $1}')
+            if [ -z "$not_running" ]; then
+              echo "All pods in kcm-system namespace are running!"
+              break
+            fi
+            echo "Pods not yet running: $not_running"
+            sleep 10
+          done
+
+      - name: Wait for infrastructure provider to be ready
+        run: |
+          echo "Waiting for docker infrastructure provider to be ready..."
+          while true; do
+            status=$(kubectl -n kcm-system get infrastructureprovider docker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+            if [ "$status" = "True" ]; then
+              echo "Docker infrastructure provider is ready!"
+              break
+            fi
+            echo "Current condition status: $status"
+            sleep 10
+          done
+
       - name: Create a docker colony
         run: kubectl apply -f examples/docker-colony.yaml
 
@@ -84,7 +123,7 @@ jobs:
         run: |
           echo "Waiting for docker colony to be ready..."
           while true; do
-            status=$(kubectl get colony docker-colony -o jsonpath='{.status.phase}')
+            status=$(kubectl -n kcm-system get colony docker-colony -o jsonpath='{.status.phase}')
             if [ "$status" = "Ready" ]; then
               echo "Docker colony is ready!"
               break
@@ -97,7 +136,7 @@ jobs:
         run: |
           echo "Waiting for CAPI machine resources to be running..."
           while true; do
-            status=$(kubectl get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
+            status=$(kubectl -n kcm-system get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
             if [ -n "$status" ]; then
               echo "CAPI machine resources are running!"
               break
@@ -107,6 +146,6 @@ jobs:
           done
 
       - name: Show all colony resources
-        run: kubectl get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
+        run: kubectl -n kcm-system get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
 
         

@@ -33,9 +33,10 @@ metadata:
 apiVersion: infra.exalsius.ai/v1
 kind: Colony
 metadata:
-  name: docker-colony
+  name: k0rdent-docker-colony
   namespace: kcm-system
 spec:
+  k8sVersion: v1.30.0
   colonyClusters:
     - clusterName: docker-1
       clusterDeploymentSpec:
@@ -44,4 +45,16 @@ spec:
           config:
             clusterLabels: {}
             workersNumber: 2
+    - clusterName: aws-1
+      clusterDeploymentSpec:
+          template: aws-standalone-cp-0-2-0
+          credential: aws-cluster-identity-cred
+          config:
+            clusterLabels: {}
+            region: eu-central-1
+            controlPlane:
+              instanceType: t3.small
+            worker:
+              instanceType: t3.small
+
 

@@ -35,18 +35,6 @@ else
   echo "ulimit -n 65535"
 fi
 
-
-# install cert manager
-echo "installing cert-manager"
-
-helm repo add jetstack https://charts.jetstack.io --force-update
-helm upgrade --install cert-manager \
-  jetstack/cert-manager \
-  --namespace cert-manager \
-  --create-namespace \
-  --set crds.enabled=true \
-  --wait
-
 # install volcano
 echo "installing volcano"
 helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
@@ -55,13 +43,8 @@ helm upgrade --install volcano volcano-sh/volcano \
   --create-namespace \
   --wait
 
-echo "installing cluster-api operator"
-# install cluster-api-provider
-helm repo add capi-operator https://kubernetes-sigs.github.io/cluster-api-operator
-helm install capi-operator capi-operator/cluster-api-operator \
-  --create-namespace \
-  --namespace capi-system \
-  --wait
+echo "installing kcm"
+helm install kcm oci://ghcr.io/k0rdent/kcm/charts/kcm --version 0.3.0 -n kcm-system --create-namespace
 
 echo "installing exalsius-operator umbrella chart"
 helm dependency update "${SCRIPT_DIR}/../charts/exalsius-operator"
