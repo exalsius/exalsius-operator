@@ -103,6 +103,19 @@ jobs:
             sleep 10
           done
 
+      - name: Wait for infrastructure provider to be ready
+        run: |
+          echo "Waiting for docker infrastructure provider to be ready..."
+          while true; do
+            status=$(kubectl -n kcm-system get infrastructureprovider docker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+            if [ "$status" = "True" ]; then
+              echo "Docker infrastructure provider is ready!"
+              break
+            fi
+            echo "Current condition status: $status"
+            sleep 10
+          done
+
       - name: Create a docker colony
         run: kubectl apply -f examples/docker-colony.yaml
 
