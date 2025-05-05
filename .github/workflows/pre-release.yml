@@ -90,6 +90,19 @@ jobs:
           echo "Helm install failed. See debug output above."
           exit 1
 
+      - name: Wait for all pods in kcm-system namespace to be running
+        run: |
+          echo "Waiting for all pods in kcm-system namespace to be running..."
+          while true; do
+            not_running=$(kubectl -n kcm-system get pods --no-headers | awk '$3 != "Running" {print $1}')
+            if [ -z "$not_running" ]; then
+              echo "All pods in kcm-system namespace are running!"
+              break
+            fi
+            echo "Pods not yet running: $not_running"
+            sleep 10
+          done
+
       - name: Create a docker colony
         run: kubectl apply -f examples/docker-colony.yaml
 
