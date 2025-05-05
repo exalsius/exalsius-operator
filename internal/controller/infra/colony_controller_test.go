@@ -38,7 +38,7 @@ var _ = Describe("Colony Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
 		colony := &infrav1.Colony{}
 
@@ -57,7 +57,6 @@ var _ = Describe("Colony Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
 			resource := &infrav1.Colony{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
@@ -76,8 +75,38 @@ var _ = Describe("Colony Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+
+		It("should add a finalizer if missing", func() {
+			By("Creating a Colony without a finalizer")
+			resource := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "finalizer-test",
+					Namespace: "default",
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			controllerReconciler := &ColonyReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "finalizer-test",
+					Namespace: "default",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Fetch the updated resource and check for the finalizer
+			updated := &infrav1.Colony{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "finalizer-test",
+				Namespace: "default",
+			}, updated)).To(Succeed())
+			Expect(updated.Finalizers).To(ContainElement("colony.infra.exalsius.ai/finalizer"))
 		})
 	})
 })
