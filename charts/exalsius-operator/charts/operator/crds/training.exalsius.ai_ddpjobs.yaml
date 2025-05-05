@@ -40,26 +40,47 @@ spec:
             description: DDPJobSpec defines the desired state of DDPJob.
             properties:
               args:
+                description: Args describes the arguments to pass to the training
+                  script
                 items:
                   type: string
                 type: array
+              cpuJob:
+                description: |-
+                  CPUJob describes if the job should be running on a CPU.
+                  Mainly used for testing purposes, defaults to false if not provided
+                type: boolean
               gpuTypes:
+                description: |-
+                  GPUTypes describes the list of GPU types to use for training
+                  Currently, the user can specify different GPU types which the exalsius-cli uses to find the cheapest prices
+                  across different cloud providers and regions. When specified in the CRD, it does not have an effect yet-
                 items:
                   type: string
                 type: array
               image:
+                description: Image describes the docker image with the training code
                 type: string
               nprocPerNode:
+                description: NProcPerNode describes the number of processes per node
+                  (GPU per pod)
                 format: int32
                 type: integer
               parallelism:
+                description: Parallelism describes the number of GPUs (Pods) to use
+                  for training
                 format: int32
                 type: integer
               scriptPath:
+                description: ScriptPath describes the path to the training script
                 type: string
               targetColony:
+                description: |-
+                  TargetColony describes the colony to run the training job on.
+                  If not provided, the job will be run on the management cluster.
                 type: string
               wandbApiKey:
+                description: WandBAPIKey describes the WandB API key
                 type: string
             type: object
           status:
