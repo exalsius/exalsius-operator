@@ -4,7 +4,7 @@ go 1.24.1
 
 toolchain go1.24.2
 
-godebug default=go1.23
+godebug default=go1.24
 
 require (
 	github.com/K0rdent/kcm v0.3.0
