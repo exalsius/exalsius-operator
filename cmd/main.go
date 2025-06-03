@@ -44,7 +44,7 @@ import (
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 
-	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
 	k0sinfrav1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 
@@ -89,7 +89,7 @@ func init() {
 		setupLog.Error(err, "unable to add K0s Infrastructure to scheme")
 		os.Exit(1)
 	}
-	if err := k0rdentv1alpha1.AddToScheme(scheme); err != nil {
+	if err := k0rdentv1beta1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add K0rdent to scheme")
 		os.Exit(1)
 	}
