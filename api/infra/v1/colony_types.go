@@ -17,9 +17,9 @@ limitations under the License.
 package v1
 
 import (
-	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // ColonySpec defines the desired state of Colony.
@@ -32,7 +32,8 @@ type ColonyCluster struct {
 	// Name is the name of the cluster.
 	ClusterName string `json:"clusterName"`
 	// ClusterDeployment is the specification for the cluster deployment.
-	ClusterDeploymentSpec *k0rdentv1alpha1.ClusterDeploymentSpec `json:"clusterDeploymentSpec,omitempty"`
+	//ClusterDeploymentSpec *k0rdentv1beta1.ClusterDeploymentSpec `json:"clusterDeploymentSpec,omitempty"`
+	ClusterDeploymentSpec *runtime.RawExtension `json:"clusterDeploymentSpec,omitempty"`
 }
 
 // ColonyStatus defines the observed state of Colony.
