@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/exalsius/exalsius-operator/compare/v0.2.0...v0.3.0) (2025-06-06)
+
+
+### Features
+
+* **colony:** migrate to k0rdent-based colony implementation and refactor controller logic ([#44](https://github.com/exalsius/exalsius-operator/issues/44)) ([69d45db](https://github.com/exalsius/exalsius-operator/commit/69d45db2a6cf210aa40d360a6e521837e6ff8990))
+
 ## [0.2.0](https://github.com/exalsius/exalsius-operator/compare/v0.1.2...v0.2.0) (2025-04-23)
 
 
