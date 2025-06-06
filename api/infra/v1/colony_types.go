@@ -32,7 +32,7 @@ type ColonyCluster struct {
 	// Name is the name of the cluster.
 	ClusterName string `json:"clusterName"`
 	// ClusterDeployment is the specification for the cluster deployment.
-	//ClusterDeploymentSpec *k0rdentv1beta1.ClusterDeploymentSpec `json:"clusterDeploymentSpec,omitempty"`
+	// this is a *k0rdentv1beta1.ClusterDeploymentSpec
 	ClusterDeploymentSpec *runtime.RawExtension `json:"clusterDeploymentSpec,omitempty"`
 }
 
