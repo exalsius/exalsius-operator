@@ -34,7 +34,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	clusterdeployment "github.com/exalsius/exalsius-operator/internal/controller/infra/clusterdeployment"
 )
 
@@ -223,7 +223,7 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 	// Delete the ClusterDeployment object which will trigger the deletion of all associated resources
-	clusterDeployment := &k0rdentv1alpha1.ClusterDeployment{
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
@@ -243,7 +243,7 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 }
 
 // waitForDeletion polls until the given Cluster is no longer found.
-func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, clusterDeployment *k0rdentv1alpha1.ClusterDeployment, timeout, interval time.Duration) error {
+func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, clusterDeployment *k0rdentv1beta1.ClusterDeployment, timeout, interval time.Duration) error {
 	log := log.FromContext(ctx)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -254,7 +254,7 @@ func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, clusterDe
 		case <-timeoutCh:
 			return fmt.Errorf("timeout waiting for cluster %s deletion", clusterDeployment.Name)
 		case <-ticker.C:
-			temp := &k0rdentv1alpha1.ClusterDeployment{}
+			temp := &k0rdentv1beta1.ClusterDeployment{}
 			err := r.Get(ctx, client.ObjectKeyFromObject(clusterDeployment), temp)
 			if errors.IsNotFound(err) {
 				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
@@ -276,7 +276,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	orig := colony.DeepCopy()
 
 	for _, ref := range colony.Status.ClusterDeploymentRefs {
-		clusterDeployment := &k0rdentv1alpha1.ClusterDeployment{}
+		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{}
 		key := client.ObjectKey{
 			Namespace: ref.Namespace,
 			Name:      ref.Name,
@@ -293,7 +293,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 
 		clusterDeploymentConditions := clusterDeployment.GetConditions()
 		for _, condition := range *clusterDeploymentConditions {
-			if condition.Type == k0rdentv1alpha1.ReadyCondition && condition.Status == metav1.ConditionFalse {
+			if condition.Type == k0rdentv1beta1.ReadyCondition && condition.Status == metav1.ConditionFalse {
 				allReady = false
 				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 			}
