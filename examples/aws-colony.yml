@@ -4,11 +4,10 @@ metadata:
   name: aws-colony
   namespace: default
 spec:
-  k8sVersion: v1.30.0
   colonyClusters:
     - clusterName: aws-1
       clusterDeploymentSpec:
-        template: aws-standalone-cp-0-2-1
+        template: aws-standalone-cp-1-0-0
         credential: aws-credentials
         config:
           clusterLabels: {}

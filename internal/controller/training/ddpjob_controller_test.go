@@ -25,15 +25,16 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	volcanoalpha1 "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -222,6 +223,17 @@ var _ = Describe("DDPJob Controller", func() {
 	// TODO: this should be moved to a helper functions file
 	createTestColonyWithSecrets := func(name string, namespace string) error {
 		By("Creating a colony")
+
+		cdSpec := &k0rdentv1beta1.ClusterDeploymentSpec{
+			Template:   "test-template",
+			Credential: "test-credential",
+			Config: &apiextensionsv1.JSON{
+				Raw: []byte(`{"test": "test"}`),
+			},
+		}
+		cdSpecRaw, err := json.Marshal(cdSpec)
+		Expect(err).NotTo(HaveOccurred())
+
 		colony := &infrav1.Colony{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -231,12 +243,8 @@ var _ = Describe("DDPJob Controller", func() {
 				ColonyClusters: []infrav1.ColonyCluster{
 					{
 						ClusterName: "test-cluster",
-						ClusterDeploymentSpec: &k0rdentv1alpha1.ClusterDeploymentSpec{
-							Template:   "test-template",
-							Credential: "test-credential",
-							Config: &apiextensionsv1.JSON{
-								Raw: []byte(`{"test": "test"}`),
-							},
+						ClusterDeploymentSpec: &runtime.RawExtension{
+							Raw: cdSpecRaw,
 						},
 					},
 				},

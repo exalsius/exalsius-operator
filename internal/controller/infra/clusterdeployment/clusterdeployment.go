@@ -2,9 +2,10 @@ package clusterdeployment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
-	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -18,21 +19,26 @@ import (
 func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
-	clusterDeployment := &k0rdentv1alpha1.ClusterDeployment{
+	var k0rdentSpec k0rdentv1beta1.ClusterDeploymentSpec
+	if err := json.Unmarshal(colonyCluster.ClusterDeploymentSpec.Raw, &k0rdentSpec); err != nil {
+		log.Error(err, "failed to unmarshal ClusterDeploymentSpec")
+	}
+
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 		},
-		Spec: *colonyCluster.ClusterDeploymentSpec,
+		Spec: k0rdentSpec,
 	}
 
 	if err := controllerutil.SetControllerReference(colony, clusterDeployment, scheme); err != nil {
 		return fmt.Errorf("failed to set owner reference on ClusterDeployment: %w", err)
 	}
 
-	var actual *k0rdentv1alpha1.ClusterDeployment
+	var actual *k0rdentv1beta1.ClusterDeployment
 
-	existing := &k0rdentv1alpha1.ClusterDeployment{}
+	existing := &k0rdentv1beta1.ClusterDeployment{}
 	key := client.ObjectKey{Name: clusterDeployment.Name, Namespace: clusterDeployment.Namespace}
 	if err := c.Get(ctx, key, existing); err != nil {
 		if errors.IsNotFound(err) {

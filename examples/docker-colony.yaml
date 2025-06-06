@@ -39,7 +39,7 @@ spec:
   colonyClusters:
     - clusterName: docker-1
       clusterDeploymentSpec:
-          template: docker-hosted-cp-0-2-0
+          template: docker-hosted-cp-1-0-0
           credential: docker-stub-credential
           config:
             clusterLabels: {}

@@ -2,6 +2,7 @@ package clusterdeployment
 
 import (
 	"context"
+	"encoding/json"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	k0rdentv1alpha1 "github.com/K0rdent/kcm/api/v1alpha1"
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -27,18 +28,24 @@ var _ = Describe("EnsureClusterDeployment", func() {
 
 	BeforeEach(func() {
 		scheme = runtime.NewScheme()
-		_ = k0rdentv1alpha1.AddToScheme(scheme)
+		_ = k0rdentv1beta1.AddToScheme(scheme)
 		_ = infrav1.AddToScheme(scheme)
 		_ = corev1.AddToScheme(scheme)
 
+		cdSpec := &k0rdentv1beta1.ClusterDeploymentSpec{
+			Template:   "test-template",
+			Credential: "test-credential",
+			Config: &apiextensionsv1.JSON{
+				Raw: []byte(`{"test": "test"}`),
+			},
+		}
+		cdSpecRaw, err := json.Marshal(cdSpec)
+		Expect(err).NotTo(HaveOccurred())
+
 		colonyCluster = &infrav1.ColonyCluster{
 			ClusterName: "test-cluster",
-			ClusterDeploymentSpec: &k0rdentv1alpha1.ClusterDeploymentSpec{
-				Template:   "test-template",
-				Credential: "test-credential",
-				Config: &apiextensionsv1.JSON{
-					Raw: []byte(`{"test": "test"}`),
-				},
+			ClusterDeploymentSpec: &runtime.RawExtension{
+				Raw: cdSpecRaw,
 			},
 		}
 
@@ -70,7 +77,7 @@ var _ = Describe("EnsureClusterDeployment", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// Check that the ClusterDeployment was created
-		cd := &k0rdentv1alpha1.ClusterDeployment{}
+		cd := &k0rdentv1beta1.ClusterDeployment{}
 		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cd.Name).To(Equal("test-colony-test-cluster"))
@@ -81,7 +88,7 @@ var _ = Describe("EnsureClusterDeployment", func() {
 	})
 
 	It("should not create a duplicate if ClusterDeployment already exists", func() {
-		existing := &k0rdentv1alpha1.ClusterDeployment{
+		existing := &k0rdentv1beta1.ClusterDeployment{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-colony-test-cluster",
 				Namespace: "default",
