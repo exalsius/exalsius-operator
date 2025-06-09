@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+    #if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -126,7 +126,7 @@ jobs:
         run: |
           echo "Waiting for docker colony to be ready..."
           while true; do
-            status=$(kubectl -n kcm-system get colony docker-colony -o jsonpath='{.status.phase}')
+            status=$(kubectl -n default get colony docker-colony -o jsonpath='{.status.phase}')
             if [ "$status" = "Ready" ]; then
               echo "Docker colony is ready!"
               break
