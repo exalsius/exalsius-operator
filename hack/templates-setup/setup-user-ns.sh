@@ -4,10 +4,10 @@
 NAMESPACE="default"
 # The credentials that the user will be able to use to deploy clusters/colonies
 # the names should map to the names used for the credentials in the credentials-setup directory
-CREDENTIALS=("aws-credential" "gcp-credential")
+CREDENTIALS=("aws-credential" "gcp-credential" "docker-stub-credential")
 # The cluster template chains that the user will be able to use to deploy clusters/colonies
 # the names should map to the names used for the cluster template chains in the templates directory
-CLUSTER_TEMPLATE_CHAINS=("aws" "gcp")
+CLUSTER_TEMPLATE_CHAINS=("aws" "gcp" "docker")
 
 
 while [[ $# -gt 0 ]]; do
