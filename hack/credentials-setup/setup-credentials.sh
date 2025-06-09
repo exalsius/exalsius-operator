@@ -22,7 +22,7 @@ usage() {
     echo
     echo "Options:"
     echo "  --config CONFIG_FILE    Path to config file"
-    echo "  --provider PROVIDER     Cloud provider (aws, gcp)"
+    echo "  --provider PROVIDER     Cloud provider (aws, gcp, docker)"
     echo "  --description DESC      Description for the credentials (default: 'PROVIDER Credentials')"
     echo "  --name NAME             Name for the credential (default: 'PROVIDER-credentials')"
     echo
@@ -33,6 +33,8 @@ usage() {
     echo "For GCP, set one of these environment variables:"
     echo "  GCP_B64ENCODED_CREDENTIALS    Base64 encoded GCP service account key"
     echo "  GCP_CREDENTIALS_FILE         Path to GCP service account JSON key file"
+    echo
+    echo "For Docker, no additional environment variables are required"
     exit 1
 }
 
@@ -138,9 +140,12 @@ case "$PROVIDER" in
         fi
         process_templates "gcp"
         ;;
+    docker)
+        process_templates "docker"
+        ;;
     *)
         echo "Error: Unsupported provider $PROVIDER"
-        echo "Supported providers: aws, gcp"
+        echo "Supported providers: aws, gcp, docker"
         exit 1
         ;;
 esac
