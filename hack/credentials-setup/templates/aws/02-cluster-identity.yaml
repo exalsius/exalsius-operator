@@ -1,0 +1,11 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSClusterStaticIdentity
+metadata:
+  name: ${credential_name}-cluster-identity
+  labels:
+    k0rdent.mirantis.com/component: "kcm"
+spec:
+  secretRef: ${credential_name}-cluster-identity-secret
+  allowedNamespaces:
+    selector:
+      matchLabels: {}
