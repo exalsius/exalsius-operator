@@ -119,6 +119,12 @@ jobs:
             sleep 10
           done
 
+      - name: Create docker credentials
+        run: ./hack/credentials-setup/setup-credentials.sh --provider docker
+
+      - name: Create template chains
+        run: ./hack/templates-setup/setup-user-ns.sh
+
       - name: Create a docker colony
         run: kubectl apply -f examples/docker-colony.yaml
 
