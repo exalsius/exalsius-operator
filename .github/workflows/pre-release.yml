@@ -132,6 +132,7 @@ jobs:
               break
             fi
             echo "Current status: $status"
+            kubectl get colony
             sleep 10
           done
 
