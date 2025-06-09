@@ -56,7 +56,7 @@ spec:
                     clusterDeploymentSpec:
                       description: |-
                         ClusterDeployment is the specification for the cluster deployment.
-                        ClusterDeploymentSpec *k0rdentv1beta1.ClusterDeploymentSpec `json:"clusterDeploymentSpec,omitempty"`
+                        this is a *k0rdentv1beta1.ClusterDeploymentSpec
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
                     clusterName:
