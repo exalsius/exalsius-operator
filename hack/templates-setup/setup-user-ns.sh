@@ -7,8 +7,10 @@ NAMESPACE="default"
 CREDENTIALS=("aws-credential" "gcp-credential" "docker-stub-credential")
 # The cluster template chains that the user will be able to use to deploy clusters/colonies
 # the names should map to the names used for the cluster template chains in the templates directory
-CLUSTER_TEMPLATE_CHAINS=("aws" "gcp" "docker")
-
+CLUSTER_TEMPLATE_CHAINS=("aws" "gcp" "docker" "remote-cluster")
+# The service template chains that the user will be able to use to deploy services
+# the names should map to the names used for the service template chains in the templates directory
+SERVICE_TEMPLATE_CHAINS=("nvidia-gpu-operator")
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -30,6 +32,13 @@ while [[ $# -gt 0 ]]; do
         shift
       done
       ;;
+    -s|--service-templates)
+      shift
+      while [[ $# -gt 0 && ! $1 =~ ^- ]]; do
+        SERVICE_TEMPLATE_CHAINS+=("$1")
+        shift
+      done
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -41,7 +50,14 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 
 for template in templates/cluster-templates/*.yaml; do
   if [ -f "$template" ]; then
-    echo "Applying template: $template"
+    echo "Applying cluster template: $template"
+    kubectl apply -f "$template"
+  fi
+done
+
+for template in templates/service-templates/*.yaml; do
+  if [ -f "$template" ]; then
+    echo "Applying service template: $template"
     kubectl apply -f "$template"
   fi
 done
@@ -55,6 +71,7 @@ if kubectl get accessmanagement kcm &>/dev/null; then
       {
         "credentials": $(printf '%s\n' "${CREDENTIALS[@]}" | jq -R . | jq -s .),
         "clusterTemplateChains": $(printf '%s\n' "${CLUSTER_TEMPLATE_CHAINS[@]}" | jq -R . | jq -s .),
+        "serviceTemplateChains": $(printf '%s\n' "${SERVICE_TEMPLATE_CHAINS[@]}" | jq -R . | jq -s .),
         "targetNamespaces": {
           "list": ["$NAMESPACE"]
         }
@@ -76,6 +93,7 @@ spec:
   accessRules:
   - credentials: $(printf '%s\n' "${CREDENTIALS[@]}" | jq -R . | jq -s .)
     clusterTemplateChains: $(printf '%s\n' "${CLUSTER_TEMPLATE_CHAINS[@]}" | jq -R . | jq -s .)
+    serviceTemplateChains: $(printf '%s\n' "${SERVICE_TEMPLATE_CHAINS[@]}" | jq -R . | jq -s .)
     targetNamespaces:
       list:
         - $NAMESPACE
