@@ -1,0 +1,10 @@
+apiVersion: k0rdent.mirantis.com/v1alpha1
+kind: ClusterTemplateChain
+metadata:
+  name: gcp
+  namespace: kcm-system
+spec:
+  supportedTemplates:
+    - name: gcp-standalone-cp-1-0-0
+    - name: gcp-hosted-cp-1-0-0
+    - name: gcp-gke-1-0-0
