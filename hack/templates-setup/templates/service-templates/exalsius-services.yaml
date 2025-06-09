@@ -1,0 +1,12 @@
+apiVersion: k0rdent.mirantis.com/v1beta1
+kind: ServiceTemplateChain
+metadata:
+  name: exalsius-services
+  namespace: kcm-system
+spec:
+  supportedTemplates:
+    - name: gpu-operator-24-9-2
+    - name: amd-gpu-operator-v1-2-2
+    - name: cert-manager-1-17-2
+    - name: kuberay-operator-1-3-2
+    - name: ray-cluster-1-3-2

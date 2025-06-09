@@ -10,7 +10,7 @@ CREDENTIALS=("aws-credential" "gcp-credential" "docker-stub-credential")
 CLUSTER_TEMPLATE_CHAINS=("aws" "gcp" "docker" "remote-cluster")
 # The service template chains that the user will be able to use to deploy services
 # the names should map to the names used for the service template chains in the templates directory
-SERVICE_TEMPLATE_CHAINS=("nvidia-gpu-operator")
+SERVICE_TEMPLATE_CHAINS=("exalsius-services")
 
 while [[ $# -gt 0 ]]; do
   case $1 in
