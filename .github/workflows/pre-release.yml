@@ -132,7 +132,7 @@ jobs:
         run: |
           echo "Waiting for docker colony to be ready..."
           while true; do
-            status=$(kubectl -n default get colony docker-colony -o jsonpath='{.status.phase}')
+            status=$(kubectl get colony docker-colony -o jsonpath='{.status.phase}')
             if [ "$status" = "Ready" ]; then
               echo "Docker colony is ready!"
               break
