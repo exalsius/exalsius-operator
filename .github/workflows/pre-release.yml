@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-helm:
-    #if: startsWith(github.head_ref, 'release-please--')
+    if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -156,6 +156,6 @@ jobs:
           done
 
       - name: Show all colony resources
-        run: kubectl -n kcm-system get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
+        run: kubectl get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
 
         
