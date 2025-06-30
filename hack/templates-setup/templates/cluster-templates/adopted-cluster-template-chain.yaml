@@ -1,8 +1,8 @@
 apiVersion: k0rdent.mirantis.com/v1alpha1
 kind: ClusterTemplateChain
 metadata:
-  name: remote-cluster
+  name: adopted-cluster
   namespace: kcm-system
 spec:
   supportedTemplates:
-    - name: remote-cluster-1-0-0
+    - name: adopted-cluster-1-0-0
