@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+    #if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
