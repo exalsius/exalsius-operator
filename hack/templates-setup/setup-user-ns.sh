@@ -7,7 +7,7 @@ NAMESPACE="default"
 CREDENTIALS=("aws-credential" "gcp-credential" "docker-stub-credential")
 # The cluster template chains that the user will be able to use to deploy clusters/colonies
 # the names should map to the names used for the cluster template chains in the templates directory
-CLUSTER_TEMPLATE_CHAINS=("aws" "gcp" "docker" "remote-cluster")
+CLUSTER_TEMPLATE_CHAINS=("aws" "gcp" "docker" "remote-cluster" "adopted-cluster")
 # The service template chains that the user will be able to use to deploy services
 # the names should map to the names used for the service template chains in the templates directory
 SERVICE_TEMPLATE_CHAINS=("exalsius-services")
