@@ -8,7 +8,7 @@ spec:
     - clusterName: aws-1
       clusterDeploymentSpec:
         template: aws-standalone-cp-1-0-0
-        credential: aws-credentials
+        credential: aws-credential
         config:
           clusterLabels: {}
           region: eu-central-1
