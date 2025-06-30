@@ -1,8 +1,6 @@
 #!/bin/bash
 
-# Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # The namespace where the user will be able to deploy clusters/colonies
 NAMESPACE="default"
 # The credentials that the user will be able to use to deploy clusters/colonies
