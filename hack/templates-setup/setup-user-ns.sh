@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # The namespace where the user will be able to deploy clusters/colonies
 NAMESPACE="default"
 # The credentials that the user will be able to use to deploy clusters/colonies
@@ -48,14 +51,14 @@ done
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
-for template in templates/cluster-templates/*.yaml; do
+for template in "$SCRIPT_DIR/templates/cluster-templates"/*.yaml; do
   if [ -f "$template" ]; then
     echo "Applying cluster template: $template"
     kubectl apply -f "$template"
   fi
 done
 
-for template in templates/service-templates/*.yaml; do
+for template in "$SCRIPT_DIR/templates/service-templates"/*.yaml; do
   if [ -f "$template" ]; then
     echo "Applying service template: $template"
     kubectl apply -f "$template"
