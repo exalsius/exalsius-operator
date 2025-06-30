@@ -131,6 +131,8 @@ jobs:
       - name: Wait for docker colony to be ready
         run: |
           echo "Waiting for docker colony to be ready..."
+          echo "Sleeping for 10 seconds first"
+          sleep 10
           while true; do
             status=$(kubectl get colony docker-colony -o jsonpath='{.status.phase}')
             if [ "$status" = "Ready" ]; then
@@ -138,6 +140,7 @@ jobs:
               break
             fi
             echo "Current status: $status"
+            kubectl get colony
             sleep 10
           done
 
@@ -145,7 +148,7 @@ jobs:
         run: |
           echo "Waiting for CAPI machine resources to be running..."
           while true; do
-            status=$(kubectl -n kcm-system get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
+            status=$(kubectl get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
             if [ -n "$status" ]; then
               echo "CAPI machine resources are running!"
               break
