@@ -9,7 +9,7 @@
     "charts/exalsius-operator/charts/operator": {
         "release-type": "helm",
         "path": "charts/exalsius-operator/charts/operator",
-        "component": "exalsius-operator",
+        "component": "exalsius-operator-helm",
         "include-component-in-tag": true
     }
   },
