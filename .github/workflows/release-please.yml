@@ -47,39 +47,33 @@ jobs:
           tag="${{ needs.release-please.outputs.tag_name }}"
           operator_version="${tag#v}"
           echo "operator_version=$operator_version" >> "$GITHUB_OUTPUT"
-
+      
           helm_tag="${{ needs.release-please.outputs.helm_tag_name }}"
           if [ -n "$helm_tag" ]; then
-            helm_version=$(echo "$helm_tag" | sed -E 's/^exalsius-operator-chart-+v?//')
+            helm_version="${helm_tag#exalsius-operator-chart-v}"
+            echo "helm_version=$helm_version" >> "$GITHUB_OUTPUT"
           else
-            helm_version="$operator_version"
-          fi
-          echo "helm_version=$helm_version" >> "$GITHUB_OUTPUT"
-
-      - name: Enforce correct chart name
-        run: |
-          chart_name=$(yq eval '.name' charts/exalsius-operator/charts/operator/Chart.yaml)
-          if [ "$chart_name" != "exalsius-operator-chart" ]; then
-            echo "❌ Chart name must be 'exalsius-operator-chart' in Chart.yaml"
+            echo "Helm chart version not found in release outputs"
             exit 1
           fi
-
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod a+x /usr/local/bin/yq
 
       - name: Sync appVersion in Helm Chart
         run: |
           version="${{ steps.extract_version.outputs.operator_version }}"
           chart="charts/exalsius-operator/charts/operator/Chart.yaml"
-          yq eval ".appVersion = \"$version\"" -i "$chart"
-
+          echo "Updating appVersion to: $version"
+          sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart"
+          echo "Updated Chart.yaml appVersion:"
+          grep "^appVersion:" "$chart"
+      
       - name: Update Helm chart version
         run: |
           helm_version="${{ steps.extract_version.outputs.helm_version }}"
           chart="charts/exalsius-operator/charts/operator/Chart.yaml"
-          yq eval ".version = \"$helm_version\"" -i "$chart"
+          echo "Updating chart version to: $helm_version"
+          sed -i "s/^version: .*/version: \"$helm_version\"/" "$chart"
+          echo "Updated Chart.yaml version:"
+          grep "^version:" "$chart"
 
       - name: Log in to GHCR
         run: |
