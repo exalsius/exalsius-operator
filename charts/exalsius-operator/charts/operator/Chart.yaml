@@ -2,4 +2,4 @@ apiVersion: v2
 name: exalsius-operator-chart
 description: A Helm chart for the exalsius operator.
 version: 0.1.0
-appVersion: "0.3.1"
+appVersion: "0.3.2"

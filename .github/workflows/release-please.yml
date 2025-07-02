@@ -27,64 +27,84 @@ jobs:
           manifest-file: .release-please-manifest.json
           
   publish-helm:
-      name: Publish Helm Chart to GHCR
-      needs: release-please
-      if: needs.release-please.outputs.releases_created == 'true'
-      runs-on: ubuntu-latest
-      permissions:
-        packages: write
-        contents: read
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
+    name: Publish Helm Chart to GHCR
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        - name: Set up Helm
-          uses: azure/setup-helm@v4
-          with:
-            version: v4.3.0
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.3.0
 
-        - name: Extract versions
-          id: extract_version
-          run: |
-            # For the main operator version
-            tag="${{ needs.release-please.outputs.tag_name }}"
-            operator_version="${tag#v}"
-            echo "operator_version=$operator_version" >> "$GITHUB_OUTPUT"
-            
-            # For the Helm chart version (if available)
-            helm_tag="${{ needs.release-please.outputs.helm_tag_name }}"
-            if [ -n "$helm_tag" ]; then
-              echo "helm_version=${helm_tag#exalsius-operator-helm-v}" >> "$GITHUB_OUTPUT"
-            else
-              echo "helm_version=$operator_version" >> "$GITHUB_OUTPUT"
-            fi
+      - name: Extract versions
+        id: extract_version
+        run: |
+          tag="${{ needs.release-please.outputs.tag_name }}"
+          operator_version="${tag#v}"
+          echo "operator_version=$operator_version" >> "$GITHUB_OUTPUT"
 
-        - name: Sync appVersion in Helm Chart
-          run: |
-            version="${{ steps.extract_version.outputs.operator_version }}"
-            chart="charts/exalsius-operator/charts/operator/Chart.yaml"
-            echo "Patching appVersion to $version in $chart"
-            yq eval ".appVersion = \"$version\"" -i "$chart"
+          helm_tag="${{ needs.release-please.outputs.helm_tag_name }}"
+          if [ -n "$helm_tag" ]; then
+            helm_version=$(echo "$helm_tag" | sed -E 's/^exalsius-operator-chart-+v?//')
+          else
+            helm_version="$operator_version"
+          fi
+          echo "helm_version=$helm_version" >> "$GITHUB_OUTPUT"
 
-        - name: Update Helm chart version if needed
-          run: |
-            helm_version="${{ steps.extract_version.outputs.helm_version }}"
-            chart="charts/exalsius-operator/charts/operator/Chart.yaml"
-            echo "Updating chart version to $helm_version in $chart"
-            yq eval ".version = \"$helm_version\"" -i "$chart"
+      - name: Enforce correct chart name
+        run: |
+          chart_name=$(yq eval '.name' charts/exalsius-operator/charts/operator/Chart.yaml)
+          if [ "$chart_name" != "exalsius-operator-chart" ]; then
+            echo "❌ Chart name must be 'exalsius-operator-chart' in Chart.yaml"
+            exit 1
+          fi
 
-        - name: Log in to GHCR
-          run: |
-            echo "${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod a+x /usr/local/bin/yq
 
-        - name: Package Helm chart
-          run: |
-            cd charts/exalsius-operator/charts/operator
-            helm package .
-            ls -lh *.tgz
+      - name: Sync appVersion in Helm Chart
+        run: |
+          version="${{ steps.extract_version.outputs.operator_version }}"
+          chart="charts/exalsius-operator/charts/operator/Chart.yaml"
+          yq eval ".appVersion = \"$version\"" -i "$chart"
 
-        - name: Push chart to GHCR
-          run: |
-            cd charts/exalsius-operator/charts/operator
-            helm push exalsius-operator-*.tgz oci://ghcr.io/${{ github.repository_owner }}
+      - name: Update Helm chart version
+        run: |
+          helm_version="${{ steps.extract_version.outputs.helm_version }}"
+          chart="charts/exalsius-operator/charts/operator/Chart.yaml"
+          yq eval ".version = \"$helm_version\"" -i "$chart"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}" | \
+          helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package Helm chart
+        run: |
+          cd charts/exalsius-operator/charts/operator
+          helm package .
+          ls -lh *.tgz
+
+      - name: Push chart to GHCR
+        run: |
+          cd charts/exalsius-operator/charts/operator
+          helm push exalsius-operator-chart-*.tgz oci://ghcr.io/${{ github.repository_owner }}
+
+      - name: Make chart public on GHCR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}
+        run: |
+          curl -X PATCH https://api.github.com/orgs/${{ github.repository_owner }}/packages/container/exalsius-operator-chart \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -d '{"visibility":"public"}'
 
