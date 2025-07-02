@@ -1,4 +1,6 @@
 {
     "exalsius-operator": "0.3.1",
-    "exalsius-operator-helm": "0.1.0"
+    "exalsius-operator-helm": "0.1.0",
+    ".": "1.0.0",
+    "charts/exalsius-operator/charts/operator": "1.0.0"
 }
