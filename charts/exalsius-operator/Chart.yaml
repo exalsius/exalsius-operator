@@ -6,7 +6,7 @@ version: 0.1.0
 appVersion: "0.1.0"
 
 dependencies:
-  - name: exalsius-operator
+  - name: exalsius-operator-chart
     version: 0.1.0
     repository: file://charts/operator
     condition: operator.enabled
