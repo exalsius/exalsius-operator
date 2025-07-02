@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/exalsius/exalsius-operator/compare/v0.3.0...v0.3.1) (2025-07-02)
+
+
+### Bug Fixes
+
+* add release-please config file to also bump helm charts ([#53](https://github.com/exalsius/exalsius-operator/issues/53)) ([e7da1c6](https://github.com/exalsius/exalsius-operator/commit/e7da1c61105532b9edc2937e22ac4f372ec373b3))
+* helm chart release management ([#55](https://github.com/exalsius/exalsius-operator/issues/55)) ([12fc36c](https://github.com/exalsius/exalsius-operator/commit/12fc36c05e0a4c75e0a0babe04cbf301fcb1fa67))
+
 ## [0.3.0](https://github.com/exalsius/exalsius-operator/compare/v0.2.0...v0.3.0) (2025-06-30)
 
 
