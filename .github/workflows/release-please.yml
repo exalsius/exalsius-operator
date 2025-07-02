@@ -1,3 +1,5 @@
+name: release-please
+
 on:
   push:
     branches:
@@ -6,14 +8,60 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  
-name: release-please
+  packages: write
   
 jobs:
   release-please:
+    name: Release Please
     runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
       - uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}
           release-type: go
+
+  publish-helm:
+      name: Publish Helm Chart to GHCR
+      needs: release-please
+      if: needs.release-please.outputs.releases_created == 'true'
+      runs-on: ubuntu-latest
+      permissions:
+        packages: write
+        contents: read
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
+
+        - name: Set up Helm
+          uses: azure/setup-helm@v4
+          with:
+            version: v4.3.0
+
+        - name: Extract operator version
+          id: extract_version
+          run: |
+            tag="${{ needs.release-please.outputs.tag_name }}"
+            echo "operator_version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+        - name: Sync appVersion in Helm Chart
+          run: |
+            version="${{ steps.extract_version.outputs.operator_version }}"
+            chart="charts/exalsius-operator/charts/operator/Chart.yaml"
+            echo "Patching appVersion to $version in $chart"
+            yq eval ".appVersion = \"$version\"" -i "$chart"
+
+        - name: Log in to GHCR
+          run: |
+            echo "${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+        - name: Package Helm chart
+          run: |
+            cd charts/exalsius-operator/charts/operator
+            helm package .
+            ls -lh *.tgz
+
+        - name: Push chart to GHCR
+          run: |
+            helm push charts/exalsius-operator/charts/operator/exalsius-operator-*.tgz oci://ghcr.io/${{ github.repository_owner }}

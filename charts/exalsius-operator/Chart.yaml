@@ -1,5 +1,5 @@
 apiVersion: v2
-name: exalsius-operator
+name: exalsius-operator-umbrella
 description: A Helm umbrella chart to deploy the exalsius operator along with its dependencies.
 type: application
 version: 0.1.0
