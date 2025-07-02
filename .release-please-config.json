@@ -1,15 +1,16 @@
 {
     "packages": {
-      ".": {
+      "go-operator": {
+        "path": ".",
         "release-type": "go",
-        "bump-minor-pre-major": true,
-        "bump-patch-for-minor-pre-major": true,
+        "component": "exalsius-operator",
         "include-component-in-tag": false,
-        "component": "exalsius-operator"
+        "bump-minor-pre-major": true,
+        "bump-patch-for-minor-pre-major": true
       },
-      "charts/exalsius-operator/charts/operator": {
-        "release-type": "helm",
+      "helm-chart": {
         "path": "charts/exalsius-operator/charts/operator",
+        "release-type": "helm",
         "component": "exalsius-operator-helm",
         "include-component-in-tag": true
       }
