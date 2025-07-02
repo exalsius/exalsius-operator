@@ -1,5 +1,5 @@
 dependencies:
-- name: operator
+- name: exalsius-operator
   repository: file://charts/operator
   version: 0.1.0
 - name: skypilot-nightly
@@ -8,5 +8,5 @@ dependencies:
 - name: gpu-operator
   repository: https://helm.ngc.nvidia.com/nvidia
   version: v24.9.2
-digest: sha256:3f26700ebb962c48c03f7fea99a477bd339330b5d2bf570592ea90be9ebbe375
-generated: "2025-03-18T15:51:18.743694095+01:00"
+digest: sha256:f650cda71db43cfef12989807b7a9cb123e9c46181b27a986e78df930f0c7bc0
+generated: "2025-07-02T10:11:16.568488957+02:00"
