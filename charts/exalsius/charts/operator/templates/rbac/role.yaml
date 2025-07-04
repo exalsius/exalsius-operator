@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "operator.fullname" . }}-role
+  name: {{ include "exalsius-operator.fullname" . }}-role
 rules:
 - apiGroups: ["*"]
   resources: ["*"]

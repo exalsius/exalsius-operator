@@ -2,13 +2,13 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    app.kubernetes.io/name: {{ include "operator.name" . }}
+    app.kubernetes.io/name: {{ include "exalsius-operator.name" . }}
   name: manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "operator.fullname" . }}-role
+  name: {{ include "exalsius-operator.fullname" . }}-role
 subjects:
 - kind: ServiceAccount
-  name: {{ include "operator.fullname" . }}
+  name: {{ include "exalsius-operator.fullname" . }}
   namespace: {{ .Release.Namespace }}
