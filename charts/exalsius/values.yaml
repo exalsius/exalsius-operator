@@ -3,7 +3,6 @@
 operator:
   enabled: true
 
-
 capi:
   core_provider_version: v1.9.6
   k0smotron_control_plane_provider_version: v1.5.1
