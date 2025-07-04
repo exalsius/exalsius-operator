@@ -44,7 +44,7 @@ jobs:
 
       - name: Lint Helm Chart
         run: |
-          helm lint charts/exalsius-operator/ --with-subcharts
+          helm lint charts/exalsius/ --with-subcharts
 
       - name: Install exalsius-operator umbrella helm chart
         run: |

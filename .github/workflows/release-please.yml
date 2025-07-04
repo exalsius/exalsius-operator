@@ -50,7 +50,7 @@ jobs:
       
           helm_tag="${{ needs.release-please.outputs.helm_tag_name }}"
           if [ -n "$helm_tag" ]; then
-            helm_version="${helm_tag#exalsius-operator-chart-v}"
+            helm_version="${helm_tag#exalsius-operator-v}"
             echo "helm_version=$helm_version" >> "$GITHUB_OUTPUT"
           else
             echo "Helm chart version not found in release outputs"
@@ -60,7 +60,7 @@ jobs:
       - name: Sync appVersion in Helm Chart
         run: |
           version="${{ steps.extract_version.outputs.operator_version }}"
-          chart="charts/exalsius-operator/charts/operator/Chart.yaml"
+          chart="charts/exalsius/charts/operator/Chart.yaml"
           echo "Updating appVersion to: $version"
           sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart"
           echo "Updated Chart.yaml appVersion:"
@@ -69,7 +69,7 @@ jobs:
       - name: Update Helm chart version
         run: |
           helm_version="${{ steps.extract_version.outputs.helm_version }}"
-          chart="charts/exalsius-operator/charts/operator/Chart.yaml"
+          chart="charts/exalsius/charts/operator/Chart.yaml"
           echo "Updating chart version to: $helm_version"
           sed -i "s/^version: .*/version: \"$helm_version\"/" "$chart"
           echo "Updated Chart.yaml version:"
@@ -82,20 +82,20 @@ jobs:
 
       - name: Package Helm chart
         run: |
-          cd charts/exalsius-operator/charts/operator
+          cd charts/exalsius/charts/operator
           helm package .
           ls -lh *.tgz
 
       - name: Push chart to GHCR
         run: |
-          cd charts/exalsius-operator/charts/operator
-          helm push exalsius-operator-chart-*.tgz oci://ghcr.io/${{ github.repository_owner }}
+          cd charts/exalsius/charts/operator
+          helm push exalsius-operator-*.tgz oci://ghcr.io/${{ github.repository_owner }}
 
       - name: Make chart public on GHCR
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}
         run: |
-          curl -X PATCH https://api.github.com/orgs/${{ github.repository_owner }}/packages/container/exalsius-operator-chart \
+          curl -X PATCH https://api.github.com/orgs/${{ github.repository_owner }}/packages/container/exalsius-operator \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -d '{"visibility":"public"}'

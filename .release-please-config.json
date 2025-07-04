@@ -9,9 +9,9 @@
         "bump-patch-for-minor-pre-major": true
       },
       "helm-chart": {
-        "path": "charts/exalsius-operator/charts/operator",
+        "path": "charts/exalsius/charts/operator",
         "release-type": "helm",
-        "component": "exalsius-operator-chart",
+        "component": "exalsius-operator",
         "include-component-in-tag": true
       }
     },
