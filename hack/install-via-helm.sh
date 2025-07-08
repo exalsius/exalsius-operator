@@ -3,6 +3,9 @@
 set -e
 
 NAMESPACE=exalsius-system
+KORDENT_VERSION=1.0.0
+POLL_INTERVAL=10
+KOF_NAMESPACE=kof
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -45,9 +48,11 @@ helm upgrade --install volcano volcano-sh/volcano \
   --create-namespace \
   --wait
 
+# install kcm
 echo "installing kcm"
-helm install kcm oci://ghcr.io/k0rdent/kcm/charts/kcm --version 1.0.0 -n kcm-system --create-namespace
+helm install kcm oci://ghcr.io/k0rdent/kcm/charts/kcm --version $KORDENT_VERSION -n kcm-system --create-namespace --wait
 
+# install exalsius umbrella chart
 echo "installing exalsius-operator umbrella chart"
 helm dependency update "${SCRIPT_DIR}/../charts/exalsius"
 helm upgrade --install exalsius "${SCRIPT_DIR}/../charts/exalsius" \
@@ -56,3 +61,85 @@ helm upgrade --install exalsius "${SCRIPT_DIR}/../charts/exalsius" \
   $VALUES_ARG \
   --timeout 30m \
   --wait
+
+# We have to wait for CRDs to be available before installing kof
+CRD_NAME="clusterprofiles.config.projectsveltos.io"
+echo "Waiting until CRD '$CRD_NAME' is installed..."
+while true; do
+  if kubectl get crd "$CRD_NAME" > /dev/null 2>&1; then
+    echo "CRD '$CRD_NAME' is installed."
+    break
+  else
+    echo "CRD '$CRD_NAME' not found yet. Retrying in $POLL_INTERVAL seconds..."
+    sleep $POLL_INTERVAL
+  fi
+done
+
+# install kof
+echo "installing kof"
+kubectl create namespace $KOF_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace $KOF_NAMESPACE istio-injection=enabled
+helm upgrade -i --reset-values --wait \
+  --create-namespace -n istio-system kof-istio \
+  oci://ghcr.io/k0rdent/kof/charts/kof-istio --version $KORDENT_VERSION
+
+helm upgrade -i --reset-values --wait \
+  --create-namespace -n $KOF_NAMESPACE kof-operators \
+  oci://ghcr.io/k0rdent/kof/charts/kof-operators --version $KORDENT_VERSION
+
+helm upgrade -i --reset-values --wait -n $KOF_NAMESPACE kof-mothership \
+  --set kcm.installTemplates=true \
+  oci://ghcr.io/k0rdent/kof/charts/kof-mothership --version $KORDENT_VERSION
+
+if [ "$(printf '%s\n' "$KORDENT_VERSION" "1.1.0" | sort -V | head -n1)" = "$KORDENT_VERSION" ] && [ "$KORDENT_VERSION" != "1.1.0" ]; then
+  echo "Since we use KOF version ("$KORDENT_VERSION") less than "1.1.0", we need to apply some modifications..."
+  # Since we use KOF version less than 1.1.0, we need to additionally do:
+  kubectl apply --server-side --force-conflicts \
+    -f https://github.com/grafana/grafana-operator/releases/download/v5.18.0/crds.yaml
+fi
+
+echo "Waiting until valid=true for all ServiceTemplate objects..."
+while true; do
+  # Fetch current statuses
+  statuses=$(kubectl get svctmpl -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.status.valid}{"\n"}{end}')
+  # Assume success initially
+  all_valid=true
+  while IFS='|' read -r ns name valid; do
+    if [[ "$valid" != "true" ]]; then
+      echo "Not ready: $ns/$name valid=$valid"
+      all_valid=false
+    fi
+  done <<< "$statuses"
+
+  if [[ "$all_valid" == "true" ]]; then
+    echo "All ServiceTemplate objects have valid=true."
+    break
+  fi
+
+  echo "Retrying in $POLL_INTERVAL seconds..."
+  sleep $POLL_INTERVAL
+done
+
+echo "Waiting until all pods in namespace '$KOF_NAMESPACE' are Running..."
+while true; do
+  # Get pods and their phases
+  statuses=$(kubectl get pods -n "$KOF_NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.phase}{"\n"}{end}')
+  
+  # Assume all are running
+  all_running=true
+
+  while IFS='|' read -r name phase; do
+    if [[ "$phase" != "Running" ]]; then
+      echo "Pod $name is in phase $phase"
+      all_running=false
+    fi
+  done <<< "$statuses"
+
+  if [[ "$all_running" == "true" ]]; then
+    echo "All pods in namespace '$KOF_NAMESPACE' are Running."
+    break
+  fi
+
+  echo "Retrying in $POLL_INTERVAL seconds..."
+  sleep $POLL_INTERVAL
+done
