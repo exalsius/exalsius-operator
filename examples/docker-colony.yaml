@@ -1,15 +1,34 @@
 apiVersion: infra.exalsius.ai/v1
 kind: Colony
 metadata:
-  name: docker-colony
+  name: docker-regional-colony
   namespace: default
 spec:
   colonyClusters:
-    - clusterName: docker-1
+    - clusterName: docker-regional
       clusterDeploymentSpec:
           template: docker-hosted-cp-1-0-0
-          credential: docker-stub-credential
+          credential: docker-regional-cluster-stub-credential
           config:
-            clusterLabels: {}
+            clusterLabels:
+              k0rdent.mirantis.com/istio-role: child
+              k0rdent.mirantis.com/kof-cluster-role: regional
+            workersNumber: 2
+---
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  name: docker-child-colony
+  namespace: default
+spec:
+  colonyClusters:
+    - clusterName: docker-child
+      clusterDeploymentSpec:
+          template: docker-hosted-cp-1-0-0
+          credential: docker-child-cluster-stub-credential
+          config:
+            clusterLabels:
+              k0rdent.mirantis.com/istio-role: child
+              k0rdent.mirantis.com/kof-cluster-role: child
             workersNumber: 2
 
