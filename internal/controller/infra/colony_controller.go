@@ -97,6 +97,12 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
+	// Clean up ClusterDeployments that are no longer in the spec
+	if err := clusterdeployment.CleanupOrphanedClusterDeployments(ctx, r.Client, colony); err != nil {
+		log.Error(err, "Failed to cleanup orphaned cluster deployments")
+		return ctrl.Result{}, err
+	}
+
 	for _, colonyCluster := range colony.Spec.ColonyClusters {
 		if colonyCluster.ClusterDeploymentSpec != nil {
 			if err := clusterdeployment.EnsureClusterDeployment(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
@@ -274,6 +280,10 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	var notReadyClusters []string
 
 	orig := colony.DeepCopy()
+
+	// initialize status fields
+	colony.Status.TotalClusters = 0
+	colony.Status.ReadyClusters = 0
 
 	for _, ref := range colony.Status.ClusterDeploymentRefs {
 		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{}
