@@ -41,8 +41,8 @@ type ColonyStatus struct {
 	Phase                 string                    `json:"phase,omitempty"`
 	Conditions            []metav1.Condition        `json:"conditions,omitempty"`
 	ClusterDeploymentRefs []*corev1.ObjectReference `json:"clusterDeploymentRefs,omitempty"`
-	TotalClusters         int32                     `json:"totalClusters"`
-	ReadyClusters         int32                     `json:"readyClusters"`
+	TotalClusters         int32                     `json:"totalClusters,omitempty"`
+	ReadyClusters         int32                     `json:"readyClusters,omitempty"`
 }
 
 // +kubebuilder:object:root=true
