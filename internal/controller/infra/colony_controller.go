@@ -64,21 +64,30 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	if colony.GetDeletionTimestamp() != nil {
 		log.Info("Colony marked for deletion. Shutting down cluster resources and removing finalizer.")
-		colony.Status.Phase = "Deleting"
-		if err := r.Status().Update(ctx, colony); err != nil {
+
+		// Update status with retry mechanism to handle conflicts
+		if err := r.updateColonyStatusWithRetry(ctx, colony, "Deleting"); err != nil {
 			log.Error(err, "Failed to update Colony status to deleting")
 			return ctrl.Result{}, err
 		}
+
 		for _, colonyCluster := range colony.Spec.ColonyClusters {
 			if err := r.cleanupAssociatedResources(ctx, colony, &colonyCluster); err != nil {
 				log.Error(err, "Failed to cleanup associated cluster resources for ColonyCluster", "ColonyCluster.Name", colonyCluster.ClusterName)
 				return ctrl.Result{}, err
 			}
 		}
+
+		// Refresh the colony object before removing finalizer
 		if err := r.Get(ctx, req.NamespacedName, colony); err != nil {
+			if errors.IsNotFound(err) {
+				// Colony already deleted, nothing more to do
+				return ctrl.Result{}, nil
+			}
 			log.Error(err, "Failed to refetch Colony before removing finalizer")
 			return ctrl.Result{}, err
 		}
+
 		controllerutil.RemoveFinalizer(colony, colonyFinalizer)
 		if err := r.Update(ctx, colony); err != nil {
 			log.Error(err, "Failed to remove finalizer from Colony")
@@ -339,6 +348,45 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	}
 
 	return nil
+}
+
+// updateColonyStatusWithRetry handles status updates with conflict resolution
+func (r *ColonyReconciler) updateColonyStatusWithRetry(ctx context.Context, colony *infrav1.Colony, phase string) error {
+	log := log.FromContext(ctx)
+	maxRetries := 5
+	backoff := time.Millisecond * 100
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Get the latest version of the object
+		latest := &infrav1.Colony{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(colony), latest); err != nil {
+			if errors.IsNotFound(err) {
+				// Object no longer exists, nothing to update
+				return nil
+			}
+			return fmt.Errorf("failed to get latest version of Colony: %w", err)
+		}
+
+		// Update the status
+		latest.Status.Phase = phase
+
+		// Try to update
+		if err := r.Status().Update(ctx, latest); err != nil {
+			if errors.IsConflict(err) {
+				log.Info("Conflict detected, retrying status update", "attempt", attempt+1, "name", latest.Name)
+				time.Sleep(backoff)
+				backoff *= 2 // Exponential backoff
+				continue
+			}
+			return fmt.Errorf("failed to update Colony status: %w", err)
+		}
+
+		// Update successful, copy the updated object back to colony
+		*colony = *latest
+		return nil
+	}
+
+	return fmt.Errorf("failed to update Colony status after %d attempts due to conflicts", maxRetries)
 }
 
 // SetupWithManager sets up the controller with the Manager.

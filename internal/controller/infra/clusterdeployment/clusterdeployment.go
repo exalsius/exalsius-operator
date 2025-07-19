@@ -62,10 +62,9 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 		if !reflect.DeepEqual(existing.Spec, clusterDeployment.Spec) {
 			log.Info("ClusterDeployment spec has changed, updating", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 
-			// Update the existing ClusterDeployment with the new spec
-			existing.Spec = clusterDeployment.Spec
-			if err := c.Update(ctx, existing); err != nil {
-				log.Error(err, "Failed to update cluster deployment")
+			// Retry update with conflict resolution
+			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec); err != nil {
+				log.Error(err, "Failed to update cluster deployment after retries")
 				return err
 			}
 			log.Info("Updated cluster deployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
@@ -99,6 +98,41 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 	}
 
 	return nil
+}
+
+// updateClusterDeploymentWithRetry handles the update with conflict resolution
+func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, existing *k0rdentv1beta1.ClusterDeployment, newSpec k0rdentv1beta1.ClusterDeploymentSpec) error {
+	log := log.FromContext(ctx)
+	maxRetries := 5
+	backoff := time.Millisecond * 100
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Get the latest version of the object
+		latest := &k0rdentv1beta1.ClusterDeployment{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(existing), latest); err != nil {
+			return fmt.Errorf("failed to get latest version of ClusterDeployment: %w", err)
+		}
+
+		// Update the spec
+		latest.Spec = newSpec
+
+		// Try to update
+		if err := c.Update(ctx, latest); err != nil {
+			if errors.IsConflict(err) {
+				log.Info("Conflict detected, retrying update", "attempt", attempt+1, "name", latest.Name)
+				time.Sleep(backoff)
+				backoff *= 2 // Exponential backoff
+				continue
+			}
+			return fmt.Errorf("failed to update ClusterDeployment: %w", err)
+		}
+
+		// Update successful, copy the updated object back to existing
+		*existing = *latest
+		return nil
+	}
+
+	return fmt.Errorf("failed to update ClusterDeployment after %d attempts due to conflicts", maxRetries)
 }
 
 // CleanupOrphanedClusterDeployments removes ClusterDeployment objects that are no longer
