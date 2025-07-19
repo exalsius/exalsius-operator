@@ -1,0 +1,18 @@
+apiVersion: k0rdent.mirantis.com/v1beta1
+kind: ServiceTemplate
+metadata:
+  name: jupyter-notebook-template
+  namespace: default
+  labels:
+    app: jupyter-notebook
+    template: workspace
+spec:
+  helm:
+    chartSource:
+      remoteSourceSpec:
+        git:
+          url: https://github.com/exalsius/exalsius-workspace-templates.git
+          ref:
+            branch: main
+          interval: 10m
+      path: "./workspace-templates/jupyter-notebook"
