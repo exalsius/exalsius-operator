@@ -4,6 +4,7 @@
 resources:
 - bases/infra.exalsius.ai_colonies.yaml
 - bases/training.exalsius.ai_ddpjobs.yaml
+- bases/infra.exalsius.ai_users.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

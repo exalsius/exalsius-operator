@@ -48,9 +48,10 @@ import (
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
 	k0sinfrav1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 
+	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
+
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
-	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -256,6 +257,13 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Colony")
+		os.Exit(1)
+	}
+	if err = (&infracontroller.UserReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "User")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

@@ -5,6 +5,32 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - infra.exalsius.ai
+  resources:
+  - users
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infra.exalsius.ai
+  resources:
+  - users/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - infra.exalsius.ai
+  resources:
+  - users/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - training.exalsius.ai
   resources:
   - ddpjobs
