@@ -32,6 +32,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	// +kubebuilder:scaffold:imports
 )
@@ -62,11 +63,18 @@ var _ = BeforeSuite(func() {
 	err = infrav1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	// Add k0rdent types to the scheme for testing
+	err = k0rdentv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "..", "test", "crds"), // Add test CRDs
+		},
 		ErrorIfCRDPathMissing: true,
 	}
 
