@@ -180,9 +180,6 @@ spec:
               totalClusters:
                 format: int32
                 type: integer
-            required:
-            - readyClusters
-            - totalClusters
             type: object
         type: object
     served: true
