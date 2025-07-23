@@ -71,8 +71,8 @@ func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	// Add finalizer if not present
-	if !containsString(user.ObjectMeta.Finalizers, userFinalizerName) {
-		user.ObjectMeta.Finalizers = append(user.ObjectMeta.Finalizers, userFinalizerName)
+	if !containsString(user.Finalizers, userFinalizerName) {
+		user.Finalizers = append(user.Finalizers, userFinalizerName)
 		if err := r.Update(ctx, user); err != nil {
 			logger.Error(err, "Failed to add finalizer")
 			return ctrl.Result{}, err
@@ -115,7 +115,7 @@ func (r *UserReconciler) handleDeletion(ctx context.Context, user *infrav1.User)
 	}
 
 	// Remove finalizer
-	user.ObjectMeta.Finalizers = removeString(user.ObjectMeta.Finalizers, userFinalizerName)
+	user.Finalizers = removeString(user.Finalizers, userFinalizerName)
 	if err := r.Update(ctx, user); err != nil {
 		logger.Error(err, "Failed to remove finalizer")
 		return ctrl.Result{}, err
