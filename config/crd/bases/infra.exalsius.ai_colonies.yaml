@@ -59,6 +59,12 @@ spec:
                         This is stored as RawExtension to avoid CRD validation issues with k0rdent types
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    clusterLabels:
+                      additionalProperties:
+                        type: string
+                      description: ClusterLabels are the labels to be applied to the
+                        ClusterDeployment resource
+                      type: object
                     clusterName:
                       description: Name is the name of the cluster.
                       type: string
