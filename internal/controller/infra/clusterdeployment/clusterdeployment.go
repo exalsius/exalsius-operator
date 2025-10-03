@@ -35,6 +35,7 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
+			Labels:    colonyCluster.ClusterLabels,
 		},
 		Spec: *spec,
 	}
@@ -62,18 +63,32 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 	} else {
 		log.Info("Cluster deployment already exists, checking for updates", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 
-		// Check if the spec has changed
-		if !reflect.DeepEqual(existing.Spec, clusterDeployment.Spec) {
-			log.Info("ClusterDeployment spec has changed, updating", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
+		// Merge labels: preserve existing labels and add/update our labels
+		mergedLabels := mergeLabels(existing.Labels, colonyCluster.ClusterLabels)
+
+		// Check if the spec or our labels have changed
+		specChanged := !reflect.DeepEqual(existing.Spec, clusterDeployment.Spec)
+		labelsChanged := !reflect.DeepEqual(existing.Labels, mergedLabels)
+
+		if specChanged || labelsChanged {
+			log.Info("ClusterDeployment spec or labels have changed, updating",
+				"name", clusterDeployment.Name,
+				"namespace", clusterDeployment.Namespace,
+				"specChanged", specChanged,
+				"labelsChanged", labelsChanged)
+
+			// Update the existing object with new spec and merged labels
+			existing.Spec = clusterDeployment.Spec
+			existing.Labels = mergedLabels
 
 			// Retry update with conflict resolution
-			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec); err != nil {
+			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec, mergedLabels); err != nil {
 				log.Error(err, "Failed to update cluster deployment after retries")
 				return err
 			}
 			log.Info("Updated cluster deployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 		} else {
-			log.Info("ClusterDeployment spec unchanged", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
+			log.Info("ClusterDeployment spec and labels unchanged", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 		}
 		actual = existing
 	}
@@ -105,7 +120,7 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 }
 
 // updateClusterDeploymentWithRetry handles the update with conflict resolution
-func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, existing *k0rdentv1beta1.ClusterDeployment, newSpec k0rdentv1beta1.ClusterDeploymentSpec) error {
+func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, existing *k0rdentv1beta1.ClusterDeployment, newSpec k0rdentv1beta1.ClusterDeploymentSpec, newLabels map[string]string) error {
 	log := log.FromContext(ctx)
 	maxRetries := 5
 	backoff := time.Millisecond * 100
@@ -117,8 +132,9 @@ func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, exis
 			return fmt.Errorf("failed to get latest version of ClusterDeployment: %w", err)
 		}
 
-		// Update the spec
+		// Update the spec and labels
 		latest.Spec = newSpec
+		latest.Labels = newLabels
 
 		// Try to update
 		if err := c.Update(ctx, latest); err != nil {
@@ -267,4 +283,20 @@ func waitForClusterDeletion(ctx context.Context, c client.Client, clusterDeploym
 			log.Info("Waiting for cluster deletion", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 		}
 	}
+}
+
+// mergeLabels merges existing labels with new labels from ColonyCluster
+// It preserves existing labels and adds/updates only the labels specified in the ColonyCluster
+func mergeLabels(existingLabels, newLabels map[string]string) map[string]string {
+	merged := make(map[string]string)
+
+	for k, v := range existingLabels {
+		merged[k] = v
+	}
+
+	for k, v := range newLabels {
+		merged[k] = v
+	}
+
+	return merged
 }
