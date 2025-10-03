@@ -38,6 +38,8 @@ type ColonyCluster struct {
 	// ClusterDeployment is the specification for the cluster deployment.
 	// This is stored as RawExtension to avoid CRD validation issues with k0rdent types
 	ClusterDeploymentSpec *runtime.RawExtension `json:"clusterDeploymentSpec,omitempty"`
+	// ClusterLabels are the labels to be applied to the ClusterDeployment resource
+	ClusterLabels map[string]string `json:"clusterLabels,omitempty"`
 }
 
 // GetClusterDeploymentSpec returns the ClusterDeploymentSpec as a typed object
