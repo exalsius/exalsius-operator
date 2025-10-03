@@ -232,6 +232,10 @@ var _ = Describe("DDPJob Controller", func() {
 				ColonyClusters: []infrav1.ColonyCluster{
 					{
 						ClusterName: "test-cluster",
+						ClusterLabels: map[string]string{
+							"environment": "test",
+							"purpose":     "training",
+						},
 					},
 				},
 			},
