@@ -192,7 +192,6 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	var aggregatedKubeconfigSecret corev1.Secret
 	if err := r.Get(ctx, client.ObjectKey{Namespace: aggregatedSecretNamespace, Name: aggregatedSecretName}, &aggregatedKubeconfigSecret); err != nil {
 		if errors.IsNotFound(err) {
-			// The secret doesn't exist, so create it.
 			log.Info("Aggregated kubeconfig secret not found. Creating...")
 			aggregatedKubeconfigSecret = corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
