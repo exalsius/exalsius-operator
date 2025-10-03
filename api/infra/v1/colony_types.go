@@ -17,6 +17,10 @@ limitations under the License.
 package v1
 
 import (
+	"encoding/json"
+	"fmt"
+
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,8 +36,37 @@ type ColonyCluster struct {
 	// Name is the name of the cluster.
 	ClusterName string `json:"clusterName"`
 	// ClusterDeployment is the specification for the cluster deployment.
-	// this is a *k0rdentv1beta1.ClusterDeploymentSpec
+	// This is stored as RawExtension to avoid CRD validation issues with k0rdent types
 	ClusterDeploymentSpec *runtime.RawExtension `json:"clusterDeploymentSpec,omitempty"`
+}
+
+// GetClusterDeploymentSpec returns the ClusterDeploymentSpec as a typed object
+func (cc *ColonyCluster) GetClusterDeploymentSpec() (*k0rdentv1beta1.ClusterDeploymentSpec, error) {
+	if cc.ClusterDeploymentSpec == nil {
+		return nil, nil
+	}
+
+	var spec k0rdentv1beta1.ClusterDeploymentSpec
+	if err := json.Unmarshal(cc.ClusterDeploymentSpec.Raw, &spec); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ClusterDeploymentSpec: %w", err)
+	}
+	return &spec, nil
+}
+
+// SetClusterDeploymentSpec sets the ClusterDeploymentSpec from a typed object
+func (cc *ColonyCluster) SetClusterDeploymentSpec(spec *k0rdentv1beta1.ClusterDeploymentSpec) error {
+	if spec == nil {
+		cc.ClusterDeploymentSpec = nil
+		return nil
+	}
+
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return fmt.Errorf("failed to marshal ClusterDeploymentSpec: %w", err)
+	}
+
+	cc.ClusterDeploymentSpec = &runtime.RawExtension{Raw: raw}
+	return nil
 }
 
 // ColonyStatus defines the observed state of Colony.

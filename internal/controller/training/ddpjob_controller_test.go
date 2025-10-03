@@ -25,7 +25,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -224,16 +223,6 @@ var _ = Describe("DDPJob Controller", func() {
 	createTestColonyWithSecrets := func(name string, namespace string) error {
 		By("Creating a colony")
 
-		cdSpec := &k0rdentv1beta1.ClusterDeploymentSpec{
-			Template:   "test-template",
-			Credential: "test-credential",
-			Config: &apiextensionsv1.JSON{
-				Raw: []byte(`{"test": "test"}`),
-			},
-		}
-		cdSpecRaw, err := json.Marshal(cdSpec)
-		Expect(err).NotTo(HaveOccurred())
-
 		colony := &infrav1.Colony{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -243,13 +232,20 @@ var _ = Describe("DDPJob Controller", func() {
 				ColonyClusters: []infrav1.ColonyCluster{
 					{
 						ClusterName: "test-cluster",
-						ClusterDeploymentSpec: &runtime.RawExtension{
-							Raw: cdSpecRaw,
-						},
 					},
 				},
 			},
 		}
+
+		// Set the ClusterDeploymentSpec using the helper method
+		spec := &k0rdentv1beta1.ClusterDeploymentSpec{
+			Template:   "test-template",
+			Credential: "test-credential",
+			Config: &apiextensionsv1.JSON{
+				Raw: []byte(`{"test": "test"}`),
+			},
+		}
+		Expect(colony.Spec.ColonyClusters[0].SetClusterDeploymentSpec(spec)).To(Succeed())
 		if err := k8sClient.Create(ctx, colony); err != nil {
 			return fmt.Errorf("failed to create colony: %w", err)
 		}

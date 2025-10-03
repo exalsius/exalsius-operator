@@ -2,7 +2,6 @@ package clusterdeployment
 
 import (
 	"context"
-	"encoding/json"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,22 +31,18 @@ var _ = Describe("EnsureClusterDeployment", func() {
 		_ = infrav1.AddToScheme(scheme)
 		_ = corev1.AddToScheme(scheme)
 
-		cdSpec := &k0rdentv1beta1.ClusterDeploymentSpec{
+		colonyCluster = &infrav1.ColonyCluster{
+			ClusterName: "test-cluster",
+		}
+
+		spec := &k0rdentv1beta1.ClusterDeploymentSpec{
 			Template:   "test-template",
 			Credential: "test-credential",
 			Config: &apiextensionsv1.JSON{
 				Raw: []byte(`{"test": "test"}`),
 			},
 		}
-		cdSpecRaw, err := json.Marshal(cdSpec)
-		Expect(err).NotTo(HaveOccurred())
-
-		colonyCluster = &infrav1.ColonyCluster{
-			ClusterName: "test-cluster",
-			ClusterDeploymentSpec: &runtime.RawExtension{
-				Raw: cdSpecRaw,
-			},
-		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
 
 		colony = &infrav1.Colony{
 			ObjectMeta: metav1.ObjectMeta{
