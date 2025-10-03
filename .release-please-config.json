@@ -7,12 +7,6 @@
         "include-component-in-tag": false,
         "bump-minor-pre-major": true,
         "bump-patch-for-minor-pre-major": true
-      },
-      "helm-chart": {
-        "path": "charts/exalsius/charts/operator",
-        "release-type": "helm",
-        "component": "exalsius-operator",
-        "include-component-in-tag": true
       }
     },
     "tag-separator": "v"
