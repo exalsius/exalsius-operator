@@ -2,7 +2,6 @@ package clusterdeployment
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -21,10 +20,15 @@ import (
 func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
-	var k0rdentSpec k0rdentv1beta1.ClusterDeploymentSpec
-	if err := json.Unmarshal(colonyCluster.ClusterDeploymentSpec.Raw, &k0rdentSpec); err != nil {
-		log.Error(err, "failed to unmarshal ClusterDeploymentSpec")
+	// Get the typed ClusterDeploymentSpec
+	spec, err := colonyCluster.GetClusterDeploymentSpec()
+	if err != nil {
+		log.Error(err, "failed to get ClusterDeploymentSpec")
 		return err
+	}
+	if spec == nil {
+		log.Info("ClusterDeploymentSpec is nil, skipping")
+		return nil
 	}
 
 	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
@@ -32,7 +36,7 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 			Name:      colony.Name + "-" + colonyCluster.ClusterName,
 			Namespace: colony.Namespace,
 		},
-		Spec: k0rdentSpec,
+		Spec: *spec,
 	}
 
 	if err := controllerutil.SetControllerReference(colony, clusterDeployment, scheme); err != nil {
