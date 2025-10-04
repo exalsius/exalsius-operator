@@ -139,7 +139,7 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if result, err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {
 		log.Error(err, "Failed to ensure aggregated kubeconfig secret")
 		return result, err
-	} else if result.Requeue || result.RequeueAfter > 0 {
+	} else if result.RequeueAfter > 0 {
 		return result, nil
 	}
 
