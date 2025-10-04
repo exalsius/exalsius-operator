@@ -1,6 +1,6 @@
 {
     "packages": {
-      "go-operator": {
+      "exalsius-operator": {
         "path": ".",
         "release-type": "go",
         "component": "exalsius-operator",
