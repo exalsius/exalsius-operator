@@ -51,6 +51,7 @@ type ColonyReconciler struct {
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;delete
 func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -249,34 +250,11 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 	}
 
 	// wait for the cluster to be deleted
-	if err := r.waitForClusterDeletion(ctx, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
+	if err := clusterdeployment.WaitForClusterDeletion(ctx, r.Client, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
 		log.Error(err, "Failed to wait for Cluster deletion")
 		return err
 	}
 	return nil
-}
-
-// waitForDeletion polls until the given Cluster is no longer found.
-func (r *ColonyReconciler) waitForClusterDeletion(ctx context.Context, clusterDeployment *k0rdentv1beta1.ClusterDeployment, timeout, interval time.Duration) error {
-	log := log.FromContext(ctx)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-	for {
-		select {
-		case <-timeoutCh:
-			return fmt.Errorf("timeout waiting for cluster %s deletion", clusterDeployment.Name)
-		case <-ticker.C:
-			temp := &k0rdentv1beta1.ClusterDeployment{}
-			err := r.Get(ctx, client.ObjectKeyFromObject(clusterDeployment), temp)
-			if errors.IsNotFound(err) {
-				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
-				return nil
-			}
-			log.Info("Waiting for cluster deletion", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
-		}
-	}
 }
 
 // updateColonyStatusFromClusters checks all clusters referenced in the Colony status
