@@ -2,6 +2,7 @@ package clusterdeployment
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -14,6 +15,7 @@ import (
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -189,4 +191,192 @@ var _ = Describe("EnsureClusterDeployment", func() {
 		Expect(cd.Labels).To(Equal(expectedLabels))
 	})
 
+})
+
+var _ = Describe("WaitForClusterDeletion", func() {
+	var (
+		scheme            *runtime.Scheme
+		clusterDeployment *k0rdentv1beta1.ClusterDeployment
+		ctx               context.Context
+	)
+
+	BeforeEach(func() {
+		scheme = runtime.NewScheme()
+		_ = k0rdentv1beta1.AddToScheme(scheme)
+		_ = corev1.AddToScheme(scheme)
+
+		clusterDeployment = &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: "default",
+			},
+		}
+
+		ctx = context.TODO()
+	})
+
+	It("should delete PVC after ClusterDeployment is deleted", func() {
+		// Create a PVC that should be deleted
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "etcd-data-kmc-test-cluster-etcd-0",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pvc).
+			Build()
+
+		// Since ClusterDeployment doesn't exist, the function should immediately detect it's "deleted" and delete the PVC
+		err := WaitForClusterDeletion(ctx, c, clusterDeployment, 1*time.Second, 100*time.Millisecond)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify PVC was deleted
+		deletedPVC := &corev1.PersistentVolumeClaim{}
+		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-cluster-etcd-0", Namespace: "default"}, deletedPVC)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not found"))
+	})
+
+	It("should handle PVC not found gracefully", func() {
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			Build()
+
+		// Since ClusterDeployment doesn't exist, the function should immediately detect it's "deleted" and try to delete PVC
+		// But since PVC doesn't exist either, it should handle the NotFound error gracefully
+		err := WaitForClusterDeletion(ctx, c, clusterDeployment, 1*time.Second, 100*time.Millisecond)
+		Expect(err).NotTo(HaveOccurred())
+		// Should not have any additional errors related to PVC deletion
+	})
+
+	It("should return immediately when ClusterDeployment is already deleted", func() {
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			Build()
+
+		// Create and immediately delete the ClusterDeployment
+		cd := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: "default",
+			},
+		}
+		Expect(c.Create(ctx, cd)).To(Succeed())
+		Expect(c.Delete(ctx, cd)).To(Succeed())
+
+		// Create a PVC that should be deleted
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "etcd-data-kmc-test-cluster-etcd-0",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+		Expect(c.Create(ctx, pvc)).To(Succeed())
+
+		// Wait for deletion with a short timeout
+		err := WaitForClusterDeletion(ctx, c, clusterDeployment, 2*time.Second, 50*time.Millisecond)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify PVC was deleted
+		deletedPVC := &corev1.PersistentVolumeClaim{}
+		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-cluster-etcd-0", Namespace: "default"}, deletedPVC)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not found"))
+	})
+})
+
+var _ = Describe("CleanupOrphanedClusterDeployments", func() {
+	var (
+		scheme *runtime.Scheme
+		colony *infrav1.Colony
+		ctx    context.Context
+	)
+
+	BeforeEach(func() {
+		scheme = runtime.NewScheme()
+		_ = k0rdentv1beta1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+		_ = corev1.AddToScheme(scheme)
+
+		colony = &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				ColonyClusters: []infrav1.ColonyCluster{
+					{
+						ClusterName: "cluster-1",
+					},
+				},
+			},
+			Status: infrav1.ColonyStatus{
+				ClusterDeploymentRefs: []*corev1.ObjectReference{
+					{
+						Name:      "test-colony-cluster-1",
+						Namespace: "default",
+					},
+					{
+						Name:      "test-colony-cluster-2", // This is orphaned
+						Namespace: "default",
+					},
+				},
+			},
+		}
+
+		ctx = context.TODO()
+	})
+
+	It("should delete PVC when cleaning up orphaned ClusterDeployment", func() {
+		// Create a PVC for the orphaned cluster (but don't create the ClusterDeployment)
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "etcd-data-kmc-test-colony-cluster-2-etcd-0",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony, pvc).
+			Build()
+
+		// Call cleanup - since the ClusterDeployment doesn't exist, it should immediately detect it's "deleted" and delete the PVC
+		err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify PVC was deleted
+		deletedPVC := &corev1.PersistentVolumeClaim{}
+		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-colony-cluster-2-etcd-0", Namespace: "default"}, deletedPVC)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not found"))
+	})
 })

@@ -225,7 +225,7 @@ func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, col
 			}
 
 			// Wait for the cluster to be deleted
-			if err := waitForClusterDeletion(ctx, c, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
+			if err := WaitForClusterDeletion(ctx, c, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
 				log.Error(err, "Failed to wait for orphaned ClusterDeployment deletion")
 				return err
 			}
@@ -262,8 +262,35 @@ func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, col
 	return nil
 }
 
-// waitForClusterDeletion polls until the given ClusterDeployment is no longer found.
-func waitForClusterDeletion(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment, timeout, interval time.Duration) error {
+// deletePVCForClusterDeployment deletes the PVC associated with a ClusterDeployment
+func deletePVCForClusterDeployment(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment) error {
+	log := log.FromContext(ctx)
+
+	// Construct PVC name following the pattern: etcd-data-kmc-<cluster-deployment-name>-etcd-0
+	pvcName := fmt.Sprintf("etcd-data-kmc-%s-etcd-0", clusterDeployment.Name)
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: clusterDeployment.Namespace,
+		},
+	}
+
+	if err := c.Delete(ctx, pvc); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("PVC not found, already deleted or never existed", "PVC.Name", pvcName, "PVC.Namespace", clusterDeployment.Namespace)
+			return nil
+		}
+		log.Error(err, "Failed to delete PVC", "PVC.Name", pvcName, "PVC.Namespace", clusterDeployment.Namespace)
+		return err
+	}
+
+	log.Info("PVC deleted successfully", "PVC.Name", pvcName, "PVC.Namespace", clusterDeployment.Namespace)
+	return nil
+}
+
+// WaitForClusterDeletion polls until the given ClusterDeployment is no longer found.
+func WaitForClusterDeletion(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment, timeout, interval time.Duration) error {
 	log := log.FromContext(ctx)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -278,6 +305,13 @@ func waitForClusterDeletion(ctx context.Context, c client.Client, clusterDeploym
 			err := c.Get(ctx, client.ObjectKeyFromObject(clusterDeployment), temp)
 			if errors.IsNotFound(err) {
 				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
+
+				// Delete the associated PVC after ClusterDeployment is confirmed deleted
+				if err := deletePVCForClusterDeployment(ctx, c, clusterDeployment); err != nil {
+					log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", clusterDeployment.Name)
+					// Don't return error here as the main deletion was successful
+				}
+
 				return nil
 			}
 			log.Info("Waiting for cluster deletion", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
