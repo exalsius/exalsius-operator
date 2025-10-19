@@ -82,7 +82,7 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 			existing.Labels = mergedLabels
 
 			// Retry update with conflict resolution
-			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec, mergedLabels); err != nil {
+			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec, colonyCluster); err != nil {
 				log.Error(err, "Failed to update cluster deployment after retries")
 				return err
 			}
@@ -120,7 +120,7 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 }
 
 // updateClusterDeploymentWithRetry handles the update with conflict resolution
-func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, existing *k0rdentv1beta1.ClusterDeployment, newSpec k0rdentv1beta1.ClusterDeploymentSpec, newLabels map[string]string) error {
+func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, existing *k0rdentv1beta1.ClusterDeployment, newSpec k0rdentv1beta1.ClusterDeploymentSpec, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
 	maxRetries := 5
 	backoff := time.Millisecond * 100
@@ -132,9 +132,9 @@ func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, exis
 			return fmt.Errorf("failed to get latest version of ClusterDeployment: %w", err)
 		}
 
-		// Update the spec and labels
+		// Update the spec and merge labels (preserving existing labels from other components)
 		latest.Spec = newSpec
-		latest.Labels = newLabels
+		latest.Labels = mergeLabels(latest.Labels, colonyCluster.ClusterLabels)
 
 		// Try to update
 		if err := c.Update(ctx, latest); err != nil {
