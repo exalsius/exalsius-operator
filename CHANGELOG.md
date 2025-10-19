@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.5](https://github.com/exalsius/exalsius-operator/compare/v0.3.4...v0.3.5) (2025-10-19)
+
+
+### Bug Fixes
+
+* preserve external labels during ClusterDeployment updates ([#94](https://github.com/exalsius/exalsius-operator/issues/94)) ([ac9277f](https://github.com/exalsius/exalsius-operator/commit/ac9277faf6c8c4ed9973803ba2244b5f3ea830a8))
+* remove unnessary release please config ([#95](https://github.com/exalsius/exalsius-operator/issues/95)) ([217a38b](https://github.com/exalsius/exalsius-operator/commit/217a38b717d3909f35ec9d17084804bf50f8be44))
+
 ## [0.3.1](https://github.com/exalsius/exalsius-operator/compare/v0.3.0...v0.3.1) (2025-07-02)
 
 
