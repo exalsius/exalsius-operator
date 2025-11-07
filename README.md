@@ -2,9 +2,11 @@
 
 <h1 align="center">exalsius-operator</h1>
 
+<p align="center">
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![CI](https://img.shields.io/github/actions/workflow/status/exalsius/exalsius-operator/ci.yml?label=CI)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fexalsius%2Fexalsius--operator-blue)](https://github.com/exalsius/exalsius-operator/pkgs/container/exalsius-operator)
+</p>
 
 
 The **exalsius-operator** is a **Kubernetes operator** that extends Kubernetes with **Custom Resource Definitions (CRDs)** for dynamic, multi-cloud orchestration of **ephemeral AI clusters** and **distributed training workloads**.
@@ -17,7 +19,7 @@ With **exalsius**, AI practitioners and engineers can:
 * Automatically install all required GPU and ML framework dependencies
 * Execute and monitor distributed workloads across multiple providers
 
-Together with [**exalsius-cli**](https://github.com/exalsius/exalsius-cli) and [**exalsius-api**](https://github.com/exalsius/exalsius-api), the operator forms the foundation of a **modular, decentralized, and cost-efficient AI training platform**.
+Together with [**exalsius-cli**](https://github.com/exalsius/exalsius-cli) and [**exalsius-api**](https://api.exalsius.ai/docs), the operator forms the foundation of a **modular, decentralized, and cost-efficient AI training platform**.
 
 
 ## Key Features
@@ -64,9 +66,9 @@ The **exalsius-operator** forms a central backbone component of the **exalsius s
 * **[exalsius-cli](https://github.com/exalsius/exalsius-cli)**:
   A user-facing command-line interface for defining requirements and initiating cluster creation. It communicates with the **exalsius-api** to manage lifecycle operations declaratively.
 
-* **exalsius-api** (internal backend): 
-  A private backend service that exposes APIs for cluster orchestration and management. It schedules and translates user requests from the CLI into Kubernetes CRDs and communicates with the exalsius-operator to reconcile and manage resources.
-*(Note: The exalsius-api is currently an internal component and not publicly available.)*
+* **[exalsius-api](https://api.exalsius.ai/docs)**: 
+  A backend service that exposes APIs for cluster orchestration and management. It schedules and translates user requests from the CLI into Kubernetes CRDs and communicates with the exalsius-operator to reconcile and manage resources.
+
 
 * **exalsius-operator**
   The control-plane component responsible for reconciling CRDs and turning declarative specifications into running Kubernetes clusters. It leverages **Cluster API** and **K0rdent abstractions** to provision and manage multi-cloud and on-premise clusters.
