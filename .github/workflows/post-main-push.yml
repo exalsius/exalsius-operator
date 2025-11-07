@@ -36,3 +36,5 @@ jobs:
           context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:dev,${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.name=${{ env.IMAGE_NAME }}
