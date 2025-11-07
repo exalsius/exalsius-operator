@@ -2,11 +2,11 @@
 
 <h1 align="center">exalsius-operator</h1>
 
-<p align="center">
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![CI](https://img.shields.io/github/actions/workflow/status/exalsius/exalsius-operator/ci.yml?label=CI)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fexalsius%2Fexalsius--operator-blue)](https://github.com/exalsius/exalsius-operator/pkgs/container/exalsius-operator)
-</p>
+<div align="center">
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) ![CI](https://img.shields.io/github/actions/workflow/status/exalsius/exalsius-operator/ci.yml?label=CI) [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fexalsius%2Fexalsius--operator-blue)](https://github.com/exalsius/exalsius-operator/pkgs/container/exalsius-operator)
+
+</div>
 
 
 The **exalsius-operator** is a **Kubernetes operator** that extends Kubernetes with **Custom Resource Definitions (CRDs)** for dynamic, multi-cloud orchestration of **ephemeral AI clusters** and **distributed training workloads**.
