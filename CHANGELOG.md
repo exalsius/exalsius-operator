@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/exalsius/exalsius-operator/compare/v0.3.5...v0.4.0) (2025-11-26)
+
+
+### Features
+
+* **api:** add NetBird integration types to Colony CRD ([efcf323](https://github.com/exalsius/exalsius-operator/commit/efcf323f1f71eba70f53c7a38d4cbb03ebe018a3))
+* **controller:** integrate NetBird into Colony reconciliation ([872c54f](https://github.com/exalsius/exalsius-operator/commit/872c54feaf533ff295ca6b5fee0a624a93fcb98e))
+* **netbird:** add routing peer deployment for NodePort clusters ([576e2c4](https://github.com/exalsius/exalsius-operator/commit/576e2c49bccda68860e2954a1f62f1dee6ce1f12))
+* **netbird:** implement API client and resource management ([33ca0a0](https://github.com/exalsius/exalsius-operator/commit/33ca0a00106d215c2816ea6208b8630e1a979f87))
+* **netbird:** implement bootstrap secret patching ([e36ea39](https://github.com/exalsius/exalsius-operator/commit/e36ea39ac4ec055665ffaec9745d9e70e37e901b))
+
+
+### Bug Fixes
+
+* **lint:** resolve errcheck, goconst, unparam, and gofmt issues ([115a4d7](https://github.com/exalsius/exalsius-operator/commit/115a4d7fef39898c1c7c54ad4f32eaabf24b4a8d))
+* **netbird:** correct resource cleanup order ([853afef](https://github.com/exalsius/exalsius-operator/commit/853afefce10603933563e6aa9f6956da71eccfb0))
+
 ## [0.3.5](https://github.com/exalsius/exalsius-operator/compare/v0.3.4...v0.3.5) (2025-10-19)
 
 
