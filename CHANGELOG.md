@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/exalsius/exalsius-operator/compare/v0.4.0...v0.4.1) (2025-11-26)
+
+
+### Bug Fixes
+
+* **netbird:** set correct cp api endpoints for cilium ([6161a90](https://github.com/exalsius/exalsius-operator/commit/6161a90bd2479f326a79b47b2a4e779fa9afc900))
+
 ## [0.4.0](https://github.com/exalsius/exalsius-operator/compare/v0.3.5...v0.4.0) (2025-11-26)
 
 
