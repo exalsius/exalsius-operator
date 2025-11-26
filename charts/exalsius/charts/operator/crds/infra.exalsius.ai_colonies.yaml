@@ -72,6 +72,28 @@ spec:
                   - clusterName
                   type: object
                 type: array
+              netBird:
+                description: NetBird configuration for VPN networking
+                properties:
+                  apiKeySecret:
+                    description: APIKeySecret is the name of the Secret containing
+                      the NetBird API key.
+                    type: string
+                  enabled:
+                    description: Enabled enables NetBird integration for this Colony.
+                    type: boolean
+                  image:
+                    description: 'Image is the NetBird container image to use (default:
+                      "netbirdio/netbird:v0.60.2").'
+                    type: string
+                  managementURL:
+                    description: 'ManagementURL is the NetBird management API URL
+                      (default: "https://api.netbird.io").'
+                    type: string
+                required:
+                - apiKeySecret
+                - enabled
+                type: object
             type: object
           status:
             description: ColonyStatus defines the observed state of Colony.
@@ -178,6 +200,88 @@ spec:
                   - type
                   type: object
                 type: array
+              netBird:
+                description: NetBird status for VPN networking
+                properties:
+                  clusterResources:
+                    additionalProperties:
+                      description: ClusterNetBirdStatus tracks NetBird resources for
+                        a specific cluster.
+                      properties:
+                        controlPlaneResourceAddress:
+                          description: ControlPlaneResourceAddress is the last known
+                            address of the resource (for migration/debugging).
+                          type: string
+                        controlPlaneResourceID:
+                          description: ControlPlaneResourceID is the NetBird Network
+                            Resource ID for the control plane.
+                          type: string
+                        exposedEndpoint:
+                          description: |-
+                            ExposedEndpoint is the address workers use to join the cluster.
+                            Format: "<ip>:<port>" or "<hostname>:<port>"
+                          type: string
+                        externalAddress:
+                          description: ExternalAddress is the LoadBalancer external
+                            address (if applicable)
+                          type: string
+                        ready:
+                          description: Ready indicates whether this cluster's NetBird
+                            resources are ready.
+                          type: boolean
+                        serviceName:
+                          description: ServiceName is the control plane service name.
+                          type: string
+                        serviceNamespace:
+                          description: ServiceNamespace is the control plane service
+                            namespace.
+                          type: string
+                        serviceType:
+                          description: ServiceType is either "LoadBalancer" or "NodePort".
+                          type: string
+                        useDirectConnection:
+                          description: |-
+                            UseDirectConnection indicates if workers connect directly (true for LB)
+                            or via NetBird routing peer (false for NodePort)
+                          type: boolean
+                      type: object
+                    description: ClusterResources tracks NetBird resources per cluster.
+                    type: object
+                  colonyMeshPolicyID:
+                    description: ColonyMeshPolicyID is the NetBird Policy ID for the
+                      shared colony-scoped mesh policy.
+                    type: string
+                  colonyNodesGroupID:
+                    description: ColonyNodesGroupID is the NetBird Group ID for the
+                      shared colony-scoped nodes group.
+                    type: string
+                  colonyRoutersGroupID:
+                    description: ColonyRoutersGroupID is the NetBird Group ID for
+                      routing peers only.
+                    type: string
+                  networkID:
+                    description: NetworkID is the NetBird network ID.
+                    type: string
+                  routerReady:
+                    description: RouterReady indicates whether the routing peer Deployment
+                      is ready.
+                    type: boolean
+                  routerSetupKeyID:
+                    description: RouterSetupKeyID is the NetBird setup key ID for
+                      the routing peer.
+                    type: string
+                  routerSetupKeySecretName:
+                    description: RouterSetupKeySecretName is the name of the Secret
+                      containing the router-specific setup key.
+                    type: string
+                  setupKeyID:
+                    description: SetupKeyID is the NetBird setup key ID for tracking/regeneration.
+                    type: string
+                  setupKeySecretName:
+                    description: SetupKeySecretName is the name of the auto-generated
+                      Secret containing the setup key.
+                    type: string
+                type: object
               phase:
                 type: string
               readyClusters:
