@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -246,9 +247,17 @@ func patchBootstrapSecret(
 	}
 	secret.Annotations[PatchedAnnotation] = PatchedAnnotationValue
 
-	// Update the secret
-	if err := c.Update(ctx, secret); err != nil {
-		return fmt.Errorf("failed to update secret: %w", err)
+	// Set TypeMeta for Server-Side Apply
+	secret.TypeMeta = metav1.TypeMeta{
+		APIVersion: "v1",
+		Kind:       "Secret",
+	}
+
+	// Use Server-Side Apply to avoid conflicts with CAPI bootstrap controller
+	if err := c.Patch(ctx, secret, client.Apply, &client.PatchOptions{
+		FieldManager: "netbird-patcher",
+	}); err != nil {
+		return fmt.Errorf("failed to patch secret: %w", err)
 	}
 
 	return nil
