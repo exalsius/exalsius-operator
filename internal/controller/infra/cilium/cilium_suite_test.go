@@ -27,4 +27,3 @@ func TestCilium(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Cilium Suite")
 }
-
