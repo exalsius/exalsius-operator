@@ -30,6 +30,22 @@ import (
 type ColonySpec struct {
 	// ColonyClusters is the list of clusters to create.
 	ColonyClusters []ColonyCluster `json:"colonyClusters,omitempty"`
+	// NetBird configuration for VPN networking
+	NetBird *NetBirdConfig `json:"netBird,omitempty"`
+}
+
+// NetBirdConfig defines the NetBird VPN configuration for the Colony.
+type NetBirdConfig struct {
+	// Enabled enables NetBird integration for this Colony.
+	Enabled bool `json:"enabled"`
+	// Image is the NetBird container image to use (default: "netbirdio/netbird:v0.60.2").
+	// +optional
+	Image string `json:"image,omitempty"`
+	// APIKeySecret is the name of the Secret containing the NetBird API key.
+	APIKeySecret string `json:"apiKeySecret"`
+	// ManagementURL is the NetBird management API URL (default: "https://api.netbird.io").
+	// +optional
+	ManagementURL string `json:"managementURL,omitempty"`
 }
 
 type ColonyCluster struct {
@@ -78,6 +94,56 @@ type ColonyStatus struct {
 	ClusterDeploymentRefs []*corev1.ObjectReference `json:"clusterDeploymentRefs,omitempty"`
 	TotalClusters         int32                     `json:"totalClusters,omitempty"`
 	ReadyClusters         int32                     `json:"readyClusters,omitempty"`
+	// NetBird status for VPN networking
+	NetBird *NetBirdStatus `json:"netBird,omitempty"`
+}
+
+// NetBirdStatus defines the observed state of NetBird integration.
+type NetBirdStatus struct {
+	// RouterReady indicates whether the routing peer Deployment is ready.
+	RouterReady bool `json:"routerReady,omitempty"`
+	// NetworkID is the NetBird network ID.
+	NetworkID string `json:"networkID,omitempty"`
+	// ColonyMeshPolicyID is the NetBird Policy ID for the shared colony-scoped mesh policy.
+	ColonyMeshPolicyID string `json:"colonyMeshPolicyID,omitempty"`
+	// ColonyNodesGroupID is the NetBird Group ID for the shared colony-scoped nodes group.
+	ColonyNodesGroupID string `json:"colonyNodesGroupID,omitempty"`
+	// ColonyRoutersGroupID is the NetBird Group ID for routing peers only.
+	ColonyRoutersGroupID string `json:"colonyRoutersGroupID,omitempty"`
+	// SetupKeySecretName is the name of the auto-generated Secret containing the setup key.
+	SetupKeySecretName string `json:"setupKeySecretName,omitempty"`
+	// SetupKeyID is the NetBird setup key ID for tracking/regeneration.
+	SetupKeyID string `json:"setupKeyID,omitempty"`
+	// RouterSetupKeySecretName is the name of the Secret containing the router-specific setup key.
+	RouterSetupKeySecretName string `json:"routerSetupKeySecretName,omitempty"`
+	// RouterSetupKeyID is the NetBird setup key ID for the routing peer.
+	RouterSetupKeyID string `json:"routerSetupKeyID,omitempty"`
+	// ClusterResources tracks NetBird resources per cluster.
+	ClusterResources map[string]ClusterNetBirdStatus `json:"clusterResources,omitempty"`
+}
+
+// ClusterNetBirdStatus tracks NetBird resources for a specific cluster.
+type ClusterNetBirdStatus struct {
+	// ControlPlaneResourceID is the NetBird Network Resource ID for the control plane.
+	ControlPlaneResourceID string `json:"controlPlaneResourceID,omitempty"`
+	// ControlPlaneResourceAddress is the last known address of the resource (for migration/debugging).
+	ControlPlaneResourceAddress string `json:"controlPlaneResourceAddress,omitempty"`
+	// ExposedEndpoint is the address workers use to join the cluster.
+	// Format: "<ip>:<port>" or "<hostname>:<port>"
+	ExposedEndpoint string `json:"exposedEndpoint,omitempty"`
+	// ServiceName is the control plane service name.
+	ServiceName string `json:"serviceName,omitempty"`
+	// ServiceNamespace is the control plane service namespace.
+	ServiceNamespace string `json:"serviceNamespace,omitempty"`
+	// ServiceType is either "LoadBalancer" or "NodePort".
+	ServiceType string `json:"serviceType,omitempty"`
+	// ExternalAddress is the LoadBalancer external address (if applicable)
+	ExternalAddress string `json:"externalAddress,omitempty"`
+	// UseDirectConnection indicates if workers connect directly (true for LB)
+	// or via NetBird routing peer (false for NodePort)
+	UseDirectConnection bool `json:"useDirectConnection,omitempty"`
+	// Ready indicates whether this cluster's NetBird resources are ready.
+	Ready bool `json:"ready,omitempty"`
 }
 
 // +kubebuilder:object:root=true
