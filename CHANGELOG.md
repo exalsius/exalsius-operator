@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/exalsius/exalsius-operator/compare/v0.4.1...v0.4.2) (2025-11-26)
+
+
+### Bug Fixes
+
+* **netbird:** use server-side apply to fix conflicts with capi ([#103](https://github.com/exalsius/exalsius-operator/issues/103)) ([149615e](https://github.com/exalsius/exalsius-operator/commit/149615e3522d71edd337799dc900d965ad5740da))
+
 ## [0.4.1](https://github.com/exalsius/exalsius-operator/compare/v0.4.0...v0.4.1) (2025-11-26)
 
 
