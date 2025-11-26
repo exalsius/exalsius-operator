@@ -44,8 +44,14 @@ const (
 	// PatchedAnnotation marks secrets that have been patched
 	PatchedAnnotation = "netbird.exalsius.ai/join-url-patched"
 
+	// PatchedAnnotationValue is the value for the patched annotation
+	PatchedAnnotationValue = "true"
+
 	// ClusterNameLabel is the label for cluster name
 	ClusterNameLabel = "cluster.x-k8s.io/cluster-name"
+
+	// K0sTokenPath is the path to the k0s token file in cloud-init
+	K0sTokenPath = "/etc/k0s.token"
 )
 
 // PatchBootstrapSecretsForCluster patches all bootstrap secrets for a specific cluster
@@ -110,7 +116,7 @@ func PatchBootstrapSecretsForCluster(
 		}
 
 		// Check if already patched
-		if secret.Annotations != nil && secret.Annotations[PatchedAnnotation] == "true" {
+		if secret.Annotations != nil && secret.Annotations[PatchedAnnotation] == PatchedAnnotationValue {
 			log.V(1).Info("Secret already patched, skipping", "secret", secret.Name)
 			continue
 		}
@@ -164,7 +170,7 @@ func isBootstrapSecret(secret *corev1.Secret, log logr.Logger) bool {
 		return false
 	}
 
-	// k0s bootstrap secrets have a write_files entry with /etc/k0s.token
+	// k0s bootstrap secrets have a write_files entry with K0sTokenPath
 	writeFiles, ok := cloudConfig["write_files"].([]interface{})
 	if !ok {
 		log.V(1).Info("Secret has no write_files section, skipping",
@@ -179,7 +185,7 @@ func isBootstrapSecret(secret *corev1.Secret, log logr.Logger) bool {
 			continue
 		}
 
-		if path, _ := file["path"].(string); path == "/etc/k0s.token" {
+		if path, _ := file["path"].(string); path == K0sTokenPath {
 			// This is definitely a k0s bootstrap secret
 			log.V(1).Info("Identified k0s bootstrap secret",
 				"secret", secret.Name)
@@ -238,7 +244,7 @@ func patchBootstrapSecret(
 	if secret.Annotations == nil {
 		secret.Annotations = make(map[string]string)
 	}
-	secret.Annotations[PatchedAnnotation] = "true"
+	secret.Annotations[PatchedAnnotation] = PatchedAnnotationValue
 
 	// Update the secret
 	if err := c.Update(ctx, secret); err != nil {
@@ -279,7 +285,7 @@ func modifyCloudInit(cloudInitData, targetEndpoint, setupKey string, colony *inf
 			}
 
 			path, _ := file["path"].(string)
-			if path != "/etc/k0s.token" {
+			if path != K0sTokenPath {
 				continue
 			}
 
@@ -300,7 +306,7 @@ func modifyCloudInit(cloudInitData, targetEndpoint, setupKey string, colony *inf
 			// Update in the parsed structure
 			for _, fileInterface := range writeFiles {
 				file := fileInterface.(map[string]interface{})
-				if path, _ := file["path"].(string); path == "/etc/k0s.token" {
+				if path, _ := file["path"].(string); path == K0sTokenPath {
 					file["content"] = newTokenContent
 					modified = true
 					log.Info("Replaced k0s.token server URL", "targetEndpoint", targetEndpoint)
@@ -332,7 +338,9 @@ func gunzipData(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close() // Ignore close error as we're reading, not writing
+	}()
 
 	return io.ReadAll(reader)
 }
@@ -654,7 +662,7 @@ func SecretToColonyMapper(c client.Client) func(context.Context, client.Object) 
 		}
 
 		// Check if already patched
-		if secret.Annotations != nil && secret.Annotations[PatchedAnnotation] == "true" {
+		if secret.Annotations != nil && secret.Annotations[PatchedAnnotation] == PatchedAnnotationValue {
 			return nil
 		}
 
