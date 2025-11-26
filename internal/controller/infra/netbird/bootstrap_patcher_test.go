@@ -26,6 +26,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	testServerURL = "kmc-test-cluster.default.svc.cluster.local:30443"
+)
+
 func TestGunzipData(t *testing.T) {
 	// Test data
 	original := []byte("test data for compression")
@@ -65,7 +69,7 @@ func TestReplaceServerURL(t *testing.T) {
 	}
 
 	// Replace URL
-	newServerURL := "kmc-test-cluster.default.svc.cluster.local:30443"
+	newServerURL := testServerURL
 	modified := replaceServerURL(kubeconfig, newServerURL, logr.Discard())
 
 	if !modified {
@@ -153,7 +157,7 @@ func TestModifyCloudInit(t *testing.T) {
 	cloudInitData := string(cloudConfigYAML)
 
 	// Modify cloud-init (URL replacement only, no NetBird)
-	internalDNS := "kmc-test-cluster.default.svc.cluster.local:30443"
+	internalDNS := testServerURL
 	replaced, err := modifyCloudInit(cloudInitData, internalDNS, "", nil, logr.Discard())
 	if err != nil {
 		t.Fatalf("Failed to modify cloud-init: %v", err)
@@ -234,7 +238,7 @@ func TestGetInternalServiceDNS(t *testing.T) {
 	namespace := "default"
 
 	result := getInternalServiceDNS(serviceName, namespace)
-	expected := "kmc-test-cluster.default.svc.cluster.local:30443"
+	expected := testServerURL
 
 	if result != expected {
 		t.Errorf("getInternalServiceDNS returned %q, want %q", result, expected)

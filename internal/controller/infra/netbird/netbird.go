@@ -180,7 +180,7 @@ setupKeyReady:
 	}
 
 	// Ensure colony-scoped mesh policy exists
-	policyID, err := ensureColonyMeshPolicy(ctx, nbClient, networkID, groupID, colony.Status.NetBird.ColonyMeshPolicyID, colony.Name)
+	policyID, err := ensureColonyMeshPolicy(ctx, nbClient, groupID, colony.Status.NetBird.ColonyMeshPolicyID, colony.Name)
 	if err != nil {
 		return fmt.Errorf("failed to ensure colony mesh policy: %w", err)
 	}
@@ -203,7 +203,7 @@ setupKeyReady:
 			return fmt.Errorf("failed to get ClusterDeployment %s: %w", clusterRef.Name, err)
 		}
 
-		if err := reconcileControlPlaneExposure(ctx, c, nbClient, colony, clusterDeployment, clusterName, networkID); err != nil {
+		if err := reconcileControlPlaneExposure(ctx, c, nbClient, colony, clusterName, networkID); err != nil {
 			// Check if it's a "service not found" error (expected during provisioning)
 			if errors.IsNotFound(err) ||
 				(err.Error() != "" && (contains(err.Error(), "not found yet") ||
@@ -236,7 +236,6 @@ func reconcileControlPlaneExposure(
 	c client.Client,
 	nbClient *netbirdrest.Client,
 	colony *infrav1.Colony,
-	clusterDeployment *k0rdentv1beta1.ClusterDeployment,
 	clusterName string,
 	networkID string,
 ) error {

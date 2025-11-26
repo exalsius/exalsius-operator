@@ -119,7 +119,7 @@ func ensureColonyRoutersGroup(ctx context.Context, nbClient *netbirdrest.Client,
 }
 
 // ensureColonyMeshPolicy ensures that the colony-specific mesh policy exists.
-func ensureColonyMeshPolicy(ctx context.Context, nbClient *netbirdrest.Client, networkID, groupID, existingPolicyID, colonyName string) (string, error) {
+func ensureColonyMeshPolicy(ctx context.Context, nbClient *netbirdrest.Client, groupID, existingPolicyID, colonyName string) (string, error) {
 	log := log.FromContext(ctx)
 
 	policyName := fmt.Sprintf("%s-mesh-policy", colonyName)
