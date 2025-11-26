@@ -408,6 +408,155 @@ func TestModifyCloudInitWithNetBird(t *testing.T) {
 	}
 }
 
+// Helper functions for TestInjectNetBirdCommandsWithSystemdModifications
+
+func findSystemctlCommand(runcmd []interface{}) int {
+	for i, cmd := range runcmd {
+		if cmdStr, ok := cmd.(string); ok {
+			if strings.Contains(cmdStr, "systemctl start k0sworker") {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func findK0sInstallCommand(runcmd []interface{}) int {
+	for i, cmd := range runcmd {
+		if cmdStr, ok := cmd.(string); ok {
+			if strings.Contains(cmdStr, "k0s install worker") {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func verifyNetBirdCommandsInjected(t *testing.T, runcmd []interface{}) {
+	t.Helper()
+	if len(runcmd) < 3 {
+		t.Fatalf("Expected at least 3 NetBird commands, got %d", len(runcmd))
+	}
+
+	if !strings.Contains(runcmd[0].(string), "install.sh") {
+		t.Error("First command should be NetBird install")
+	}
+
+	if !strings.Contains(runcmd[1].(string), "netbird up") {
+		t.Error("Second command should be netbird up")
+	}
+
+	if !strings.Contains(runcmd[2].(string), "netbird status") {
+		t.Error("Third command should be netbird status wait")
+	}
+}
+
+func verifySystemdOverwriteCommands(t *testing.T, runcmd []interface{}) {
+	t.Helper()
+	// Find systemctl start command
+	systemctlIndex := findSystemctlCommand(runcmd)
+
+	if systemctlIndex == -1 {
+		t.Fatal("Expected to find systemctl start k0sworker command")
+	}
+
+	// Verify systemd overwrite commands are present before systemctl start
+	// Now we have 2 commands: wrapper creation + service overwrite
+	foundWrapperCreation := false
+	foundServiceOverwrite := false
+
+	for i := 0; i < systemctlIndex; i++ {
+		cmdStr := runcmd[i].(string)
+
+		// Check for wrapper script creation command
+		hasWrapperElements := strings.Contains(cmdStr, "/bin/bash -c") &&
+			strings.Contains(cmdStr, "k0s-worker-wrapper.sh") &&
+			strings.Contains(cmdStr, "--node-ip=") &&
+			strings.Contains(cmdStr, "netbird status --ipv4") &&
+			strings.Contains(cmdStr, "chmod +x")
+
+		if hasWrapperElements {
+			foundWrapperCreation = true
+		}
+
+		// Check for service overwrite command
+		hasServiceElements := strings.Contains(cmdStr, "/bin/bash -c") &&
+			strings.Contains(cmdStr, "k0sworker.service") &&
+			strings.Contains(cmdStr, "ExecStart=/usr/local/bin/k0s-worker-wrapper.sh") &&
+			strings.Contains(cmdStr, "systemctl daemon-reload")
+
+		if hasServiceElements {
+			foundServiceOverwrite = true
+		}
+	}
+
+	if !foundWrapperCreation {
+		t.Error("Expected to find wrapper script creation before systemctl start")
+	}
+	if !foundServiceOverwrite {
+		t.Error("Expected to find service overwrite before systemctl start")
+	}
+}
+
+func verifyCommandOrder(t *testing.T, runcmd []interface{}) {
+	t.Helper()
+	// Expected order:
+	// 1. NetBird install
+	// 2. NetBird up
+	// 3. NetBird status wait
+	// 4. k0s install
+	// 5. k0s install worker
+	// 6. Wrapper script creation
+	// 7. Systemd service overwrite
+	// 8. systemctl start
+	// 9. bootstrap success
+
+	if len(runcmd) < 9 {
+		t.Fatalf("Expected at least 9 commands, got %d", len(runcmd))
+	}
+
+	// Verify NetBird commands are first
+	if !strings.Contains(runcmd[0].(string), "install.sh") {
+		t.Error("Command 0 should be NetBird install")
+	}
+	if !strings.Contains(runcmd[1].(string), "netbird up") {
+		t.Error("Command 1 should be netbird up")
+	}
+	if !strings.Contains(runcmd[2].(string), "netbird status") {
+		t.Error("Command 2 should be netbird status")
+	}
+
+	// Find where systemd overwrite starts (after k0s install worker)
+	k0sInstallIndex := findK0sInstallCommand(runcmd)
+
+	if k0sInstallIndex == -1 {
+		t.Fatal("Expected to find k0s install worker command")
+	}
+
+	// Verify systemd overwrite comes after k0s install
+	systemdModStart := k0sInstallIndex + 1
+	if systemdModStart >= len(runcmd) {
+		t.Fatal("Expected systemd overwrite after k0s install")
+	}
+
+	// Verify the systemd overwrite script exists after k0s install
+	foundSystemdOverwrite := false
+	for i := systemdModStart; i < len(runcmd); i++ {
+		if cmdStr, ok := runcmd[i].(string); ok {
+			if strings.Contains(cmdStr, "/bin/bash -c") &&
+				strings.Contains(cmdStr, "k0sworker.service") &&
+				strings.Contains(cmdStr, "systemctl daemon-reload") {
+				foundSystemdOverwrite = true
+				break
+			}
+		}
+	}
+
+	if !foundSystemdOverwrite {
+		t.Error("Expected systemd overwrite script after k0s install")
+	}
+}
+
 func TestInjectNetBirdCommandsWithSystemdModifications(t *testing.T) {
 	setupKey := "test-setup-key-789"
 
@@ -469,144 +618,18 @@ func TestInjectNetBirdCommandsWithSystemdModifications(t *testing.T) {
 			}
 
 			// Verify NetBird commands are at the beginning
-			if injected {
-				if len(runcmd) < 3 {
-					t.Fatalf("Expected at least 3 NetBird commands, got %d", len(runcmd))
-				}
-
-				if !strings.Contains(runcmd[0].(string), "install.sh") {
-					t.Error("First command should be NetBird install")
-				}
-
-				if !strings.Contains(runcmd[1].(string), "netbird up") {
-					t.Error("Second command should be netbird up")
-				}
-
-				if !strings.Contains(runcmd[2].(string), "netbird status") {
-					t.Error("Third command should be netbird status wait")
-				}
+			if tt.expectedInjected {
+				verifyNetBirdCommandsInjected(t, runcmd)
 			}
 
 			// Verify systemd overwrite script if expected
 			if tt.expectedSystemdCommands {
-				// Find systemctl start command
-				systemctlIndex := -1
-				for i, cmd := range runcmd {
-					if cmdStr, ok := cmd.(string); ok {
-						if strings.Contains(cmdStr, "systemctl start k0sworker") {
-							systemctlIndex = i
-							break
-						}
-					}
-				}
-
-				if systemctlIndex == -1 {
-					t.Fatal("Expected to find systemctl start k0sworker command")
-				}
-
-				// Verify systemd overwrite commands are present before systemctl start
-				// Now we have 2 commands: wrapper creation + service overwrite
-				foundWrapperCreation := false
-				foundServiceOverwrite := false
-
-				for i := 0; i < systemctlIndex; i++ {
-					cmdStr := runcmd[i].(string)
-
-					// Check for wrapper script creation command
-					hasWrapperElements := strings.Contains(cmdStr, "/bin/bash -c") &&
-						strings.Contains(cmdStr, "k0s-worker-wrapper.sh") &&
-						strings.Contains(cmdStr, "--node-ip=") &&
-						strings.Contains(cmdStr, "netbird status --ipv4") &&
-						strings.Contains(cmdStr, "chmod +x")
-
-					if hasWrapperElements {
-						foundWrapperCreation = true
-					}
-
-					// Check for service overwrite command
-					hasServiceElements := strings.Contains(cmdStr, "/bin/bash -c") &&
-						strings.Contains(cmdStr, "k0sworker.service") &&
-						strings.Contains(cmdStr, "ExecStart=/usr/local/bin/k0s-worker-wrapper.sh") &&
-						strings.Contains(cmdStr, "systemctl daemon-reload")
-
-					if hasServiceElements {
-						foundServiceOverwrite = true
-					}
-				}
-
-				if !foundWrapperCreation {
-					t.Error("Expected to find wrapper script creation before systemctl start")
-				}
-				if !foundServiceOverwrite {
-					t.Error("Expected to find service overwrite before systemctl start")
-				}
+				verifySystemdOverwriteCommands(t, runcmd)
 			}
 
 			// Verify command order if requested
 			if tt.verifyCommandOrder {
-				// Expected order:
-				// 1. NetBird install
-				// 2. NetBird up
-				// 3. NetBird status wait
-				// 4. k0s install
-				// 5. k0s install worker
-				// 6. Wrapper script creation
-				// 7. Systemd service overwrite
-				// 8. systemctl start
-				// 9. bootstrap success
-
-				if len(runcmd) < 9 {
-					t.Fatalf("Expected at least 9 commands, got %d", len(runcmd))
-				}
-
-				// Verify NetBird commands are first
-				if !strings.Contains(runcmd[0].(string), "install.sh") {
-					t.Error("Command 0 should be NetBird install")
-				}
-				if !strings.Contains(runcmd[1].(string), "netbird up") {
-					t.Error("Command 1 should be netbird up")
-				}
-				if !strings.Contains(runcmd[2].(string), "netbird status") {
-					t.Error("Command 2 should be netbird status")
-				}
-
-				// Find where systemd overwrite starts (after k0s install worker)
-				k0sInstallIndex := -1
-				for i, cmd := range runcmd {
-					if cmdStr, ok := cmd.(string); ok {
-						if strings.Contains(cmdStr, "k0s install worker") {
-							k0sInstallIndex = i
-							break
-						}
-					}
-				}
-
-				if k0sInstallIndex == -1 {
-					t.Fatal("Expected to find k0s install worker command")
-				}
-
-				// Verify systemd overwrite comes after k0s install
-				systemdModStart := k0sInstallIndex + 1
-				if systemdModStart >= len(runcmd) {
-					t.Fatal("Expected systemd overwrite after k0s install")
-				}
-
-				// Verify the systemd overwrite script exists after k0s install
-				foundSystemdOverwrite := false
-				for i := systemdModStart; i < len(runcmd); i++ {
-					if cmdStr, ok := runcmd[i].(string); ok {
-						if strings.Contains(cmdStr, "/bin/bash -c") &&
-							strings.Contains(cmdStr, "k0sworker.service") &&
-							strings.Contains(cmdStr, "systemctl daemon-reload") {
-							foundSystemdOverwrite = true
-							break
-						}
-					}
-				}
-
-				if !foundSystemdOverwrite {
-					t.Error("Expected systemd overwrite script after k0s install")
-				}
+				verifyCommandOrder(t, runcmd)
 			}
 		})
 	}
