@@ -23,9 +23,11 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/cilium"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -34,7 +36,7 @@ import (
 )
 
 // ReconcileNetBird reconciles NetBird integration for a Colony.
-func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
 
 	if colony.Spec.NetBird == nil || !colony.Spec.NetBird.Enabled {
@@ -100,7 +102,7 @@ func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colo
 	colony.Status.NetBird.ColonyMeshPolicyID = policyID
 
 	// Reconcile control plane exposure for each cluster
-	reconcileClusters(ctx, c, nbClient, colony, networkID)
+	reconcileClusters(ctx, c, nbClient, colony, networkID, scheme)
 
 	// After exposing control planes, patch bootstrap secrets for workers to use internal DNS
 	if err := WatchAndPatchBootstrapSecrets(ctx, c, colony); err != nil {
@@ -233,7 +235,7 @@ func reconcileRoutingPeer(ctx context.Context, c client.Client, nbClient *netbir
 
 // reconcileClusters reconciles control plane exposure for all clusters in the colony.
 func reconcileClusters(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
-	colony *infrav1.Colony, networkID string) {
+	colony *infrav1.Colony, networkID string, scheme *runtime.Scheme) {
 	log := log.FromContext(ctx)
 
 	// Reconcile control plane exposure for each cluster
@@ -255,7 +257,7 @@ func reconcileClusters(ctx context.Context, c client.Client, nbClient *netbirdre
 			continue
 		}
 
-		if err := reconcileControlPlaneExposure(ctx, c, nbClient, colony, clusterName, networkID); err != nil {
+		if err := reconcileControlPlaneExposure(ctx, c, nbClient, colony, clusterName, networkID, scheme); err != nil {
 			// Check if it's a "service not found" error (expected during provisioning)
 			if errors.IsNotFound(err) ||
 				(err.Error() != "" && (contains(err.Error(), "not found yet") ||
@@ -282,6 +284,7 @@ func reconcileControlPlaneExposure(
 	colony *infrav1.Colony,
 	clusterName string,
 	networkID string,
+	scheme *runtime.Scheme,
 ) error {
 	log := log.FromContext(ctx)
 
@@ -309,11 +312,13 @@ func reconcileControlPlaneExposure(
 		"externalAddress", externalAddress)
 
 	var workerEndpoint string
+	var ciliumEndpoint string // Endpoint for Cilium ConfigMap (may differ from worker endpoint)
 	var resourceID string
 
 	if isLoadBalancer && hasExternalAddress {
 		// LoadBalancer with external address: Workers connect directly to LB
 		workerEndpoint = fmt.Sprintf("%s:%d", externalAddress, apiPort)
+		ciliumEndpoint = workerEndpoint // Cilium uses same external LB address
 		clusterStatus.ExternalAddress = externalAddress
 		clusterStatus.UseDirectConnection = true
 
@@ -337,6 +342,9 @@ func reconcileControlPlaneExposure(
 		// Format: service-name.namespace.svc.cluster.local:port
 		resourceAddress := fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, service.Namespace)
 
+		// Cilium uses internal DNS (runs inside cluster)
+		ciliumEndpoint = fmt.Sprintf("%s:%d", resourceAddress, apiPort)
+
 		// Create/update Network Resource with internal DNS name
 		var err error
 		resourceID, err = ensureNetworkResource(ctx, nbClient, colony, clusterName, networkID, resourceAddress, destinationGroup)
@@ -356,6 +364,7 @@ func reconcileControlPlaneExposure(
 		log.Info("Using NetBird routing peer connection mode",
 			"cluster", clusterName,
 			"workerEndpoint", workerEndpoint,
+			"ciliumEndpoint", ciliumEndpoint,
 			"resourceAddress", resourceAddress,
 			"resourceID", resourceID)
 	}
@@ -374,6 +383,22 @@ func reconcileControlPlaneExposure(
 		"serviceType", service.Spec.Type,
 		"workerEndpoint", workerEndpoint,
 		"useDirectConnection", clusterStatus.UseDirectConnection)
+
+	// Create/update the Cilium API endpoint ConfigMap in the child cluster
+	// This must happen as soon as the endpoint is known, so Cilium can start properly
+	// Note: Use ciliumEndpoint (internal DNS for NodePort, external for LoadBalancer)
+	if err := cilium.EnsureAPIEndpointConfigMap(ctx, c, colony, clusterName, ciliumEndpoint, scheme); err != nil {
+		// Distinguish between "not ready yet" (expected) and actual errors
+		if errors.IsNotFound(err) || isConnectionError(err) {
+			log.Info("Child cluster not ready yet, will retry Cilium ConfigMap creation on next reconcile",
+				"cluster", clusterName,
+				"reason", getNotReadyReason(err))
+		} else {
+			log.Error(err, "Failed to create Cilium API endpoint ConfigMap, will retry",
+				"cluster", clusterName)
+		}
+		// Don't fail the reconciliation - this will be retried on the next reconcile
+	}
 
 	return nil
 }
@@ -788,6 +813,37 @@ func contains(s, substr string) bool {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+// isConnectionError checks if the error is a connection/network error
+// indicating the API server is not ready yet.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "connect: connection timed out")
+}
+
+// getNotReadyReason returns a human-readable reason for why the cluster is not ready.
+func getNotReadyReason(err error) string {
+	if errors.IsNotFound(err) {
+		return "kubeconfig not found"
+	}
+	errStr := err.Error()
+	if strings.Contains(errStr, "connection refused") {
+		return "API server not ready"
+	}
+	if strings.Contains(errStr, "i/o timeout") {
+		return "API server timeout"
+	}
+	if strings.Contains(errStr, "no such host") {
+		return "DNS not ready"
+	}
+	return "cluster starting up"
 }
 
 func boolPtr(b bool) *bool {

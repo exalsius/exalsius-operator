@@ -57,6 +57,8 @@ type ColonyReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// Note: Child cluster access (for Cilium ConfigMap creation) is done via kubeconfig secrets,
+// which requires the secrets RBAC permission above. No additional RBAC is needed for child cluster resources.
 func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -136,7 +138,7 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Reconcile NetBird integration FIRST if enabled
 	// This ensures setup keys exist before ClusterDeployments try to use them
 	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
-		if err := netbirdpkg.ReconcileNetBird(ctx, r.Client, colony); err != nil {
+		if err := netbirdpkg.ReconcileNetBird(ctx, r.Client, colony, r.Scheme); err != nil {
 			log.Error(err, "Failed to reconcile NetBird integration")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
