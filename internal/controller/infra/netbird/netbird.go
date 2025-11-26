@@ -80,6 +80,42 @@ func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colo
 	colony.Status.NetBird.ColonyRoutersGroupID = routersGroupID
 
 	// Ensure setup key exists - check secret first to avoid regenerating
+	if err := ensureSetupKeysReconciled(ctx, c, nbClient, colony, groupID); err != nil {
+		return err
+	}
+
+	// Ensure router-specific setup key exists
+	ensureRouterSetupKeyReconciled(ctx, c, nbClient, colony, routersGroupID)
+
+	// Ensure routing peer Deployment exists and is properly configured
+	if err := reconcileRoutingPeer(ctx, c, nbClient, colony, routersGroupID, networkID); err != nil {
+		return err
+	}
+
+	// Ensure colony-scoped mesh policy exists
+	policyID, err := ensureColonyMeshPolicy(ctx, nbClient, groupID, colony.Status.NetBird.ColonyMeshPolicyID, colony.Name)
+	if err != nil {
+		return fmt.Errorf("failed to ensure colony mesh policy: %w", err)
+	}
+	colony.Status.NetBird.ColonyMeshPolicyID = policyID
+
+	// Reconcile control plane exposure for each cluster
+	reconcileClusters(ctx, c, nbClient, colony, networkID)
+
+	// After exposing control planes, patch bootstrap secrets for workers to use internal DNS
+	if err := WatchAndPatchBootstrapSecrets(ctx, c, colony); err != nil {
+		log.Error(err, "Failed to patch bootstrap secrets, workers may not join correctly")
+		// Don't fail the reconciliation - this can be retried
+	}
+
+	return nil
+}
+
+// ensureSetupKeysReconciled ensures that the main setup key exists for worker nodes.
+// It handles setup key recovery from existing secrets and generation of new keys if needed.
+func ensureSetupKeysReconciled(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+	colony *infrav1.Colony, groupID string) error {
+	log := log.FromContext(ctx)
 	secretName := fmt.Sprintf("%s-netbird-setup-key", colony.Name)
 
 	if colony.Status.NetBird.SetupKeyID == "" {
@@ -98,8 +134,8 @@ func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colo
 				log.Info("Successfully recovered setup key ID from NetBird API",
 					"setupKeyID", setupKeyID,
 					"secretName", secretName)
-				// Don't generate a new key
-				goto setupKeyReady
+				// Don't generate a new key - return early
+				return nil
 			}
 		}
 
@@ -122,11 +158,17 @@ func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colo
 			"secretName", secretName)
 	}
 
-setupKeyReady:
+	return nil
+}
 
-	// Ensure router-specific setup key exists
-	// This setup key automatically assigns peers to the routers group
+// ensureRouterSetupKeyReconciled ensures that the router-specific setup key exists.
+// This setup key automatically assigns peers to the routers group.
+// This function logs errors but does not fail reconciliation, as it can be retried.
+func ensureRouterSetupKeyReconciled(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+	colony *infrav1.Colony, routersGroupID string) {
+	log := log.FromContext(ctx)
 	routerSetupKeySecretName := fmt.Sprintf("%s-netbird-router-setup-key", colony.Name)
+
 	if colony.Status.NetBird.RouterSetupKeyID == "" {
 		// Generate new router setup key
 		routerSetupKeyValue, routerSetupKeyID, err := generateRouterSetupKey(ctx, nbClient, colony.Name, routersGroupID)
@@ -146,6 +188,13 @@ setupKeyReady:
 			}
 		}
 	}
+}
+
+// reconcileRoutingPeer ensures the routing peer deployment exists and is properly configured.
+// It also ensures network routers are configured for NodePort clusters.
+func reconcileRoutingPeer(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+	colony *infrav1.Colony, routersGroupID, networkID string) error {
+	log := log.FromContext(ctx)
 
 	// Ensure routing peer Deployment exists
 	// Note: We don't fail if it's not ready yet, we just create it and let it start
@@ -179,12 +228,13 @@ setupKeyReady:
 		// Don't fail reconciliation, but log the error
 	}
 
-	// Ensure colony-scoped mesh policy exists
-	policyID, err := ensureColonyMeshPolicy(ctx, nbClient, groupID, colony.Status.NetBird.ColonyMeshPolicyID, colony.Name)
-	if err != nil {
-		return fmt.Errorf("failed to ensure colony mesh policy: %w", err)
-	}
-	colony.Status.NetBird.ColonyMeshPolicyID = policyID
+	return nil
+}
+
+// reconcileClusters reconciles control plane exposure for all clusters in the colony.
+func reconcileClusters(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+	colony *infrav1.Colony, networkID string) {
+	log := log.FromContext(ctx)
 
 	// Reconcile control plane exposure for each cluster
 	for _, clusterRef := range colony.Status.ClusterDeploymentRefs {
@@ -200,7 +250,9 @@ setupKeyReady:
 				log.Info("ClusterDeployment not found, skipping", "name", clusterRef.Name)
 				continue
 			}
-			return fmt.Errorf("failed to get ClusterDeployment %s: %w", clusterRef.Name, err)
+			log.Error(err, "Failed to get ClusterDeployment", "name", clusterRef.Name)
+			// Continue with other clusters
+			continue
 		}
 
 		if err := reconcileControlPlaneExposure(ctx, c, nbClient, colony, clusterName, networkID); err != nil {
@@ -216,14 +268,6 @@ setupKeyReady:
 			continue
 		}
 	}
-
-	// After exposing control planes, patch bootstrap secrets for workers to use internal DNS
-	if err := WatchAndPatchBootstrapSecrets(ctx, c, colony); err != nil {
-		log.Error(err, "Failed to patch bootstrap secrets, workers may not join correctly")
-		// Don't fail the reconciliation - this can be retried
-	}
-
-	return nil
 }
 
 // reconcileControlPlaneExposure exposes the control plane service for a cluster.
