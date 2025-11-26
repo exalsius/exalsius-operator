@@ -215,4 +215,3 @@ func parseEndpoint(endpoint string) (host string, port string, err error) {
 
 	return host, port, nil
 }
-

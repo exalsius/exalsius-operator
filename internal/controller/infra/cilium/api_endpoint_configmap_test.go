@@ -184,7 +184,7 @@ func TestEnsureAPIEndpointConfigMap(t *testing.T) {
 	}{
 		{
 			name:            "Missing kubeconfig secret",
-			colony:          createTestColony("test-colony", "default"),
+			colony:          createTestColony(),
 			clusterName:     "cluster-a",
 			exposedEndpoint: "192.168.1.1:6443",
 			setupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
@@ -196,7 +196,7 @@ func TestEnsureAPIEndpointConfigMap(t *testing.T) {
 		},
 		{
 			name:            "Kubeconfig secret exists but is empty",
-			colony:          createTestColony("test-colony", "default"),
+			colony:          createTestColony(),
 			clusterName:     "cluster-a",
 			exposedEndpoint: "192.168.1.1:6443",
 			setupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
@@ -214,7 +214,7 @@ func TestEnsureAPIEndpointConfigMap(t *testing.T) {
 		},
 		{
 			name:            "Invalid kubeconfig data",
-			colony:          createTestColony("test-colony", "default"),
+			colony:          createTestColony(),
 			clusterName:     "cluster-a",
 			exposedEndpoint: "192.168.1.1:6443",
 			setupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
@@ -234,7 +234,7 @@ func TestEnsureAPIEndpointConfigMap(t *testing.T) {
 		},
 		{
 			name:            "Invalid endpoint format",
-			colony:          createTestColony("test-colony", "default"),
+			colony:          createTestColony(),
 			clusterName:     "cluster-a",
 			exposedEndpoint: "invalid-endpoint-no-port",
 			setupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
@@ -276,11 +276,11 @@ func TestEnsureAPIEndpointConfigMap(t *testing.T) {
 
 // Helper functions
 
-func createTestColony(name, namespace string) *infrav1.Colony {
+func createTestColony() *infrav1.Colony {
 	return &infrav1.Colony{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:      "test-colony",
+			Namespace: "default",
 		},
 		Spec: infrav1.ColonySpec{
 			NetBird: &infrav1.NetBirdConfig{
@@ -291,8 +291,8 @@ func createTestColony(name, namespace string) *infrav1.Colony {
 		Status: infrav1.ColonyStatus{
 			ClusterDeploymentRefs: []*corev1.ObjectReference{
 				{
-					Name:      name + "-cluster-a",
-					Namespace: namespace,
+					Name:      "test-colony-cluster-a",
+					Namespace: "default",
 				},
 			},
 		},
@@ -300,7 +300,7 @@ func createTestColony(name, namespace string) *infrav1.Colony {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(len(s) > 0 && len(substr) > 0 && containsSubstring(s, substr)))
 }
 
@@ -312,4 +312,3 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
-
