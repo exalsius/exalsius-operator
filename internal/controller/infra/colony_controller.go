@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
@@ -36,6 +37,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	clusterdeployment "github.com/exalsius/exalsius-operator/internal/controller/infra/clusterdeployment"
+	netbirdpkg "github.com/exalsius/exalsius-operator/internal/controller/infra/netbird"
 )
 
 const (
@@ -52,6 +54,9 @@ type ColonyReconciler struct {
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -70,6 +75,18 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if err := r.updateColonyStatusWithRetry(ctx, colony, "Deleting"); err != nil {
 			log.Error(err, "Failed to update Colony status to deleting")
 			return ctrl.Result{}, err
+		}
+
+		// Cleanup NetBird resources if enabled
+		if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
+			nbClient, err := netbirdpkg.GetNetBirdClientFromSecrets(ctx, r.Client, colony)
+			if err != nil {
+				log.Error(err, "Failed to get NetBird client for cleanup, continuing with other cleanup")
+			} else {
+				if err := netbirdpkg.CleanupNetBirdResources(ctx, r.Client, nbClient, colony); err != nil {
+					log.Error(err, "Failed to cleanup NetBird resources, continuing with other cleanup")
+				}
+			}
 		}
 
 		for _, colonyCluster := range colony.Spec.ColonyClusters {
@@ -113,6 +130,19 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// Create a copy before making any status changes for the final patch
+	origForStatusPatch := colony.DeepCopy()
+
+	// Reconcile NetBird integration FIRST if enabled
+	// This ensures setup keys exist before ClusterDeployments try to use them
+	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
+		if err := netbirdpkg.ReconcileNetBird(ctx, r.Client, colony); err != nil {
+			log.Error(err, "Failed to reconcile NetBird integration")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+		// Note: Status will be persisted at the end of reconciliation to avoid conflicts
+	}
+
 	for _, colonyCluster := range colony.Spec.ColonyClusters {
 		if colonyCluster.ClusterDeploymentSpec != nil {
 			if err := clusterdeployment.EnsureClusterDeployment(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
@@ -127,6 +157,19 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(err, "Failed to update Colony status from clusters")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
+
+	// Final status update to ensure all changes are persisted
+	// This must happen BEFORE any early returns to ensure NetBird status is saved
+	if colony.Status.NetBird != nil {
+		log.Info("Persisting Colony status with NetBird information",
+			"networkID", colony.Status.NetBird.NetworkID,
+			"setupKeyID", colony.Status.NetBird.SetupKeyID)
+	}
+	if err := r.Client.Status().Patch(ctx, colony, client.MergeFrom(origForStatusPatch)); err != nil {
+		log.Error(err, "Failed to persist final Colony status")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+	log.Info("Successfully persisted Colony status")
 
 	// if not all clusters are ready, requeue sooner
 	if colony.Status.ReadyClusters != colony.Status.TotalClusters {
@@ -265,7 +308,11 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	allReady := true
 	var notReadyClusters []string
 
-	orig := colony.DeepCopy()
+	// Log to verify NetBird status is preserved
+	if colony.Status.NetBird != nil {
+		log.V(1).Info("Preserving NetBird status in cluster status update",
+			"setupKeyID", colony.Status.NetBird.SetupKeyID)
+	}
 
 	// initialize status fields
 	colony.Status.TotalClusters = 0
@@ -320,9 +367,8 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 
 	meta.SetStatusCondition(&colony.Status.Conditions, condition)
 
-	if err := r.Client.Status().Patch(ctx, colony, client.MergeFrom(orig)); err != nil {
-		return fmt.Errorf("failed to update Colony status: %w", err)
-	}
+	// Note: Status is now persisted at the end of Reconcile, not here
+	// This avoids multiple patches that can conflict and lose NetBird status
 
 	return nil
 }
@@ -370,6 +416,10 @@ func (r *ColonyReconciler) updateColonyStatusWithRetry(ctx context.Context, colo
 func (r *ColonyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.Colony{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(netbirdpkg.SecretToColonyMapper(mgr.GetClient())),
+		).
 		Named("infra-colony").
 		Complete(r)
 }
