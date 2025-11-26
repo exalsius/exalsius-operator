@@ -481,7 +481,40 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 		return nil
 	}
 
-	// Delete shared colony mesh policy
+	// Step 1: Delete setup keys from NetBird API first
+	// These reference the groups, so they must be deleted before groups
+	if colony.Status.NetBird.SetupKeyID != "" {
+		log.Info("Deleting NetBird setup key", "setupKeyID", colony.Status.NetBird.SetupKeyID)
+		if err := nbClient.SetupKeys.Delete(ctx, colony.Status.NetBird.SetupKeyID); err != nil {
+			log.Error(err, "Failed to delete setup key", "setupKeyID", colony.Status.NetBird.SetupKeyID)
+			// Continue with cleanup
+		}
+	}
+
+	if colony.Status.NetBird.RouterSetupKeyID != "" {
+		log.Info("Deleting NetBird router setup key", "setupKeyID", colony.Status.NetBird.RouterSetupKeyID)
+		if err := nbClient.SetupKeys.Delete(ctx, colony.Status.NetBird.RouterSetupKeyID); err != nil {
+			log.Error(err, "Failed to delete router setup key", "setupKeyID", colony.Status.NetBird.RouterSetupKeyID)
+			// Continue with cleanup
+		}
+	}
+
+	// Step 2: Delete Network Resources for each cluster
+	// These reference the groups, so they must be deleted before groups
+	if colony.Status.NetBird.NetworkID != "" && len(colony.Status.NetBird.ClusterResources) > 0 {
+		for clusterName, clusterStatus := range colony.Status.NetBird.ClusterResources {
+			// Delete Network Resource
+			if clusterStatus.ControlPlaneResourceID != "" {
+				log.Info("Deleting NetBird Network Resource", "resourceID", clusterStatus.ControlPlaneResourceID, "cluster", clusterName)
+				if err := nbClient.Networks.Resources(colony.Status.NetBird.NetworkID).Delete(ctx, clusterStatus.ControlPlaneResourceID); err != nil {
+					log.Error(err, "Failed to delete Network Resource", "resourceID", clusterStatus.ControlPlaneResourceID)
+					// Continue with cleanup
+				}
+			}
+		}
+	}
+
+	// Step 3: Delete shared colony mesh policy
 	if colony.Status.NetBird.ColonyMeshPolicyID != "" {
 		log.Info("Deleting shared colony mesh policy", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
 		if err := nbClient.Policies.Delete(ctx, colony.Status.NetBird.ColonyMeshPolicyID); err != nil {
@@ -490,7 +523,8 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 		}
 	}
 
-	// Delete colony-scoped routers group
+	// Step 4: Delete groups
+	// Now safe to delete since setup keys and network resources are gone
 	if colony.Status.NetBird.ColonyRoutersGroupID != "" {
 		log.Info("Deleting colony routers group", "groupID", colony.Status.NetBird.ColonyRoutersGroupID)
 		if err := nbClient.Groups.Delete(ctx, colony.Status.NetBird.ColonyRoutersGroupID); err != nil {
@@ -499,7 +533,6 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 		}
 	}
 
-	// Delete colony-scoped nodes group
 	if colony.Status.NetBird.ColonyNodesGroupID != "" {
 		log.Info("Deleting colony nodes group", "groupID", colony.Status.NetBird.ColonyNodesGroupID)
 		if err := nbClient.Groups.Delete(ctx, colony.Status.NetBird.ColonyNodesGroupID); err != nil {
@@ -508,7 +541,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 		}
 	}
 
-	// Delete auto-generated setup key secret
+	// Step 5: Delete Kubernetes resources (secrets)
 	if colony.Status.NetBird.SetupKeySecretName != "" {
 		log.Info("Deleting auto-generated setup key secret", "secretName", colony.Status.NetBird.SetupKeySecretName)
 		secret := &corev1.Secret{}
@@ -525,16 +558,18 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 		}
 	}
 
-	// Delete Network Resources for each cluster
-	if colony.Status.NetBird.NetworkID != "" && len(colony.Status.NetBird.ClusterResources) > 0 {
-		for clusterName, clusterStatus := range colony.Status.NetBird.ClusterResources {
-			// Delete Network Resource
-			if clusterStatus.ControlPlaneResourceID != "" {
-				log.Info("Deleting NetBird Network Resource", "resourceID", clusterStatus.ControlPlaneResourceID, "cluster", clusterName)
-				if err := nbClient.Networks.Resources(colony.Status.NetBird.NetworkID).Delete(ctx, clusterStatus.ControlPlaneResourceID); err != nil {
-					log.Error(err, "Failed to delete Network Resource", "resourceID", clusterStatus.ControlPlaneResourceID)
-					// Continue with cleanup
-				}
+	if colony.Status.NetBird.RouterSetupKeySecretName != "" {
+		log.Info("Deleting router setup key secret", "secretName", colony.Status.NetBird.RouterSetupKeySecretName)
+		secret := &corev1.Secret{}
+		err := c.Get(ctx, client.ObjectKey{Name: colony.Status.NetBird.RouterSetupKeySecretName, Namespace: colony.Namespace}, secret)
+		if err != nil {
+			if !errors.IsNotFound(err) {
+				log.Error(err, "Failed to get router setup key secret for deletion", "secretName", colony.Status.NetBird.RouterSetupKeySecretName)
+			}
+		} else {
+			if err := c.Delete(ctx, secret); err != nil {
+				log.Error(err, "Failed to delete router setup key secret", "secretName", colony.Status.NetBird.RouterSetupKeySecretName)
+				// Continue with cleanup
 			}
 		}
 	}
