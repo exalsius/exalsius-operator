@@ -73,7 +73,9 @@ func (c *NetBirdClient) doRequest(ctx context.Context, method, path string, body
 
 // handleResponse handles the HTTP response and unmarshals into result
 func (c *NetBirdClient) handleResponse(resp *http.Response, result interface{}) error {
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -470,4 +472,3 @@ func (c *NetBirdClient) ListPeers(ctx context.Context) ([]Peer, error) {
 
 	return peers, nil
 }
-

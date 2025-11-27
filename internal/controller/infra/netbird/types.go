@@ -177,4 +177,3 @@ type NetworkRequest struct {
 type GroupCreateRequest struct {
 	Name string `json:"name"`
 }
-

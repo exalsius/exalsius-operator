@@ -534,6 +534,29 @@ func extractClusterNameFromDeploymentName(deploymentName, colonyName string) str
 	return deploymentName[len(prefix):]
 }
 
+// deleteSecretIfExists deletes a secret if it exists, logging errors but not failing.
+func deleteSecretIfExists(ctx context.Context, c client.Client, secretName, namespace string) {
+	log := log.FromContext(ctx)
+
+	if secretName == "" {
+		return
+	}
+
+	log.Info("Deleting secret", "secretName", secretName)
+	secret := &corev1.Secret{}
+	err := c.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			log.Error(err, "Failed to get secret for deletion", "secretName", secretName)
+		}
+		return
+	}
+
+	if err := c.Delete(ctx, secret); err != nil {
+		log.Error(err, "Failed to delete secret", "secretName", secretName)
+	}
+}
+
 // CleanupNetBirdResources cleans up NetBird resources when a Colony is deleted.
 func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *NetBirdClient, colony *infrav1.Colony) error {
 	log := log.FromContext(ctx)
@@ -619,37 +642,8 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 	}
 
 	// Step 6: Delete Kubernetes resources (secrets and deployment)
-	if colony.Status.NetBird.SetupKeySecretName != "" {
-		log.Info("Deleting auto-generated setup key secret", "secretName", colony.Status.NetBird.SetupKeySecretName)
-		secret := &corev1.Secret{}
-		err := c.Get(ctx, client.ObjectKey{Name: colony.Status.NetBird.SetupKeySecretName, Namespace: colony.Namespace}, secret)
-		if err != nil {
-			if !errors.IsNotFound(err) {
-				log.Error(err, "Failed to get setup key secret for deletion", "secretName", colony.Status.NetBird.SetupKeySecretName)
-			}
-		} else {
-			if err := c.Delete(ctx, secret); err != nil {
-				log.Error(err, "Failed to delete setup key secret", "secretName", colony.Status.NetBird.SetupKeySecretName)
-				// Continue with cleanup
-			}
-		}
-	}
-
-	if colony.Status.NetBird.RouterSetupKeySecretName != "" {
-		log.Info("Deleting router setup key secret", "secretName", colony.Status.NetBird.RouterSetupKeySecretName)
-		secret := &corev1.Secret{}
-		err := c.Get(ctx, client.ObjectKey{Name: colony.Status.NetBird.RouterSetupKeySecretName, Namespace: colony.Namespace}, secret)
-		if err != nil {
-			if !errors.IsNotFound(err) {
-				log.Error(err, "Failed to get router setup key secret for deletion", "secretName", colony.Status.NetBird.RouterSetupKeySecretName)
-			}
-		} else {
-			if err := c.Delete(ctx, secret); err != nil {
-				log.Error(err, "Failed to delete router setup key secret", "secretName", colony.Status.NetBird.RouterSetupKeySecretName)
-				// Continue with cleanup
-			}
-		}
-	}
+	deleteSecretIfExists(ctx, c, colony.Status.NetBird.SetupKeySecretName, colony.Namespace)
+	deleteSecretIfExists(ctx, c, colony.Status.NetBird.RouterSetupKeySecretName, colony.Namespace)
 
 	// Delete routing peer Deployment
 	deploymentName := fmt.Sprintf("%s-netbird-router", colony.Name)
