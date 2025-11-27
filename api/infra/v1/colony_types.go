@@ -42,6 +42,7 @@ type NetBirdConfig struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 	// APIKeySecret is the name of the Secret containing the NetBird API key.
+	// The secret must exist in the "exalsius-system" namespace.
 	APIKeySecret string `json:"apiKeySecret"`
 	// ManagementURL is the NetBird management API URL (default: "https://api.netbird.io").
 	// +optional

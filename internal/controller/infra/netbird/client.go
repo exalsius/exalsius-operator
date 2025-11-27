@@ -35,11 +35,11 @@ func GetNetBirdClientFromSecrets(ctx context.Context, c client.Client, colony *i
 		return nil, fmt.Errorf("NetBird config is nil")
 	}
 
-	// Get API key from secret
+	// Get API key from secret (always in exalsius-system namespace)
 	secret := &corev1.Secret{}
 	err := c.Get(ctx, types.NamespacedName{
 		Name:      colony.Spec.NetBird.APIKeySecret,
-		Namespace: colony.Namespace,
+		Namespace: "exalsius-system",
 	}, secret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get API key secret %s: %w", colony.Spec.NetBird.APIKeySecret, err)
