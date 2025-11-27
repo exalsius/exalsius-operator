@@ -42,6 +42,7 @@ type NetBirdConfig struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 	// APIKeySecret is the name of the Secret containing the NetBird API key.
+	// The secret must exist in the "exalsius-system" namespace.
 	APIKeySecret string `json:"apiKeySecret"`
 	// ManagementURL is the NetBird management API URL (default: "https://api.netbird.io").
 	// +optional
@@ -118,6 +119,8 @@ type NetBirdStatus struct {
 	RouterSetupKeySecretName string `json:"routerSetupKeySecretName,omitempty"`
 	// RouterSetupKeyID is the NetBird setup key ID for the routing peer.
 	RouterSetupKeyID string `json:"routerSetupKeyID,omitempty"`
+	// TrackedPeerIDs are peer IDs created by the operator that should be cleaned up on deletion.
+	TrackedPeerIDs []string `json:"trackedPeerIDs,omitempty"`
 	// ClusterResources tracks NetBird resources per cluster.
 	ClusterResources map[string]ClusterNetBirdStatus `json:"clusterResources,omitempty"`
 }
