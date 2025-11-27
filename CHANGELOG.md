@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5](https://github.com/exalsius/exalsius-operator/compare/v0.4.4...v0.4.5) (2025-11-27)
+
+
+### Bug Fixes
+
+* **netbird:** reorder netbird resource deletion ([#109](https://github.com/exalsius/exalsius-operator/issues/109)) ([3b936ff](https://github.com/exalsius/exalsius-operator/commit/3b936ffc31e630efab4674ad968a2329b2f75739))
+
 ## [0.4.4](https://github.com/exalsius/exalsius-operator/compare/v0.4.3...v0.4.4) (2025-11-27)
 
 
