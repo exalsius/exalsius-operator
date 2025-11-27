@@ -28,13 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	netbirdrest "github.com/netbirdio/netbird/management/client/rest"
-	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
 const (
-	netbirdImage = "netbirdio/netbird:0.60.2"
+	netbirdImage = "netbirdio/netbird:0.60.3"
 )
 
 // ensureRoutingPeerDeployment ensures that a NetBird routing peer Deployment exists for the Colony.
@@ -196,14 +193,14 @@ func int32Ptr(i int32) *int32 {
 // ensureRoutingPeerInRoutersGroup ensures that the routing peer is added to the routers group.
 // This function finds the routing peer by hostname and adds it to the group if not already present.
 // It is idempotent and safe to call on every reconciliation.
-func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *netbirdrest.Client, colony *infrav1.Colony, routersGroupID string) error {
+func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *NetBirdClient, colony *infrav1.Colony, routersGroupID string) error {
 	log := log.FromContext(ctx)
 
 	// Expected hostname for the routing peer
 	routerHostname := fmt.Sprintf("%s-netbird-router", colony.Name)
 
 	// List all peers to find the routing peer by hostname
-	allPeers, err := nbClient.Peers.List(ctx)
+	allPeers, err := nbClient.ListPeers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list peers: %w", err)
 	}
@@ -212,7 +209,7 @@ func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *netbirdrest.
 	var routingPeerID string
 	for _, peer := range allPeers {
 		if peer.Hostname == routerHostname {
-			routingPeerID = peer.Id
+			routingPeerID = peer.ID
 			break
 		}
 	}
@@ -224,14 +221,14 @@ func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *netbirdrest.
 	}
 
 	// Get current routers group
-	routersGroup, err := nbClient.Groups.Get(ctx, routersGroupID)
+	routersGroup, err := nbClient.GetGroup(ctx, routersGroupID)
 	if err != nil {
 		return fmt.Errorf("failed to get routers group: %w", err)
 	}
 
 	// Check if routing peer is already in the group
 	for _, peer := range routersGroup.Peers {
-		if peer.Id == routingPeerID {
+		if peer.ID == routingPeerID {
 			log.V(1).Info("Routing peer already in routers group", "peerID", routingPeerID)
 			return nil
 		}
@@ -240,16 +237,13 @@ func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *netbirdrest.
 	// Build updated peer list with routing peer added
 	updatedPeerIDs := make([]string, 0, len(routersGroup.Peers)+1)
 	for _, peer := range routersGroup.Peers {
-		updatedPeerIDs = append(updatedPeerIDs, peer.Id)
+		updatedPeerIDs = append(updatedPeerIDs, peer.ID)
 	}
 	updatedPeerIDs = append(updatedPeerIDs, routingPeerID)
 
 	// Update the group with the new peer list
 	log.Info("Adding routing peer to routers group", "peerID", routingPeerID, "groupID", routersGroupID)
-	_, err = nbClient.Groups.Update(ctx, routersGroupID, api.GroupRequest{
-		Name:  routersGroup.Name,
-		Peers: &updatedPeerIDs,
-	})
+	_, err = nbClient.UpdateGroup(ctx, routersGroupID, routersGroup.Name, updatedPeerIDs)
 	if err != nil {
 		return fmt.Errorf("failed to add routing peer to routers group: %w", err)
 	}
@@ -261,11 +255,11 @@ func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *netbirdrest.
 // ensureNetworkRouters ensures that all peers in the routers group are configured as Network Routers
 // with masquerade enabled. This enables L3 reachability to ClusterIPs from remote peers.
 // Uses PeerGroups instead of individual peer IDs for automatic inclusion of all group members.
-func ensureNetworkRouters(ctx context.Context, nbClient *netbirdrest.Client, networkID string, groupID string, colonyName string) error {
+func ensureNetworkRouters(ctx context.Context, nbClient *NetBirdClient, networkID string, groupID string, colonyName string) error {
 	log := log.FromContext(ctx)
 
 	// List existing routers for the network
-	routers, err := nbClient.Networks.Routers(networkID).List(ctx)
+	routers, err := nbClient.ListNetworkRouters(ctx, networkID)
 	if err != nil {
 		return fmt.Errorf("failed to list network routers: %w", err)
 	}
@@ -280,10 +274,10 @@ func ensureNetworkRouters(ctx context.Context, nbClient *netbirdrest.Client, net
 					// Verify masquerade is enabled
 					if !router.Enabled || !router.Masquerade || router.Metric != 9999 {
 						log.Info("Updating Network Router configuration",
-							"routerID", router.Id,
+							"routerID", router.ID,
 							"groupID", groupID,
 							"colony", colonyName)
-						_, err := nbClient.Networks.Routers(networkID).Update(ctx, router.Id, api.NetworkRouterRequest{
+						_, err := nbClient.UpdateNetworkRouter(ctx, networkID, router.ID, NetworkRouterRequest{
 							Enabled:    true,
 							Masquerade: true,
 							Metric:     9999,
@@ -294,7 +288,7 @@ func ensureNetworkRouters(ctx context.Context, nbClient *netbirdrest.Client, net
 						}
 					} else {
 						log.Info("Network Router already correctly configured",
-							"routerID", router.Id,
+							"routerID", router.ID,
 							"groupID", groupID,
 							"colony", colonyName)
 					}
@@ -311,7 +305,7 @@ func ensureNetworkRouters(ctx context.Context, nbClient *netbirdrest.Client, net
 		"masquerade", true,
 		"metric", 9999)
 
-	_, err = nbClient.Networks.Routers(networkID).Create(ctx, api.NetworkRouterRequest{
+	_, err = nbClient.CreateNetworkRouter(ctx, networkID, NetworkRouterRequest{
 		Enabled:    true,
 		Masquerade: true,
 		Metric:     9999,

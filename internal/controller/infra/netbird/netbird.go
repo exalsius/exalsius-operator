@@ -30,9 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	netbirdrest "github.com/netbirdio/netbird/management/client/rest"
-	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
 // ReconcileNetBird reconciles NetBird integration for a Colony.
@@ -115,7 +112,7 @@ func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colo
 
 // ensureSetupKeysReconciled ensures that the main setup key exists for worker nodes.
 // It handles setup key recovery from existing secrets and generation of new keys if needed.
-func ensureSetupKeysReconciled(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+func ensureSetupKeysReconciled(ctx context.Context, c client.Client, nbClient *NetBirdClient,
 	colony *infrav1.Colony, groupID string) error {
 	log := log.FromContext(ctx)
 	secretName := fmt.Sprintf("%s-netbird-setup-key", colony.Name)
@@ -166,7 +163,7 @@ func ensureSetupKeysReconciled(ctx context.Context, c client.Client, nbClient *n
 // ensureRouterSetupKeyReconciled ensures that the router-specific setup key exists.
 // This setup key automatically assigns peers to the routers group.
 // This function logs errors but does not fail reconciliation, as it can be retried.
-func ensureRouterSetupKeyReconciled(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+func ensureRouterSetupKeyReconciled(ctx context.Context, c client.Client, nbClient *NetBirdClient,
 	colony *infrav1.Colony, routersGroupID string) {
 	log := log.FromContext(ctx)
 	routerSetupKeySecretName := fmt.Sprintf("%s-netbird-router-setup-key", colony.Name)
@@ -194,7 +191,7 @@ func ensureRouterSetupKeyReconciled(ctx context.Context, c client.Client, nbClie
 
 // reconcileRoutingPeer ensures the routing peer deployment exists and is properly configured.
 // It also ensures network routers are configured for NodePort clusters.
-func reconcileRoutingPeer(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+func reconcileRoutingPeer(ctx context.Context, c client.Client, nbClient *NetBirdClient,
 	colony *infrav1.Colony, routersGroupID, networkID string) error {
 	log := log.FromContext(ctx)
 
@@ -234,7 +231,7 @@ func reconcileRoutingPeer(ctx context.Context, c client.Client, nbClient *netbir
 }
 
 // reconcileClusters reconciles control plane exposure for all clusters in the colony.
-func reconcileClusters(ctx context.Context, c client.Client, nbClient *netbirdrest.Client,
+func reconcileClusters(ctx context.Context, c client.Client, nbClient *NetBirdClient,
 	colony *infrav1.Colony, networkID string, scheme *runtime.Scheme) {
 	log := log.FromContext(ctx)
 
@@ -280,7 +277,7 @@ func reconcileClusters(ctx context.Context, c client.Client, nbClient *netbirdre
 func reconcileControlPlaneExposure(
 	ctx context.Context,
 	c client.Client,
-	nbClient *netbirdrest.Client,
+	nbClient *NetBirdClient,
 	colony *infrav1.Colony,
 	clusterName string,
 	networkID string,
@@ -542,7 +539,7 @@ func extractClusterNameFromDeploymentName(deploymentName, colonyName string) str
 }
 
 // CleanupNetBirdResources cleans up NetBird resources when a Colony is deleted.
-func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *netbirdrest.Client, colony *infrav1.Colony) error {
+func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *NetBirdClient, colony *infrav1.Colony) error {
 	log := log.FromContext(ctx)
 
 	if colony.Status.NetBird == nil {
@@ -553,7 +550,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 	// These reference the groups, so they must be deleted before groups
 	if colony.Status.NetBird.SetupKeyID != "" {
 		log.Info("Deleting NetBird setup key", "setupKeyID", colony.Status.NetBird.SetupKeyID)
-		if err := nbClient.SetupKeys.Delete(ctx, colony.Status.NetBird.SetupKeyID); err != nil {
+		if err := nbClient.DeleteSetupKey(ctx, colony.Status.NetBird.SetupKeyID); err != nil {
 			log.Error(err, "Failed to delete setup key", "setupKeyID", colony.Status.NetBird.SetupKeyID)
 			// Continue with cleanup
 		}
@@ -561,7 +558,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 
 	if colony.Status.NetBird.RouterSetupKeyID != "" {
 		log.Info("Deleting NetBird router setup key", "setupKeyID", colony.Status.NetBird.RouterSetupKeyID)
-		if err := nbClient.SetupKeys.Delete(ctx, colony.Status.NetBird.RouterSetupKeyID); err != nil {
+		if err := nbClient.DeleteSetupKey(ctx, colony.Status.NetBird.RouterSetupKeyID); err != nil {
 			log.Error(err, "Failed to delete router setup key", "setupKeyID", colony.Status.NetBird.RouterSetupKeyID)
 			// Continue with cleanup
 		}
@@ -574,7 +571,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 			// Delete Network Resource
 			if clusterStatus.ControlPlaneResourceID != "" {
 				log.Info("Deleting NetBird Network Resource", "resourceID", clusterStatus.ControlPlaneResourceID, "cluster", clusterName)
-				if err := nbClient.Networks.Resources(colony.Status.NetBird.NetworkID).Delete(ctx, clusterStatus.ControlPlaneResourceID); err != nil {
+				if err := nbClient.DeleteNetworkResource(ctx, colony.Status.NetBird.NetworkID, clusterStatus.ControlPlaneResourceID); err != nil {
 					log.Error(err, "Failed to delete Network Resource", "resourceID", clusterStatus.ControlPlaneResourceID)
 					// Continue with cleanup
 				}
@@ -585,7 +582,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 	// Step 3: Delete shared colony mesh policy
 	if colony.Status.NetBird.ColonyMeshPolicyID != "" {
 		log.Info("Deleting shared colony mesh policy", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
-		if err := nbClient.Policies.Delete(ctx, colony.Status.NetBird.ColonyMeshPolicyID); err != nil {
+		if err := nbClient.DeletePolicy(ctx, colony.Status.NetBird.ColonyMeshPolicyID); err != nil {
 			log.Error(err, "Failed to delete shared policy", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
 			// Continue with cleanup
 		}
@@ -595,7 +592,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 	// Now safe to delete since setup keys and network resources are gone
 	if colony.Status.NetBird.ColonyRoutersGroupID != "" {
 		log.Info("Deleting colony routers group", "groupID", colony.Status.NetBird.ColonyRoutersGroupID)
-		if err := nbClient.Groups.Delete(ctx, colony.Status.NetBird.ColonyRoutersGroupID); err != nil {
+		if err := nbClient.DeleteGroup(ctx, colony.Status.NetBird.ColonyRoutersGroupID); err != nil {
 			log.Error(err, "Failed to delete colony routers group", "groupID", colony.Status.NetBird.ColonyRoutersGroupID)
 			// Continue with cleanup
 		}
@@ -603,7 +600,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 
 	if colony.Status.NetBird.ColonyNodesGroupID != "" {
 		log.Info("Deleting colony nodes group", "groupID", colony.Status.NetBird.ColonyNodesGroupID)
-		if err := nbClient.Groups.Delete(ctx, colony.Status.NetBird.ColonyNodesGroupID); err != nil {
+		if err := nbClient.DeleteGroup(ctx, colony.Status.NetBird.ColonyNodesGroupID); err != nil {
 			log.Error(err, "Failed to delete colony nodes group", "groupID", colony.Status.NetBird.ColonyNodesGroupID)
 			// Continue with cleanup
 		}
@@ -662,7 +659,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *net
 // ensureNetworkResource ensures a Network Resource exists with the given address and destination group.
 func ensureNetworkResource(
 	ctx context.Context,
-	nbClient *netbirdrest.Client,
+	nbClient *NetBirdClient,
 	colony *infrav1.Colony,
 	clusterName, networkID, address, destinationGroup string,
 ) (string, error) {
@@ -674,22 +671,23 @@ func ensureNetworkResource(
 	// Get existing status
 	clusterStatus := colony.Status.NetBird.ClusterResources[clusterName]
 
+	resourceReq := NetworkResourceRequest{
+		Name:        resourceName,
+		Address:     address,
+		Enabled:     true,
+		Groups:      []string{destinationGroup},
+		Description: stringPtr(expectedDescription),
+	}
+
 	// 1. Check if we have a stored resource ID - try to get it directly
 	if clusterStatus.ControlPlaneResourceID != "" {
-		resource, err := nbClient.Networks.Resources(networkID).Get(ctx, clusterStatus.ControlPlaneResourceID)
+		resource, err := nbClient.GetNetworkResource(ctx, networkID, clusterStatus.ControlPlaneResourceID)
 		if err == nil {
-			log.Info("Found resource by stored ID", "resourceID", resource.Id, "name", resource.Name)
+			log.Info("Found resource by stored ID", "resourceID", resource.ID, "name", resource.Name)
 			// Resource exists, update if needed
 			if resource.Address != address || resource.Name != resourceName {
-				log.Info("Updating resource address or name", "resourceID", resource.Id, "oldAddress", resource.Address, "newAddress", address)
-				_, err := nbClient.Networks.Resources(networkID).Update(ctx, resource.Id,
-					api.PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody{
-						Name:        resourceName,
-						Address:     address,
-						Enabled:     true,
-						Groups:      []string{destinationGroup},
-						Description: stringPtr(expectedDescription),
-					})
+				log.Info("Updating resource address or name", "resourceID", resource.ID, "oldAddress", resource.Address, "newAddress", address)
+				_, err := nbClient.UpdateNetworkResource(ctx, networkID, resource.ID, resourceReq)
 				if err != nil {
 					return "", fmt.Errorf("failed to update network resource: %w", err)
 				}
@@ -697,14 +695,14 @@ func ensureNetworkResource(
 			// Update status with current address
 			clusterStatus.ControlPlaneResourceAddress = address
 			colony.Status.NetBird.ClusterResources[clusterName] = clusterStatus
-			return resource.Id, nil
+			return resource.ID, nil
 		}
 		// Resource ID invalid, clear it and proceed to search
 		log.Info("Stored resource ID not found, will search by name/address", "resourceID", clusterStatus.ControlPlaneResourceID)
 	}
 
 	// 2. List all resources and search by name first, then address
-	resources, err := nbClient.Networks.Resources(networkID).List(ctx)
+	resources, err := nbClient.ListNetworkResources(ctx, networkID)
 	if err != nil {
 		return "", fmt.Errorf("failed to list network resources: %w", err)
 	}
@@ -712,17 +710,10 @@ func ensureNetworkResource(
 	// Search by name (exact match)
 	for _, resource := range resources {
 		if resource.Name == resourceName {
-			log.Info("Found existing resource by name", "resourceID", resource.Id, "name", resource.Name)
+			log.Info("Found existing resource by name", "resourceID", resource.ID, "name", resource.Name)
 			// Update if address changed
 			if resource.Address != address {
-				_, err := nbClient.Networks.Resources(networkID).Update(ctx, resource.Id,
-					api.PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody{
-						Name:        resourceName,
-						Address:     address,
-						Enabled:     true,
-						Groups:      []string{destinationGroup},
-						Description: stringPtr(expectedDescription),
-					})
+				_, err := nbClient.UpdateNetworkResource(ctx, networkID, resource.ID, resourceReq)
 				if err != nil {
 					return "", fmt.Errorf("failed to update network resource: %w", err)
 				}
@@ -730,69 +721,56 @@ func ensureNetworkResource(
 			// Update status
 			clusterStatus.ControlPlaneResourceAddress = address
 			colony.Status.NetBird.ClusterResources[clusterName] = clusterStatus
-			return resource.Id, nil
+			return resource.ID, nil
 		}
 	}
 
 	// Fuzzy match by address (contains substring)
 	for _, resource := range resources {
 		if resource.Address == address || strings.Contains(resource.Address, address) || strings.Contains(address, resource.Address) {
-			log.Info("Found existing resource by address match", "resourceID", resource.Id, "address", resource.Address)
+			log.Info("Found existing resource by address match", "resourceID", resource.ID, "address", resource.Address)
 			// Update to correct name
-			_, err := nbClient.Networks.Resources(networkID).Update(ctx, resource.Id,
-				api.PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody{
-					Name:        resourceName,
-					Address:     address,
-					Enabled:     true,
-					Groups:      []string{destinationGroup},
-					Description: stringPtr(expectedDescription),
-				})
+			_, err := nbClient.UpdateNetworkResource(ctx, networkID, resource.ID, resourceReq)
 			if err != nil {
 				return "", fmt.Errorf("failed to update resource during migration: %w", err)
 			}
 			// Update status
 			clusterStatus.ControlPlaneResourceAddress = address
 			colony.Status.NetBird.ClusterResources[clusterName] = clusterStatus
-			return resource.Id, nil
+			return resource.ID, nil
 		}
 	}
 
 	// 3. Create new resource
 	log.Info("Creating new Network Resource", "name", resourceName, "address", address, "group", destinationGroup)
-	resource, err := nbClient.Networks.Resources(networkID).Create(ctx, api.PostApiNetworksNetworkIdResourcesJSONRequestBody{
-		Name:        resourceName,
-		Address:     address,
-		Enabled:     true,
-		Groups:      []string{destinationGroup},
-		Description: stringPtr(expectedDescription),
-	})
+	resource, err := nbClient.CreateNetworkResource(ctx, networkID, resourceReq)
 	if err != nil {
 		// Check if it's an "already exists" error (name or address conflict)
 		if contains(err.Error(), "already exists") {
 			log.Info("Resource creation failed with 'already exists', searching for existing resource")
 			// Re-list resources to find the conflicting one
-			refreshedResources, listErr := nbClient.Networks.Resources(networkID).List(ctx)
+			refreshedResources, listErr := nbClient.ListNetworkResources(ctx, networkID)
 			if listErr != nil {
 				return "", fmt.Errorf("resource already exists but failed to list resources: %w", listErr)
 			}
 			// Try to find by name first
 			for _, r := range refreshedResources {
 				if r.Name == resourceName {
-					log.Info("Found existing resource with same name", "resourceID", r.Id)
+					log.Info("Found existing resource with same name", "resourceID", r.ID)
 					// Update status
 					clusterStatus.ControlPlaneResourceAddress = address
 					colony.Status.NetBird.ClusterResources[clusterName] = clusterStatus
-					return r.Id, nil
+					return r.ID, nil
 				}
 			}
 			// Try to find by address (fuzzy match)
 			for _, r := range refreshedResources {
 				if r.Address == address || strings.Contains(r.Address, address) || strings.Contains(address, r.Address) {
-					log.Info("Found existing resource with same address", "resourceID", r.Id)
+					log.Info("Found existing resource with same address", "resourceID", r.ID)
 					// Update status
 					clusterStatus.ControlPlaneResourceAddress = address
 					colony.Status.NetBird.ClusterResources[clusterName] = clusterStatus
-					return r.Id, nil
+					return r.ID, nil
 				}
 			}
 			return "", fmt.Errorf("resource already exists but could not find it by name or address")
@@ -800,11 +778,11 @@ func ensureNetworkResource(
 		return "", fmt.Errorf("failed to create network resource: %w", err)
 	}
 
-	log.Info("Created Network Resource", "resourceID", resource.Id, "name", resourceName, "address", address, "group", destinationGroup)
+	log.Info("Created Network Resource", "resourceID", resource.ID, "name", resourceName, "address", address, "group", destinationGroup)
 	// Update status
 	clusterStatus.ControlPlaneResourceAddress = address
 	colony.Status.NetBird.ClusterResources[clusterName] = clusterStatus
-	return resource.Id, nil
+	return resource.ID, nil
 }
 
 func contains(s, substr string) bool {

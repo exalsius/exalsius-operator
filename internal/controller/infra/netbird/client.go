@@ -25,12 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	netbirdrest "github.com/netbirdio/netbird/management/client/rest"
 )
 
 // GetNetBirdClientFromSecrets retrieves the NetBird API key from a Secret and creates a NetBird client.
-func GetNetBirdClientFromSecrets(ctx context.Context, c client.Client, colony *infrav1.Colony) (*netbirdrest.Client, error) {
+func GetNetBirdClientFromSecrets(ctx context.Context, c client.Client, colony *infrav1.Colony) (*NetBirdClient, error) {
 	log := log.FromContext(ctx)
 
 	if colony.Spec.NetBird == nil {
@@ -63,7 +61,7 @@ func GetNetBirdClientFromSecrets(ctx context.Context, c client.Client, colony *i
 	}
 
 	log.Info("Creating NetBird client", "managementURL", managementURL)
-	return netbirdrest.New(managementURL, apiKey), nil
+	return NewNetBirdClient(managementURL, apiKey), nil
 }
 
 // GetSetupKeyFromSecret retrieves the NetBird setup key from a Secret.
