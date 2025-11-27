@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/exalsius/exalsius-operator/compare/v0.4.3...v0.4.4) (2025-11-27)
+
+
+### Bug Fixes
+
+* **netbird:** check if netbird already exists while bootrapping ([#107](https://github.com/exalsius/exalsius-operator/issues/107)) ([5a90134](https://github.com/exalsius/exalsius-operator/commit/5a90134ab2d1730a0f7131fbd4bbe91b6c11abfc))
+
 ## [0.4.3](https://github.com/exalsius/exalsius-operator/compare/v0.4.2...v0.4.3) (2025-11-27)
 
 
