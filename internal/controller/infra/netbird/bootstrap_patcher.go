@@ -466,8 +466,8 @@ func injectNetBirdCommands(cloudConfig map[string]interface{}, setupKey string, 
 
 	// Prepend NetBird commands
 	netbirdCommands := []interface{}{
-		"curl -fsSL https://pkgs.netbird.io/install.sh | sh",
-		fmt.Sprintf("netbird up --setup-key %s", setupKey),
+		"command -v netbird >/dev/null 2>&1 || curl -fsSL https://pkgs.netbird.io/install.sh | sh || true",
+		fmt.Sprintf("netbird up --setup-key %s || true", setupKey),
 		"timeout 30 bash -c 'until netbird status | grep -q Connected; do sleep 1; done'",
 	}
 
