@@ -444,6 +444,16 @@ func (c *NetBirdClient) UpdateNetworkRouter(ctx context.Context, networkID, rout
 	return router, nil
 }
 
+// DeleteNetworkRouter deletes a network router
+func (c *NetBirdClient) DeleteNetworkRouter(ctx context.Context, networkID, routerID string) error {
+	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/networks/%s/routers/%s", networkID, routerID), nil)
+	if err != nil {
+		return err
+	}
+
+	return c.handleResponse(resp, nil)
+}
+
 // Peers API
 
 // ListPeers lists all peers

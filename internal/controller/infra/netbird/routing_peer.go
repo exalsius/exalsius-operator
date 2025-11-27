@@ -40,7 +40,7 @@ func ensureRoutingPeerDeployment(ctx context.Context, c client.Client, colony *i
 
 	deploymentName := fmt.Sprintf("%s-netbird-router", colony.Name)
 
-	// Use router-specific setup key that auto-assigns to routers group
+	// Use router-specific setup key that auto-assigns to both groups
 	setupKeySecretName := colony.Status.NetBird.RouterSetupKeySecretName
 	if setupKeySecretName == "" {
 		// Fallback to expected name if not in status yet
@@ -188,68 +188,6 @@ func getManagementURL(colony *infrav1.Colony) string {
 
 func int32Ptr(i int32) *int32 {
 	return &i
-}
-
-// ensureRoutingPeerInRoutersGroup ensures that the routing peer is added to the routers group.
-// This function finds the routing peer by hostname and adds it to the group if not already present.
-// It is idempotent and safe to call on every reconciliation.
-func ensureRoutingPeerInRoutersGroup(ctx context.Context, nbClient *NetBirdClient, colony *infrav1.Colony, routersGroupID string) error {
-	log := log.FromContext(ctx)
-
-	// Expected hostname for the routing peer
-	routerHostname := fmt.Sprintf("%s-netbird-router", colony.Name)
-
-	// List all peers to find the routing peer by hostname
-	allPeers, err := nbClient.ListPeers(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list peers: %w", err)
-	}
-
-	// Find routing peer by hostname
-	var routingPeerID string
-	for _, peer := range allPeers {
-		if peer.Hostname == routerHostname {
-			routingPeerID = peer.ID
-			break
-		}
-	}
-
-	if routingPeerID == "" {
-		// Peer not connected yet, will retry on next reconciliation
-		log.V(1).Info("Routing peer not connected yet", "hostname", routerHostname)
-		return nil
-	}
-
-	// Get current routers group
-	routersGroup, err := nbClient.GetGroup(ctx, routersGroupID)
-	if err != nil {
-		return fmt.Errorf("failed to get routers group: %w", err)
-	}
-
-	// Check if routing peer is already in the group
-	for _, peer := range routersGroup.Peers {
-		if peer.ID == routingPeerID {
-			log.V(1).Info("Routing peer already in routers group", "peerID", routingPeerID)
-			return nil
-		}
-	}
-
-	// Build updated peer list with routing peer added
-	updatedPeerIDs := make([]string, 0, len(routersGroup.Peers)+1)
-	for _, peer := range routersGroup.Peers {
-		updatedPeerIDs = append(updatedPeerIDs, peer.ID)
-	}
-	updatedPeerIDs = append(updatedPeerIDs, routingPeerID)
-
-	// Update the group with the new peer list
-	log.Info("Adding routing peer to routers group", "peerID", routingPeerID, "groupID", routersGroupID)
-	_, err = nbClient.UpdateGroup(ctx, routersGroupID, routersGroup.Name, updatedPeerIDs)
-	if err != nil {
-		return fmt.Errorf("failed to add routing peer to routers group: %w", err)
-	}
-
-	log.Info("Successfully added routing peer to routers group", "peerID", routingPeerID, "groupID", routersGroupID)
-	return nil
 }
 
 // ensureNetworkRouters ensures that all peers in the routers group are configured as Network Routers

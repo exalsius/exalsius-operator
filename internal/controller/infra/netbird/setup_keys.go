@@ -150,15 +150,16 @@ func setupKeySecretExists(ctx context.Context, c client.Client, colony *infrav1.
 }
 
 // generateRouterSetupKey creates a new NetBird setup key specifically for routing peers.
-// This key automatically assigns peers to the routers group instead of the nodes group.
+// This key automatically assigns peers to BOTH the nodes group (for mesh connectivity)
+// and the routers group (for network router configuration).
 // Returns the setup key value and ID.
-func generateRouterSetupKey(ctx context.Context, nbClient *NetBirdClient, colonyName, routersGroupID string) (keyValue, keyID string, err error) {
+func generateRouterSetupKey(ctx context.Context, nbClient *NetBirdClient, colonyName, nodesGroupID, routersGroupID string) (keyValue, keyID string, err error) {
 	log := log.FromContext(ctx)
 
-	// Create setup key with auto-assignment to routers group
+	// Create setup key with auto-assignment to BOTH groups
 	ephemeral := true
 	setupKeyReq := SetupKeyRequest{
-		AutoGroups: []string{routersGroupID},
+		AutoGroups: []string{nodesGroupID, routersGroupID}, // Assign to BOTH groups
 		Ephemeral:  &ephemeral,
 		Name:       fmt.Sprintf("%s-router", colonyName),
 		Type:       "reusable",
@@ -166,7 +167,7 @@ func generateRouterSetupKey(ctx context.Context, nbClient *NetBirdClient, colony
 		UsageLimit: 0, // Unlimited usage
 	}
 
-	log.Info("Creating NetBird router setup key", "colonyName", colonyName, "routersGroupID", routersGroupID)
+	log.Info("Creating NetBird router setup key", "colonyName", colonyName, "nodesGroupID", nodesGroupID, "routersGroupID", routersGroupID)
 
 	setupKey, err := nbClient.CreateSetupKey(ctx, setupKeyReq)
 	if err != nil {

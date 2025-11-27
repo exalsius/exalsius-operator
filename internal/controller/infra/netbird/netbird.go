@@ -84,7 +84,7 @@ func ReconcileNetBird(ctx context.Context, c client.Client, colony *infrav1.Colo
 	}
 
 	// Ensure router-specific setup key exists
-	ensureRouterSetupKeyReconciled(ctx, c, nbClient, colony, routersGroupID)
+	ensureRouterSetupKeyReconciled(ctx, c, nbClient, colony, groupID, routersGroupID)
 
 	// Ensure routing peer Deployment exists and is properly configured
 	if err := reconcileRoutingPeer(ctx, c, nbClient, colony, routersGroupID, networkID); err != nil {
@@ -161,16 +161,17 @@ func ensureSetupKeysReconciled(ctx context.Context, c client.Client, nbClient *N
 }
 
 // ensureRouterSetupKeyReconciled ensures that the router-specific setup key exists.
-// This setup key automatically assigns peers to the routers group.
+// This setup key automatically assigns peers to BOTH the nodes group (for mesh connectivity)
+// and the routers group (for network router configuration).
 // This function logs errors but does not fail reconciliation, as it can be retried.
 func ensureRouterSetupKeyReconciled(ctx context.Context, c client.Client, nbClient *NetBirdClient,
-	colony *infrav1.Colony, routersGroupID string) {
+	colony *infrav1.Colony, nodesGroupID, routersGroupID string) {
 	log := log.FromContext(ctx)
 	routerSetupKeySecretName := fmt.Sprintf("%s-netbird-router-setup-key", colony.Name)
 
 	if colony.Status.NetBird.RouterSetupKeyID == "" {
 		// Generate new router setup key
-		routerSetupKeyValue, routerSetupKeyID, err := generateRouterSetupKey(ctx, nbClient, colony.Name, routersGroupID)
+		routerSetupKeyValue, routerSetupKeyID, err := generateRouterSetupKey(ctx, nbClient, colony.Name, nodesGroupID, routersGroupID)
 		if err != nil {
 			log.Error(err, "Failed to generate router setup key, will retry")
 			// Don't fail - we can retry on next reconciliation
@@ -211,13 +212,8 @@ func reconcileRoutingPeer(ctx context.Context, c client.Client, nbClient *NetBir
 	} else {
 		colony.Status.NetBird.RouterReady = true
 
-		// Ensure routing peer is added to routers group
-		// Auto-groups should handle this, but in practice it doesn't always work
-		// This is idempotent - only adds if not already present
-		if err := ensureRoutingPeerInRoutersGroup(ctx, nbClient, colony, routersGroupID); err != nil {
-			log.Error(err, "Failed to ensure routing peer in routers group, will retry")
-			// Don't fail reconciliation - will retry on next cycle
-		}
+		// No longer needed - router setup key assigns to both groups automatically
+		// The router-specific setup key has AutoGroups set to both nodes and routers groups
 	}
 
 	// Ensure Network Routers are configured (requires routers group ID)
@@ -546,7 +542,23 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 		return nil
 	}
 
-	// Step 1: Delete setup keys from NetBird API first
+	// Step 1: Delete Network Routers first (they reference groups)
+	if colony.Status.NetBird.NetworkID != "" {
+		routers, err := nbClient.ListNetworkRouters(ctx, colony.Status.NetBird.NetworkID)
+		if err != nil {
+			log.Error(err, "Failed to list network routers for deletion")
+		} else {
+			for _, router := range routers {
+				log.Info("Deleting network router", "routerID", router.ID, "networkID", colony.Status.NetBird.NetworkID)
+				if err := nbClient.DeleteNetworkRouter(ctx, colony.Status.NetBird.NetworkID, router.ID); err != nil {
+					log.Error(err, "Failed to delete network router", "routerID", router.ID)
+					// Continue with cleanup
+				}
+			}
+		}
+	}
+
+	// Step 2: Delete setup keys
 	// These reference the groups, so they must be deleted before groups
 	if colony.Status.NetBird.SetupKeyID != "" {
 		log.Info("Deleting NetBird setup key", "setupKeyID", colony.Status.NetBird.SetupKeyID)
@@ -564,7 +576,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 		}
 	}
 
-	// Step 2: Delete Network Resources for each cluster
+	// Step 3: Delete Network Resources for each cluster
 	// These reference the groups, so they must be deleted before groups
 	if colony.Status.NetBird.NetworkID != "" && len(colony.Status.NetBird.ClusterResources) > 0 {
 		for clusterName, clusterStatus := range colony.Status.NetBird.ClusterResources {
@@ -579,7 +591,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 		}
 	}
 
-	// Step 3: Delete shared colony mesh policy
+	// Step 4: Delete shared colony mesh policy
 	if colony.Status.NetBird.ColonyMeshPolicyID != "" {
 		log.Info("Deleting shared colony mesh policy", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
 		if err := nbClient.DeletePolicy(ctx, colony.Status.NetBird.ColonyMeshPolicyID); err != nil {
@@ -588,8 +600,8 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 		}
 	}
 
-	// Step 4: Delete groups
-	// Now safe to delete since setup keys and network resources are gone
+	// Step 5: Delete groups
+	// Now safe to delete since setup keys, network routers, and network resources are gone
 	if colony.Status.NetBird.ColonyRoutersGroupID != "" {
 		log.Info("Deleting colony routers group", "groupID", colony.Status.NetBird.ColonyRoutersGroupID)
 		if err := nbClient.DeleteGroup(ctx, colony.Status.NetBird.ColonyRoutersGroupID); err != nil {
@@ -606,7 +618,7 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 		}
 	}
 
-	// Step 5: Delete Kubernetes resources (secrets)
+	// Step 6: Delete Kubernetes resources (secrets and deployment)
 	if colony.Status.NetBird.SetupKeySecretName != "" {
 		log.Info("Deleting auto-generated setup key secret", "secretName", colony.Status.NetBird.SetupKeySecretName)
 		secret := &corev1.Secret{}
