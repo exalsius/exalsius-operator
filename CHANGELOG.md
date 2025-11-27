@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/exalsius/exalsius-operator/compare/v0.4.2...v0.4.3) (2025-11-27)
+
+
+### Bug Fixes
+
+* **netbird:** refactor netbird client to directly use the API and fix groups ([#105](https://github.com/exalsius/exalsius-operator/issues/105)) ([d4f8d1e](https://github.com/exalsius/exalsius-operator/commit/d4f8d1e1a141176525e41bf03eb3894fad45fe2e))
+
 ## [0.4.2](https://github.com/exalsius/exalsius-operator/compare/v0.4.1...v0.4.2) (2025-11-26)
 
 
