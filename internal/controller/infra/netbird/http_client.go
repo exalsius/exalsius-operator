@@ -472,3 +472,23 @@ func (c *NetBirdClient) ListPeers(ctx context.Context) ([]Peer, error) {
 
 	return peers, nil
 }
+
+// DeletePeer deletes a peer
+func (c *NetBirdClient) DeletePeer(ctx context.Context, peerID string) error {
+	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/peers/%s", peerID), nil)
+	if err != nil {
+		return err
+	}
+
+	return c.handleResponse(resp, nil)
+}
+
+// DeleteNetwork deletes a network
+func (c *NetBirdClient) DeleteNetwork(ctx context.Context, networkID string) error {
+	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/networks/%s", networkID), nil)
+	if err != nil {
+		return err
+	}
+
+	return c.handleResponse(resp, nil)
+}

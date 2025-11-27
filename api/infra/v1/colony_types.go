@@ -118,6 +118,8 @@ type NetBirdStatus struct {
 	RouterSetupKeySecretName string `json:"routerSetupKeySecretName,omitempty"`
 	// RouterSetupKeyID is the NetBird setup key ID for the routing peer.
 	RouterSetupKeyID string `json:"routerSetupKeyID,omitempty"`
+	// TrackedPeerIDs are peer IDs created by the operator that should be cleaned up on deletion.
+	TrackedPeerIDs []string `json:"trackedPeerIDs,omitempty"`
 	// ClusterResources tracks NetBird resources per cluster.
 	ClusterResources map[string]ClusterNetBirdStatus `json:"clusterResources,omitempty"`
 }
