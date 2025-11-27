@@ -27,19 +27,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	netbirdrest "github.com/netbirdio/netbird/management/client/rest"
-	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
 // generateSetupKey creates a new NetBird setup key via the API.
 // Returns the setup key value and ID.
-func generateSetupKey(ctx context.Context, nbClient *netbirdrest.Client, colonyName, groupID string) (keyValue, keyID string, err error) {
+func generateSetupKey(ctx context.Context, nbClient *NetBirdClient, colonyName, groupID string) (keyValue, keyID string, err error) {
 	log := log.FromContext(ctx)
 
 	// Create setup key with auto-assignment to colony group
 	ephemeral := true
-	setupKeyReq := api.PostApiSetupKeysJSONRequestBody{
+	setupKeyReq := SetupKeyRequest{
 		AutoGroups: []string{groupID},
 		Ephemeral:  &ephemeral,
 		Name:       colonyName,
@@ -50,17 +47,17 @@ func generateSetupKey(ctx context.Context, nbClient *netbirdrest.Client, colonyN
 
 	log.Info("Creating NetBird setup key", "colonyName", colonyName, "groupID", groupID)
 
-	setupKey, err := nbClient.SetupKeys.Create(ctx, setupKeyReq)
+	setupKey, err := nbClient.CreateSetupKey(ctx, setupKeyReq)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create setup key: %w", err)
 	}
 
 	log.Info("Successfully created NetBird setup key",
 		"colonyName", colonyName,
-		"setupKeyID", setupKey.Id,
+		"setupKeyID", setupKey.ID,
 		"setupKeyName", setupKey.Name)
 
-	return setupKey.Key, setupKey.Id, nil
+	return setupKey.Key, setupKey.ID, nil
 }
 
 // ensureSetupKeySecret creates or updates the Secret containing the setup key.
@@ -119,11 +116,11 @@ func ensureSetupKeySecret(ctx context.Context, c client.Client, colony *infrav1.
 
 // findSetupKeyIDByName looks up a setup key ID by its name from NetBird API.
 // Returns the setup key ID if found, or empty string if not found.
-func findSetupKeyIDByName(ctx context.Context, nbClient *netbirdrest.Client, colonyName string) (string, error) {
+func findSetupKeyIDByName(ctx context.Context, nbClient *NetBirdClient, colonyName string) (string, error) {
 	log := log.FromContext(ctx)
 
 	// List all setup keys
-	setupKeys, err := nbClient.SetupKeys.List(ctx)
+	setupKeys, err := nbClient.ListSetupKeys(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to list setup keys: %w", err)
 	}
@@ -133,8 +130,8 @@ func findSetupKeyIDByName(ctx context.Context, nbClient *netbirdrest.Client, col
 		if key.Name == colonyName {
 			log.Info("Found existing setup key by name",
 				"colonyName", colonyName,
-				"setupKeyID", key.Id)
-			return key.Id, nil
+				"setupKeyID", key.ID)
+			return key.ID, nil
 		}
 	}
 
@@ -153,15 +150,16 @@ func setupKeySecretExists(ctx context.Context, c client.Client, colony *infrav1.
 }
 
 // generateRouterSetupKey creates a new NetBird setup key specifically for routing peers.
-// This key automatically assigns peers to the routers group instead of the nodes group.
+// This key automatically assigns peers to BOTH the nodes group (for mesh connectivity)
+// and the routers group (for network router configuration).
 // Returns the setup key value and ID.
-func generateRouterSetupKey(ctx context.Context, nbClient *netbirdrest.Client, colonyName, routersGroupID string) (keyValue, keyID string, err error) {
+func generateRouterSetupKey(ctx context.Context, nbClient *NetBirdClient, colonyName, nodesGroupID, routersGroupID string) (keyValue, keyID string, err error) {
 	log := log.FromContext(ctx)
 
-	// Create setup key with auto-assignment to routers group
+	// Create setup key with auto-assignment to BOTH groups
 	ephemeral := true
-	setupKeyReq := api.PostApiSetupKeysJSONRequestBody{
-		AutoGroups: []string{routersGroupID},
+	setupKeyReq := SetupKeyRequest{
+		AutoGroups: []string{nodesGroupID, routersGroupID}, // Assign to BOTH groups
 		Ephemeral:  &ephemeral,
 		Name:       fmt.Sprintf("%s-router", colonyName),
 		Type:       "reusable",
@@ -169,19 +167,19 @@ func generateRouterSetupKey(ctx context.Context, nbClient *netbirdrest.Client, c
 		UsageLimit: 0, // Unlimited usage
 	}
 
-	log.Info("Creating NetBird router setup key", "colonyName", colonyName, "routersGroupID", routersGroupID)
+	log.Info("Creating NetBird router setup key", "colonyName", colonyName, "nodesGroupID", nodesGroupID, "routersGroupID", routersGroupID)
 
-	setupKey, err := nbClient.SetupKeys.Create(ctx, setupKeyReq)
+	setupKey, err := nbClient.CreateSetupKey(ctx, setupKeyReq)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create router setup key: %w", err)
 	}
 
 	log.Info("Successfully created NetBird router setup key",
 		"colonyName", colonyName,
-		"setupKeyID", setupKey.Id,
+		"setupKeyID", setupKey.ID,
 		"setupKeyName", setupKey.Name)
 
-	return setupKey.Key, setupKey.Id, nil
+	return setupKey.Key, setupKey.ID, nil
 }
 
 // ensureRouterSetupKeySecret creates or updates the Secret containing the router setup key.

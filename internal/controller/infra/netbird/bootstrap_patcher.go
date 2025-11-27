@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -253,9 +254,13 @@ func patchBootstrapSecret(
 		Kind:       "Secret",
 	}
 
+	// Clear managedFields for Server-Side Apply
+	secret.ManagedFields = nil
+
 	// Use Server-Side Apply to avoid conflicts with CAPI bootstrap controller
 	if err := c.Patch(ctx, secret, client.Apply, &client.PatchOptions{
 		FieldManager: "netbird-patcher",
+		Force:        ptr.To(true), // Take ownership from k0s-bootstrap
 	}); err != nil {
 		return fmt.Errorf("failed to patch secret: %w", err)
 	}
