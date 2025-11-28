@@ -660,6 +660,67 @@ func WatchAndPatchBootstrapSecrets(
 	return nil
 }
 
+// DeletePatchedBootstrapSecretsForCluster deletes all patched bootstrap secrets for a specific cluster
+// This is used during cluster cleanup to ensure secrets are removed before ClusterDeployment deletion
+func DeletePatchedBootstrapSecretsForCluster(
+	ctx context.Context,
+	c client.Client,
+	colony *infrav1.Colony,
+	clusterName string,
+) error {
+	log := log.FromContext(ctx)
+
+	// List all secrets in the colony namespace that match our criteria
+	secretList := &corev1.SecretList{}
+	fullClusterName := fmt.Sprintf("%s-%s", colony.Name, clusterName)
+
+	listOpts := []client.ListOption{
+		client.InNamespace(colony.Namespace),
+		client.MatchingLabels{ClusterNameLabel: fullClusterName},
+	}
+
+	if err := c.List(ctx, secretList, listOpts...); err != nil {
+		return fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	log.Info("Found secrets for cluster cleanup",
+		"cluster", clusterName,
+		"count", len(secretList.Items),
+		"fullClusterName", fullClusterName)
+
+	// Delete each patched bootstrap secret
+	deletedCount := 0
+	for i := range secretList.Items {
+		secret := &secretList.Items[i]
+
+		// Check if this is a patched bootstrap secret
+		if secret.Annotations == nil || secret.Annotations[PatchedAnnotation] != PatchedAnnotationValue {
+			log.V(1).Info("Secret not patched, skipping", "secret", secret.Name)
+			continue
+		}
+
+		// Delete the secret
+		if err := c.Delete(ctx, secret); err != nil {
+			if errors.IsNotFound(err) {
+				log.V(1).Info("Secret already deleted", "secret", secret.Name)
+				continue
+			}
+			log.Error(err, "Failed to delete patched bootstrap secret", "secret", secret.Name)
+			// Continue with other secrets instead of failing completely
+			continue
+		}
+
+		deletedCount++
+		log.Info("Deleted patched bootstrap secret", "secret", secret.Name)
+	}
+
+	log.Info("Completed bootstrap secret cleanup",
+		"cluster", clusterName,
+		"deletedCount", deletedCount)
+
+	return nil
+}
+
 // SecretToColonyMapper maps a Secret to Colony reconcile requests
 // This is used in the controller's Watch configuration
 func SecretToColonyMapper(c client.Client) func(context.Context, client.Object) []ctrl.Request {

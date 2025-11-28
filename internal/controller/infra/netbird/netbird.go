@@ -565,60 +565,165 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 		return nil
 	}
 
-	// Step 1: Delete the network
-	if colony.Status.NetBird.NetworkID != "" {
-		log.Info("Deleting NetBird network", "networkID", colony.Status.NetBird.NetworkID)
-		if err := nbClient.DeleteNetwork(ctx, colony.Status.NetBird.NetworkID); err != nil {
-			log.Error(err, "Failed to delete network", "networkID", colony.Status.NetBird.NetworkID)
-			// Continue with cleanup
+	// Step 1: Delete policies first (they reference groups)
+	if colony.Status.NetBird.ColonyMeshPolicyID != "" {
+		log.Info("Deleting colony mesh policy", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
+		if err := nbClient.DeletePolicy(ctx, colony.Status.NetBird.ColonyMeshPolicyID); err != nil {
+			if is404Error(err) {
+				log.V(1).Info("Policy already deleted", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
+			} else {
+				log.Error(err, "Failed to delete policy")
+			}
 		}
 	}
 
-	// Step 2: Delete setup keys
+	// Step 2: Delete network resources (they reference groups)
+	if colony.Status.NetBird.NetworkID != "" && colony.Status.NetBird.ClusterResources != nil {
+		for clusterName, clusterStatus := range colony.Status.NetBird.ClusterResources {
+			if clusterStatus.ControlPlaneResourceID != "" {
+				log.Info("Deleting network resource for cluster",
+					"cluster", clusterName,
+					"resourceID", clusterStatus.ControlPlaneResourceID)
+				if err := nbClient.DeleteNetworkResource(ctx, colony.Status.NetBird.NetworkID, clusterStatus.ControlPlaneResourceID); err != nil {
+					if is404Error(err) {
+						log.V(1).Info("Network resource already deleted",
+							"cluster", clusterName,
+							"resourceID", clusterStatus.ControlPlaneResourceID)
+					} else {
+						log.Error(err, "Failed to delete network resource",
+							"cluster", clusterName,
+							"resourceID", clusterStatus.ControlPlaneResourceID)
+					}
+				}
+			}
+		}
+	}
+
+	// Step 3: Delete network routers (they reference the routers group)
+	if colony.Status.NetBird.NetworkID != "" && colony.Status.NetBird.ColonyRoutersGroupID != "" {
+		routers, err := nbClient.ListNetworkRouters(ctx, colony.Status.NetBird.NetworkID)
+		if err != nil {
+			if !is404Error(err) {
+				log.Error(err, "Failed to list network routers")
+			}
+		} else {
+			// Find and delete routers that reference our routers group
+			for _, router := range routers {
+				if router.PeerGroups != nil {
+					for _, groupID := range *router.PeerGroups {
+						if groupID == colony.Status.NetBird.ColonyRoutersGroupID {
+							log.Info("Deleting network router", "routerID", router.ID, "groupID", groupID)
+							if err := nbClient.DeleteNetworkRouter(ctx, colony.Status.NetBird.NetworkID, router.ID); err != nil {
+								if is404Error(err) {
+									log.V(1).Info("Network router already deleted", "routerID", router.ID)
+								} else {
+									log.Error(err, "Failed to delete network router", "routerID", router.ID)
+								}
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Step 4: Delete setup keys by name (they reference groups)
+	// This handles both tracked keys and orphaned keys from previous failed cleanups
+	expectedKeyNames := []string{
+		fmt.Sprintf("%s-nodes", colony.Name),
+		fmt.Sprintf("%s-router", colony.Name),
+	}
+
+	setupKeys, err := nbClient.ListSetupKeys(ctx)
+	if err != nil {
+		log.Error(err, "Failed to list setup keys, will try deleting by stored IDs")
+	} else {
+		// Delete all setup keys matching colony name pattern
+		for _, key := range setupKeys {
+			for _, expectedName := range expectedKeyNames {
+				if key.Name == expectedName {
+					log.Info("Deleting NetBird setup key by name",
+						"name", key.Name,
+						"keyID", key.ID)
+					if err := nbClient.DeleteSetupKey(ctx, key.ID); err != nil {
+						if is404Error(err) {
+							log.V(1).Info("Setup key already deleted", "keyID", key.ID, "name", key.Name)
+						} else {
+							log.Error(err, "Failed to delete setup key", "keyID", key.ID, "name", key.Name)
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Also try deleting by stored IDs for backwards compatibility
 	if colony.Status.NetBird.SetupKeyID != "" {
-		log.Info("Deleting NetBird setup key", "setupKeyID", colony.Status.NetBird.SetupKeyID)
+		log.V(1).Info("Attempting to delete setup key by stored ID", "setupKeyID", colony.Status.NetBird.SetupKeyID)
 		if err := nbClient.DeleteSetupKey(ctx, colony.Status.NetBird.SetupKeyID); err != nil {
-			log.Error(err, "Failed to delete setup key")
+			if !is404Error(err) {
+				log.Error(err, "Failed to delete setup key by stored ID")
+			}
 		}
 	}
 	if colony.Status.NetBird.RouterSetupKeyID != "" {
-		log.Info("Deleting NetBird router setup key", "setupKeyID", colony.Status.NetBird.RouterSetupKeyID)
+		log.V(1).Info("Attempting to delete router setup key by stored ID", "setupKeyID", colony.Status.NetBird.RouterSetupKeyID)
 		if err := nbClient.DeleteSetupKey(ctx, colony.Status.NetBird.RouterSetupKeyID); err != nil {
-			log.Error(err, "Failed to delete router setup key")
+			if !is404Error(err) {
+				log.Error(err, "Failed to delete router setup key by stored ID")
+			}
 		}
 	}
 
-	// Step 3: Delete tracked peers
+	// Step 5: Delete tracked peers
 	for _, peerID := range colony.Status.NetBird.TrackedPeerIDs {
 		log.Info("Deleting NetBird peer", "peerID", peerID)
 		if err := nbClient.DeletePeer(ctx, peerID); err != nil {
-			log.Error(err, "Failed to delete peer", "peerID", peerID)
+			if is404Error(err) {
+				log.V(1).Info("Peer already deleted", "peerID", peerID)
+			} else {
+				log.Error(err, "Failed to delete peer", "peerID", peerID)
+			}
 		}
 	}
 
-	// Step 4: Delete groups
+	// Step 6: Delete groups (safe now that dependencies are removed)
 	if colony.Status.NetBird.ColonyNodesGroupID != "" {
 		log.Info("Deleting colony nodes group", "groupID", colony.Status.NetBird.ColonyNodesGroupID)
 		if err := nbClient.DeleteGroup(ctx, colony.Status.NetBird.ColonyNodesGroupID); err != nil {
-			log.Error(err, "Failed to delete colony nodes group")
+			if is404Error(err) {
+				log.V(1).Info("Colony nodes group already deleted", "groupID", colony.Status.NetBird.ColonyNodesGroupID)
+			} else {
+				log.Error(err, "Failed to delete colony nodes group")
+			}
 		}
 	}
 	if colony.Status.NetBird.ColonyRoutersGroupID != "" {
 		log.Info("Deleting colony routers group", "groupID", colony.Status.NetBird.ColonyRoutersGroupID)
 		if err := nbClient.DeleteGroup(ctx, colony.Status.NetBird.ColonyRoutersGroupID); err != nil {
-			log.Error(err, "Failed to delete colony routers group")
+			if is404Error(err) {
+				log.V(1).Info("Colony routers group already deleted", "groupID", colony.Status.NetBird.ColonyRoutersGroupID)
+			} else {
+				log.Error(err, "Failed to delete colony routers group")
+			}
 		}
 	}
 
-	// Step 5: Delete policies
-	if colony.Status.NetBird.ColonyMeshPolicyID != "" {
-		log.Info("Deleting colony mesh policy", "policyID", colony.Status.NetBird.ColonyMeshPolicyID)
-		if err := nbClient.DeletePolicy(ctx, colony.Status.NetBird.ColonyMeshPolicyID); err != nil {
-			log.Error(err, "Failed to delete policy")
+	// Step 7: Delete the network
+	if colony.Status.NetBird.NetworkID != "" {
+		log.Info("Deleting NetBird network", "networkID", colony.Status.NetBird.NetworkID)
+		if err := nbClient.DeleteNetwork(ctx, colony.Status.NetBird.NetworkID); err != nil {
+			if is404Error(err) {
+				log.V(1).Info("Network already deleted", "networkID", colony.Status.NetBird.NetworkID)
+			} else {
+				log.Error(err, "Failed to delete network", "networkID", colony.Status.NetBird.NetworkID)
+			}
 		}
 	}
 
-	// Step 6: Delete Kubernetes resources (secrets and deployment)
+	// Step 8: Delete Kubernetes resources (secrets and deployment)
 	deleteSecretIfExists(ctx, c, colony.Status.NetBird.SetupKeySecretName, colony.Namespace)
 	deleteSecretIfExists(ctx, c, colony.Status.NetBird.RouterSetupKeySecretName, colony.Namespace)
 
@@ -636,6 +741,14 @@ func CleanupNetBirdResources(ctx context.Context, c client.Client, nbClient *Net
 	}
 
 	return nil
+}
+
+// is404Error checks if an error is a 404 Not Found error from the NetBird API
+func is404Error(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "status 404") || strings.Contains(err.Error(), "not found")
 }
 
 // ensureNetworkResource ensures a Network Resource exists with the given address and destination group.
