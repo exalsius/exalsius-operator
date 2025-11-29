@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6](https://github.com/exalsius/exalsius-operator/compare/v0.4.5...v0.4.6) (2025-11-29)
+
+
+### Bug Fixes
+
+* **netbird:** delete netbird agent when vpn cluster is deleted ([#111](https://github.com/exalsius/exalsius-operator/issues/111)) ([1c68f26](https://github.com/exalsius/exalsius-operator/commit/1c68f2632d5a8137f9fe32c183286d1066cc6abd))
+
 ## [0.4.5](https://github.com/exalsius/exalsius-operator/compare/v0.4.4...v0.4.5) (2025-11-27)
 
 
