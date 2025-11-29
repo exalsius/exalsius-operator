@@ -28,13 +28,16 @@ import (
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	"github.com/go-logr/logr"
+	infrastructurev1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 )
@@ -48,6 +51,9 @@ const (
 
 	// PatchedAnnotationValue is the value for the patched annotation
 	PatchedAnnotationValue = "true"
+
+	// NetBirdCleanupFinalizer is added to RemoteMachines that have NetBird installed
+	NetBirdCleanupFinalizer = "netbird.exalsius.ai/cleanup"
 
 	// ClusterNameLabel is the label for cluster name
 	ClusterNameLabel = "cluster.x-k8s.io/cluster-name"
@@ -263,6 +269,83 @@ func patchBootstrapSecret(
 		Force:        ptr.To(true), // Take ownership from k0s-bootstrap
 	}); err != nil {
 		return fmt.Errorf("failed to patch secret: %w", err)
+	}
+
+	// If NetBird was actually injected, add finalizer to RemoteMachine
+	if setupKey != "" {
+		if err := addNetBirdFinalizerToRemoteMachine(ctx, c, secret, log); err != nil {
+			// Log but don't fail - the RemoteMachine might not exist yet
+			log.V(1).Info("Failed to add NetBird finalizer to RemoteMachine (might not exist yet)",
+				"secret", secret.Name,
+				"error", err)
+		}
+	}
+
+	return nil
+}
+
+// addNetBirdFinalizerToRemoteMachine adds the NetBird cleanup finalizer to the RemoteMachine
+// that corresponds to the bootstrap secret being patched
+func addNetBirdFinalizerToRemoteMachine(ctx context.Context, c client.Client, secret *corev1.Secret, log logr.Logger) error {
+	// Find the Machine that owns this bootstrap secret by looking at owner references
+	var machineName string
+	for _, ownerRef := range secret.OwnerReferences {
+		if ownerRef.Kind == "K0sWorkerConfig" || ownerRef.Kind == "K0sControllerConfig" {
+			// The config has the same name as the Machine
+			machineName = ownerRef.Name
+			break
+		}
+	}
+
+	if machineName == "" {
+		// Try to find Machine by listing with the cluster label
+		clusterName, ok := secret.Labels[ClusterNameLabel]
+		if !ok {
+			return fmt.Errorf("secret has no cluster label and no owner reference to bootstrap config")
+		}
+
+		// List all machines in this cluster
+		machineList := &clusterv1.MachineList{}
+		if err := c.List(ctx, machineList, client.InNamespace(secret.Namespace), client.MatchingLabels{
+			ClusterNameLabel: clusterName,
+		}); err != nil {
+			return fmt.Errorf("failed to list machines: %w", err)
+		}
+
+		// Find the machine that references this secret
+		for _, machine := range machineList.Items {
+			if machine.Spec.Bootstrap.DataSecretName != nil && *machine.Spec.Bootstrap.DataSecretName == secret.Name {
+				machineName = machine.Name
+				break
+			}
+		}
+
+		if machineName == "" {
+			return fmt.Errorf("could not find Machine for bootstrap secret %s", secret.Name)
+		}
+	}
+
+	// Get the RemoteMachine with the same name as the Machine
+	rm := &infrastructurev1beta1.RemoteMachine{}
+	if err := c.Get(ctx, types.NamespacedName{
+		Name:      machineName,
+		Namespace: secret.Namespace,
+	}, rm); err != nil {
+		return fmt.Errorf("failed to get RemoteMachine %s: %w", machineName, err)
+	}
+
+	// Add the finalizer if it doesn't exist
+	if !controllerutil.ContainsFinalizer(rm, NetBirdCleanupFinalizer) {
+		controllerutil.AddFinalizer(rm, NetBirdCleanupFinalizer)
+		if err := c.Update(ctx, rm); err != nil {
+			return fmt.Errorf("failed to add finalizer to RemoteMachine: %w", err)
+		}
+		log.Info("Added NetBird cleanup finalizer to RemoteMachine",
+			"machine", machineName,
+			"secret", secret.Name)
+	} else {
+		log.V(1).Info("NetBird cleanup finalizer already present on RemoteMachine",
+			"machine", machineName)
 	}
 
 	return nil
@@ -656,6 +739,67 @@ func WatchAndPatchBootstrapSecrets(
 			// Continue with other clusters
 		}
 	}
+
+	return nil
+}
+
+// DeletePatchedBootstrapSecretsForCluster deletes all patched bootstrap secrets for a specific cluster
+// This is used during cluster cleanup to ensure secrets are removed before ClusterDeployment deletion
+func DeletePatchedBootstrapSecretsForCluster(
+	ctx context.Context,
+	c client.Client,
+	colony *infrav1.Colony,
+	clusterName string,
+) error {
+	log := log.FromContext(ctx)
+
+	// List all secrets in the colony namespace that match our criteria
+	secretList := &corev1.SecretList{}
+	fullClusterName := fmt.Sprintf("%s-%s", colony.Name, clusterName)
+
+	listOpts := []client.ListOption{
+		client.InNamespace(colony.Namespace),
+		client.MatchingLabels{ClusterNameLabel: fullClusterName},
+	}
+
+	if err := c.List(ctx, secretList, listOpts...); err != nil {
+		return fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	log.Info("Found secrets for cluster cleanup",
+		"cluster", clusterName,
+		"count", len(secretList.Items),
+		"fullClusterName", fullClusterName)
+
+	// Delete each patched bootstrap secret
+	deletedCount := 0
+	for i := range secretList.Items {
+		secret := &secretList.Items[i]
+
+		// Check if this is a patched bootstrap secret
+		if secret.Annotations == nil || secret.Annotations[PatchedAnnotation] != PatchedAnnotationValue {
+			log.V(1).Info("Secret not patched, skipping", "secret", secret.Name)
+			continue
+		}
+
+		// Delete the secret
+		if err := c.Delete(ctx, secret); err != nil {
+			if errors.IsNotFound(err) {
+				log.V(1).Info("Secret already deleted", "secret", secret.Name)
+				continue
+			}
+			log.Error(err, "Failed to delete patched bootstrap secret", "secret", secret.Name)
+			// Continue with other secrets instead of failing completely
+			continue
+		}
+
+		deletedCount++
+		log.Info("Deleted patched bootstrap secret", "secret", secret.Name)
+	}
+
+	log.Info("Completed bootstrap secret cleanup",
+		"cluster", clusterName,
+		"deletedCount", deletedCount)
 
 	return nil
 }

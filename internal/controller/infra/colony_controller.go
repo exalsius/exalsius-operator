@@ -282,6 +282,17 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 
 func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
 	log := log.FromContext(ctx)
+
+	// First, delete patched bootstrap secrets to avoid garbage collection conflicts
+	// This prevents the ClusterDeployment deletion from hanging due to field ownership issues
+	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
+		log.Info("Cleaning up patched bootstrap secrets for cluster", "cluster", colonyCluster.ClusterName)
+		if err := netbirdpkg.DeletePatchedBootstrapSecretsForCluster(ctx, r.Client, colony, colonyCluster.ClusterName); err != nil {
+			log.Error(err, "Failed to delete patched bootstrap secrets, continuing with ClusterDeployment deletion", "cluster", colonyCluster.ClusterName)
+			// Continue with deletion even if secret cleanup fails - ClusterDeployment deletion should still proceed
+		}
+	}
+
 	// Delete the ClusterDeployment object which will trigger the deletion of all associated resources
 	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
