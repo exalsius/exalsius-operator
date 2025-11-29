@@ -234,6 +234,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "User")
 		os.Exit(1)
 	}
+	if err = (&infracontroller.RemoteMachineCleanupReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
