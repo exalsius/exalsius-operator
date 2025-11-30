@@ -17,6 +17,28 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  - machines
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - infra.exalsius.ai
+  resources:
+  - colonies
+  verbs:
+  - get
+  - list
+- apiGroups:
   - infra.exalsius.ai
   resources:
   - users
@@ -43,6 +65,22 @@ rules:
   - patch
   - update
 - apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - remotemachines
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - remotemachines/status
+  verbs:
+  - get
+- apiGroups:
   - k0rdent.mirantis.com
   resources:
   - accessmanagements
@@ -52,6 +90,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - k0rdent.mirantis.com
+  resources:
+  - clusterdeployments
+  verbs:
+  - get
+  - list
 - apiGroups:
   - training.exalsius.ai
   resources:

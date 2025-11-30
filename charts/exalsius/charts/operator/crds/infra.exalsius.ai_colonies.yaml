@@ -76,8 +76,9 @@ spec:
                 description: NetBird configuration for VPN networking
                 properties:
                   apiKeySecret:
-                    description: APIKeySecret is the name of the Secret containing
-                      the NetBird API key.
+                    description: |-
+                      APIKeySecret is the name of the Secret containing the NetBird API key.
+                      The secret must exist in the "exalsius-system" namespace.
                     type: string
                   enabled:
                     description: Enabled enables NetBird integration for this Colony.
@@ -281,6 +282,12 @@ spec:
                     description: SetupKeySecretName is the name of the auto-generated
                       Secret containing the setup key.
                     type: string
+                  trackedPeerIDs:
+                    description: TrackedPeerIDs are peer IDs created by the operator
+                      that should be cleaned up on deletion.
+                    items:
+                      type: string
+                    type: array
                 type: object
               phase:
                 type: string
