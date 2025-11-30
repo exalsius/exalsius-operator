@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.7](https://github.com/exalsius/exalsius-operator/compare/v0.4.6...v0.4.7) (2025-11-30)
+
+
+### Bug Fixes
+
+* do not delete k0s binary in remote machine cleanup ([#113](https://github.com/exalsius/exalsius-operator/issues/113)) ([c8b4681](https://github.com/exalsius/exalsius-operator/commit/c8b46815970ac0e27e59769a32ba41ab2fab8b94))
+
 ## [0.4.6](https://github.com/exalsius/exalsius-operator/compare/v0.4.5...v0.4.6) (2025-11-29)
 
 
