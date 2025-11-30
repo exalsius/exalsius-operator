@@ -83,7 +83,6 @@ func CleanupRemoteMachineNetBird(ctx context.Context, c client.Client, rm *infra
 		"netbird deregister|| true",
 		"apt-get remove -y netbird|| true",
 		"rm /usr/local/bin/k0s-worker-wrapper.sh || true",
-		"rm /usr/local/bin/k0s || true",
 	}
 
 	log.Info("Cleaning up NetBird on RemoteMachine", "machine", rm.Name, "address", rm.Spec.Address)
