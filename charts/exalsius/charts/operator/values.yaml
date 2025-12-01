@@ -84,3 +84,24 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Webhook configuration
+webhook:
+  # Enable webhook server
+  enabled: true
+  # Webhook server port
+  port: 9443
+  # Certificate directory for webhook TLS
+  certDir: /tmp/k8s-webhook-server/serving-certs
+  # Webhook failure policy (Fail or Ignore)
+  failurePolicy: Fail
+  # Webhook timeout in seconds
+  timeoutSeconds: 10
+  # Reinvocation policy (Never, IfNeeded)
+  reinvocationPolicy: Never
+  # Certificate configuration
+  certificate:
+    # Certificate duration
+    duration: 2160h # 90 days
+    # Renew before expiry
+    renewBefore: 360h # 15 days

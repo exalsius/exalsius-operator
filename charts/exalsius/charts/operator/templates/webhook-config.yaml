@@ -1,0 +1,33 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "exalsius-operator.fullname" . }}-mutating-webhook-configuration
+  labels:
+    {{- include "exalsius-operator.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "exalsius-operator.fullname" . }}-serving-cert
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ include "exalsius-operator.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-infrastructure-cluster-x-k8s-io-v1beta1-remotemachine
+  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  name: mremotemachine.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    resources:
+    - remotemachines
+  sideEffects: None
+  timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+  reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
+{{- end }}
+

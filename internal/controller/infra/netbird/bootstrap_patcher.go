@@ -28,16 +28,13 @@ import (
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	"github.com/go-logr/logr"
-	infrastructurev1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 )
@@ -271,85 +268,17 @@ func patchBootstrapSecret(
 		return fmt.Errorf("failed to patch secret: %w", err)
 	}
 
-	// If NetBird was actually injected, add finalizer to RemoteMachine
-	if setupKey != "" {
-		if err := addNetBirdFinalizerToRemoteMachine(ctx, c, secret, log); err != nil {
-			// Log but don't fail - the RemoteMachine might not exist yet
-			log.V(1).Info("Failed to add NetBird finalizer to RemoteMachine (might not exist yet)",
-				"secret", secret.Name,
-				"error", err)
-		}
-	}
+	// NOTE: The NetBird cleanup finalizer is now added by a mutating webhook at RemoteMachine
+	// creation time. This prevents race conditions with k0smotron's controller during deletion.
+	// See: internal/webhook/remotemachine_webhook.go
 
 	return nil
 }
 
-// addNetBirdFinalizerToRemoteMachine adds the NetBird cleanup finalizer to the RemoteMachine
-// that corresponds to the bootstrap secret being patched
-func addNetBirdFinalizerToRemoteMachine(ctx context.Context, c client.Client, secret *corev1.Secret, log logr.Logger) error {
-	// Find the Machine that owns this bootstrap secret by looking at owner references
-	var machineName string
-	for _, ownerRef := range secret.OwnerReferences {
-		if ownerRef.Kind == "K0sWorkerConfig" || ownerRef.Kind == "K0sControllerConfig" {
-			// The config has the same name as the Machine
-			machineName = ownerRef.Name
-			break
-		}
-	}
-
-	if machineName == "" {
-		// Try to find Machine by listing with the cluster label
-		clusterName, ok := secret.Labels[ClusterNameLabel]
-		if !ok {
-			return fmt.Errorf("secret has no cluster label and no owner reference to bootstrap config")
-		}
-
-		// List all machines in this cluster
-		machineList := &clusterv1.MachineList{}
-		if err := c.List(ctx, machineList, client.InNamespace(secret.Namespace), client.MatchingLabels{
-			ClusterNameLabel: clusterName,
-		}); err != nil {
-			return fmt.Errorf("failed to list machines: %w", err)
-		}
-
-		// Find the machine that references this secret
-		for _, machine := range machineList.Items {
-			if machine.Spec.Bootstrap.DataSecretName != nil && *machine.Spec.Bootstrap.DataSecretName == secret.Name {
-				machineName = machine.Name
-				break
-			}
-		}
-
-		if machineName == "" {
-			return fmt.Errorf("could not find Machine for bootstrap secret %s", secret.Name)
-		}
-	}
-
-	// Get the RemoteMachine with the same name as the Machine
-	rm := &infrastructurev1beta1.RemoteMachine{}
-	if err := c.Get(ctx, types.NamespacedName{
-		Name:      machineName,
-		Namespace: secret.Namespace,
-	}, rm); err != nil {
-		return fmt.Errorf("failed to get RemoteMachine %s: %w", machineName, err)
-	}
-
-	// Add the finalizer if it doesn't exist
-	if !controllerutil.ContainsFinalizer(rm, NetBirdCleanupFinalizer) {
-		controllerutil.AddFinalizer(rm, NetBirdCleanupFinalizer)
-		if err := c.Update(ctx, rm); err != nil {
-			return fmt.Errorf("failed to add finalizer to RemoteMachine: %w", err)
-		}
-		log.Info("Added NetBird cleanup finalizer to RemoteMachine",
-			"machine", machineName,
-			"secret", secret.Name)
-	} else {
-		log.V(1).Info("NetBird cleanup finalizer already present on RemoteMachine",
-			"machine", machineName)
-	}
-
-	return nil
-}
+// NOTE: The addNetBirdFinalizerToRemoteMachine function has been removed.
+// Finalizer management is now handled by the RemoteMachine mutating webhook
+// at creation time to prevent race conditions with k0smotron's controller.
+// See: internal/webhook/remotemachine_webhook.go
 
 // modifyCloudInit modifies cloud-init data to:
 // 1. Replace service URLs with target endpoint (LoadBalancer external or internal DNS)
