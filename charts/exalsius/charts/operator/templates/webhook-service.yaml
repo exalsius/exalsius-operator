@@ -1,0 +1,18 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "exalsius-operator.fullname" . }}-webhook-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "exalsius-operator.labels" . | nindent 4 }}
+spec:
+  ports:
+  - port: {{ .Values.webhook.port }}
+    protocol: TCP
+    targetPort: {{ .Values.webhook.port }}
+    name: webhook
+  selector:
+    {{- include "exalsius-operator.selectorLabels" . | nindent 4 }}
+{{- end }}
+

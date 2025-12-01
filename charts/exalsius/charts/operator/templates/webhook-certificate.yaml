@@ -1,0 +1,30 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "exalsius-operator.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "exalsius-operator.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+  - {{ include "exalsius-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+  - {{ include "exalsius-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "exalsius-operator.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "exalsius-operator.fullname" . }}-webhook-server-cert
+  duration: {{ .Values.webhook.certificate.duration }}
+  renewBefore: {{ .Values.webhook.certificate.renewBefore }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "exalsius-operator.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "exalsius-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
+

@@ -39,18 +39,39 @@ spec:
           args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          {{- if .Values.webhook.enabled }}
+          - --webhook-port={{ .Values.webhook.port }}
+          - --webhook-cert-dir={{ .Values.webhook.certDir }}
+          {{- end }}
+          {{- if .Values.webhook.enabled }}
+          ports:
+          - containerPort: {{ .Values.webhook.port }}
+            name: webhook
+            protocol: TCP
+          {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+          {{- if .Values.webhook.enabled }}
+          - mountPath: {{ .Values.webhook.certDir }}
+            name: cert
+            readOnly: true
+          {{- end }}
+          {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.volumes }}
       volumes:
+      {{- if .Values.webhook.enabled }}
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "exalsius-operator.fullname" . }}-webhook-server-cert
+      {{- end }}
+      {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.nodeSelector }}
