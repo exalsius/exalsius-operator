@@ -124,7 +124,8 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics server")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server binds to.")
-	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "", "The directory that contains the webhook server certificate. If empty, webhook server is disabled.")
+	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "",
+		"The directory that contains the webhook server certificate. If empty, webhook server is disabled.")
 	opts := zap.Options{
 		Development: true,
 	}
