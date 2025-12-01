@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta1"
@@ -51,6 +52,7 @@ import (
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
+	"github.com/exalsius/exalsius-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -104,6 +106,8 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var webhookPort int
+	var webhookCertDir string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -119,6 +123,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics server")
+	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server binds to.")
+	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "", "The directory that contains the webhook server certificate. If empty, webhook server is disabled.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -190,7 +196,7 @@ func main() {
 		})
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgrOptions := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
@@ -207,7 +213,20 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-	})
+	}
+
+	// Configure webhook server if certificate directory is provided
+	if webhookCertDir != "" {
+		setupLog.Info("Enabling webhook server", "port", webhookPort, "cert-dir", webhookCertDir)
+		mgrOptions.WebhookServer = ctrlwebhook.NewServer(ctrlwebhook.Options{
+			Port:    webhookPort,
+			CertDir: webhookCertDir,
+		})
+	} else {
+		setupLog.Info("Webhook server disabled (no cert-dir provided)")
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -240,6 +259,18 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
 		os.Exit(1)
+	}
+
+	// Setup webhooks if enabled
+	if webhookCertDir != "" {
+		setupLog.Info("Setting up webhooks")
+		if err = (&webhook.RemoteMachineDefaulter{
+			Client: mgr.GetClient(),
+		}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "RemoteMachine")
+			os.Exit(1)
+		}
+		setupLog.Info("Webhooks configured successfully")
 	}
 	// +kubebuilder:scaffold:builder
 
