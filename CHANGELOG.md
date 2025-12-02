@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.8](https://github.com/exalsius/exalsius-operator/compare/v0.4.7...v0.4.8) (2025-12-01)
+
+
+### Bug Fixes
+
+* RemoteMachine deletion race condition ([#115](https://github.com/exalsius/exalsius-operator/issues/115)) ([fbcdc98](https://github.com/exalsius/exalsius-operator/commit/fbcdc9827fedf967af227f820b6af0becd49f54c))
+
 ## [0.4.7](https://github.com/exalsius/exalsius-operator/compare/v0.4.6...v0.4.7) (2025-11-30)
 
 
