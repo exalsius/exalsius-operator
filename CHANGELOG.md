@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.9](https://github.com/exalsius/exalsius-operator/compare/v0.4.8...v0.4.9) (2025-12-02)
+
+
+### Bug Fixes
+
+* use correct port for netbird webhook ([#117](https://github.com/exalsius/exalsius-operator/issues/117)) ([832ca1a](https://github.com/exalsius/exalsius-operator/commit/832ca1afd6157c19513842e9ed1218484cca4174))
+
 ## [0.4.8](https://github.com/exalsius/exalsius-operator/compare/v0.4.7...v0.4.8) (2025-12-01)
 
 
