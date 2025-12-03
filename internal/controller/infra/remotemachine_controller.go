@@ -85,46 +85,59 @@ func (r *RemoteMachineCleanupReconciler) Reconcile(ctx context.Context, req ctrl
 
 	log.Info("Processing RemoteMachine deletion with NetBird cleanup finalizer", "machine", rm.Name)
 
-	// Check if this RemoteMachine actually needs NetBird cleanup
-	needsCleanup, err := r.remoteMachineNeedsNetBirdCleanup(ctx, rm)
-	if err != nil {
-		log.Error(err, "Failed to determine if NetBird cleanup is needed, assuming yes", "machine", rm.Name)
-		// If we can't determine, assume cleanup is needed to be safe
-		needsCleanup = true
-	}
-
-	if needsCleanup {
-		// Run NetBird cleanup
-		log.Info("Running NetBird cleanup on RemoteMachine", "machine", rm.Name)
-		if err := CleanupRemoteMachineNetBird(ctx, r.Client, rm); err != nil {
-			log.Error(err, "NetBird cleanup failed, will retry")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-		}
-		log.Info("NetBird cleanup completed successfully", "machine", rm.Name)
-	} else {
-		log.Info("NetBird not enabled for this RemoteMachine, skipping cleanup", "machine", rm.Name)
-	}
-
-	// IMPORTANT: Wait for k0smotron to finish before removing our finalizer.
-	// k0smotron's patch helper takes a snapshot at the start of reconciliation.
+	// IMPORTANT: Wait for k0smotron to finish BEFORE running our cleanup.
+	// This ensures:
+	// 1. k0s is fully stopped before we remove netbird (k0s wrapper uses netbird for IP)
+	// 2. No race condition with k0smotron's patch helper (which takes a snapshot at start)
 	// If we remove our finalizer while k0smotron is still processing, k0smotron's
 	// patch will try to "restore" our finalizer (because it was in the snapshot),
 	// which fails with "no new finalizers can be added if the object is being deleted".
-	// By waiting for k0smotron's finalizer to be removed first, we ensure k0smotron's
-	// patch succeeds, then we can safely remove ours.
 	if controllerutil.ContainsFinalizer(rm, K0smotronFinalizer) {
-		log.Info("Waiting for k0smotron to finish cleanup before removing our finalizer",
+		log.Info("Waiting for k0smotron to finish cleanup first",
 			"machine", rm.Name,
 			"k0smotronFinalizer", K0smotronFinalizer)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
-	// k0smotron is done, safe to remove our finalizer
+	// k0smotron is done (k0s stopped/uninstalled), now safe to cleanup NetBird
+	// Check if we already did cleanup by looking for an annotation to avoid repeated cleanups
+	const cleanupDoneAnnotation = "netbird.exalsius.ai/cleanup-done"
+	cleanupAlreadyDone := rm.Annotations != nil && rm.Annotations[cleanupDoneAnnotation] == "true"
+
+	if !cleanupAlreadyDone {
+		needsCleanup, err := r.remoteMachineNeedsNetBirdCleanup(ctx, rm)
+		if err != nil {
+			log.Error(err, "Failed to determine if NetBird cleanup is needed, assuming yes", "machine", rm.Name)
+			// If we can't determine, assume cleanup is needed to be safe
+			needsCleanup = true
+		}
+
+		if needsCleanup {
+			// Run NetBird cleanup
+			log.Info("Running NetBird cleanup on RemoteMachine", "machine", rm.Name)
+			if err := CleanupRemoteMachineNetBird(ctx, r.Client, rm); err != nil {
+				log.Error(err, "NetBird cleanup failed, will retry")
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+			}
+			log.Info("NetBird cleanup completed successfully", "machine", rm.Name)
+
+			// Mark cleanup as done with annotation
+			if rm.Annotations == nil {
+				rm.Annotations = make(map[string]string)
+			}
+			rm.Annotations[cleanupDoneAnnotation] = "true"
+		} else {
+			log.V(1).Info("NetBird not enabled for this RemoteMachine, skipping cleanup", "machine", rm.Name)
+		}
+	} else {
+		log.V(1).Info("NetBird cleanup already completed", "machine", rm.Name)
+	}
+
+	// Remove our finalizer and update (single API call for both annotation and finalizer)
 	controllerutil.RemoveFinalizer(rm, NetBirdCleanupFinalizer)
 	if err := r.Update(ctx, rm); err != nil {
 		// If update fails, the object might already be gone - log but don't fail
-		log.V(1).Info("Failed to remove finalizer (object may be deleted)", "machine", rm.Name, "error", err)
-		// Return success anyway since cleanup is done
+		log.V(1).Info("Failed to update RemoteMachine (object may be deleted)", "machine", rm.Name, "error", err)
 		return ctrl.Result{}, nil
 	}
 
