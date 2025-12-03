@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.11](https://github.com/exalsius/exalsius-operator/compare/v0.4.10...v0.4.11) (2025-12-03)
+
+
+### Bug Fixes
+
+* wait for k0smotron finalizer to be deleted ([#121](https://github.com/exalsius/exalsius-operator/issues/121)) ([5a13fc1](https://github.com/exalsius/exalsius-operator/commit/5a13fc1fd9571b449628afe1e298bf3f0c8c7f7b))
+
+## [0.4.10](https://github.com/exalsius/exalsius-operator/compare/v0.4.9...v0.4.10) (2025-12-03)
+
+
+### Bug Fixes
+
+* make ClusterDeployment deletion non-blocking to prevent operator freeze ([#119](https://github.com/exalsius/exalsius-operator/issues/119)) ([a0ca3e1](https://github.com/exalsius/exalsius-operator/commit/a0ca3e11908721d32ff0f261f9619bf2ad04f2c6))
+
 ## [0.4.9](https://github.com/exalsius/exalsius-operator/compare/v0.4.8...v0.4.9) (2025-12-02)
 
 
