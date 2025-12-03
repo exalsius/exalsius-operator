@@ -60,8 +60,6 @@ type ColonyReconciler struct {
 // Note: Child cluster access (for Cilium ConfigMap creation) is done via kubeconfig secrets,
 // which requires the secrets RBAC permission above. No additional RBAC is needed for child cluster resources.
 func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
-
 	colony := &infrav1.Colony{}
 	if err := r.Get(ctx, req.NamespacedName, colony); err != nil {
 		if errors.IsNotFound(err) {
@@ -71,80 +69,57 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if colony.GetDeletionTimestamp() != nil {
-		log.Info("Colony marked for deletion. Shutting down cluster resources and removing finalizer.")
-
-		// Update status with retry mechanism to handle conflicts
-		if err := r.updateColonyStatusWithRetry(ctx, colony, "Deleting"); err != nil {
-			log.Error(err, "Failed to update Colony status to deleting")
-			return ctrl.Result{}, err
-		}
-
-		// Cleanup NetBird resources if enabled
-		if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
-			nbClient, err := netbirdpkg.GetNetBirdClientFromSecrets(ctx, r.Client, colony)
-			if err != nil {
-				log.Error(err, "Failed to get NetBird client for cleanup, continuing with other cleanup")
-			} else {
-				if err := netbirdpkg.CleanupNetBirdResources(ctx, r.Client, nbClient, colony); err != nil {
-					log.Error(err, "Failed to cleanup NetBird resources, continuing with other cleanup")
-				}
-			}
-		}
-
-		for _, colonyCluster := range colony.Spec.ColonyClusters {
-			if err := r.cleanupAssociatedResources(ctx, colony, &colonyCluster); err != nil {
-				log.Error(err, "Failed to cleanup associated cluster resources for ColonyCluster", "ColonyCluster.Name", colonyCluster.ClusterName)
-				return ctrl.Result{}, err
-			}
-		}
-
-		// Refresh the colony object before removing finalizer
-		if err := r.Get(ctx, req.NamespacedName, colony); err != nil {
-			if errors.IsNotFound(err) {
-				// Colony already deleted, nothing more to do
-				return ctrl.Result{}, nil
-			}
-			log.Error(err, "Failed to refetch Colony before removing finalizer")
-			return ctrl.Result{}, err
-		}
-
-		controllerutil.RemoveFinalizer(colony, colonyFinalizer)
-		if err := r.Update(ctx, colony); err != nil {
-			log.Error(err, "Failed to remove finalizer from Colony")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.handleColonyDeletion(ctx, req, colony)
 	}
 
+	// Ensure finalizer is present
 	if !controllerutil.ContainsFinalizer(colony, colonyFinalizer) {
-		log.Info("Adding finalizer to Colony", "Colony.Namespace", colony.Namespace, "Colony.Name", colony.Name)
-		controllerutil.AddFinalizer(colony, colonyFinalizer)
-		if err := r.Update(ctx, colony); err != nil {
-			log.Error(err, "Failed to add finalizer to Colony", "Colony.Namespace", colony.Namespace, "Colony.Name", colony.Name)
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.addFinalizer(ctx, colony)
 	}
 
-	// Clean up ClusterDeployments that are no longer in the spec
-	if err := clusterdeployment.CleanupOrphanedClusterDeployments(ctx, r.Client, colony); err != nil {
+	// Handle normal reconciliation
+	return r.reconcileColony(ctx, colony)
+}
+
+// addFinalizer adds the colony finalizer to the Colony resource
+func (r *ColonyReconciler) addFinalizer(ctx context.Context, colony *infrav1.Colony) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	log.Info("Adding finalizer to Colony", "Colony.Namespace", colony.Namespace, "Colony.Name", colony.Name)
+	controllerutil.AddFinalizer(colony, colonyFinalizer)
+	if err := r.Update(ctx, colony); err != nil {
+		log.Error(err, "Failed to add finalizer to Colony", "Colony.Namespace", colony.Namespace, "Colony.Name", colony.Name)
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// reconcileColony handles the main reconciliation logic for a Colony resource
+func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.Colony) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Clean up ClusterDeployments that are no longer in the spec (non-blocking)
+	hasPendingDeletions, err := clusterdeployment.CleanupOrphanedClusterDeployments(ctx, r.Client, colony)
+	if err != nil {
 		log.Error(err, "Failed to cleanup orphaned cluster deployments")
 		return ctrl.Result{}, err
+	}
+	if hasPendingDeletions {
+		log.Info("Orphaned ClusterDeployments still being deleted, will requeue")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	// Create a copy before making any status changes for the final patch
 	origForStatusPatch := colony.DeepCopy()
 
 	// Reconcile NetBird integration FIRST if enabled
-	// This ensures setup keys exist before ClusterDeployments try to use them
 	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
 		if err := netbirdpkg.ReconcileNetBird(ctx, r.Client, colony, r.Scheme); err != nil {
 			log.Error(err, "Failed to reconcile NetBird integration")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
-		// Note: Status will be persisted at the end of reconciliation to avoid conflicts
 	}
 
+	// Ensure all ClusterDeployments exist
 	for _, colonyCluster := range colony.Spec.ColonyClusters {
 		if colonyCluster.ClusterDeploymentSpec != nil {
 			if err := clusterdeployment.EnsureClusterDeployment(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
@@ -152,28 +127,22 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return ctrl.Result{}, err
 			}
 		}
-
 	}
 
+	// Update status from cluster states
 	if err := r.updateColonyStatusFromClusters(ctx, colony); err != nil {
 		log.Error(err, "Failed to update Colony status from clusters")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
-	// Final status update to ensure all changes are persisted
-	// This must happen BEFORE any early returns to ensure NetBird status is saved
-	if colony.Status.NetBird != nil {
-		log.Info("Persisting Colony status with NetBird information",
-			"networkID", colony.Status.NetBird.NetworkID,
-			"setupKeyID", colony.Status.NetBird.SetupKeyID)
-	}
+	// Persist status
 	if err := r.Client.Status().Patch(ctx, colony, client.MergeFrom(origForStatusPatch)); err != nil {
 		log.Error(err, "Failed to persist final Colony status")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
 	log.Info("Successfully persisted Colony status")
 
-	// if not all clusters are ready, requeue sooner
+	// Requeue sooner if not all clusters are ready
 	if colony.Status.ReadyClusters != colony.Status.TotalClusters {
 		log.Info("Not all clusters are ready, requeueing",
 			"ready", colony.Status.ReadyClusters,
@@ -182,6 +151,7 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	// Ensure aggregated kubeconfig secret exists
 	if result, err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {
 		log.Error(err, "Failed to ensure aggregated kubeconfig secret")
 		return result, err
@@ -190,7 +160,6 @@ func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	log.Info("Colony reconciled successfully")
-
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
@@ -280,8 +249,73 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	return ctrl.Result{}, nil
 }
 
-func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) error {
+// handleColonyDeletion handles the deletion flow for a Colony resource.
+// It cleans up associated resources and removes the finalizer when cleanup is complete.
+func (r *ColonyReconciler) handleColonyDeletion(ctx context.Context, req ctrl.Request, colony *infrav1.Colony) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
+	log.Info("Colony marked for deletion. Shutting down cluster resources and removing finalizer.")
+
+	// Update status with retry mechanism to handle conflicts
+	if err := r.updateColonyStatusWithRetry(ctx, colony, "Deleting"); err != nil {
+		log.Error(err, "Failed to update Colony status to deleting")
+		return ctrl.Result{}, err
+	}
+
+	// Cleanup NetBird resources if enabled
+	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
+		nbClient, err := netbirdpkg.GetNetBirdClientFromSecrets(ctx, r.Client, colony)
+		if err != nil {
+			log.Error(err, "Failed to get NetBird client for cleanup, continuing with other cleanup")
+		} else {
+			if err := netbirdpkg.CleanupNetBirdResources(ctx, r.Client, nbClient, colony); err != nil {
+				log.Error(err, "Failed to cleanup NetBird resources, continuing with other cleanup")
+			}
+		}
+	}
+
+	// Cleanup all ClusterDeployments - track if any are still being deleted
+	anyStillDeleting := false
+	for _, colonyCluster := range colony.Spec.ColonyClusters {
+		stillExists, err := r.cleanupAssociatedResources(ctx, colony, &colonyCluster)
+		if err != nil {
+			log.Error(err, "Failed to cleanup associated cluster resources for ColonyCluster", "ColonyCluster.Name", colonyCluster.ClusterName)
+			return ctrl.Result{}, err
+		}
+		if stillExists {
+			anyStillDeleting = true
+		}
+	}
+
+	// If any ClusterDeployments are still being deleted, requeue to check again
+	if anyStillDeleting {
+		log.Info("ClusterDeployments still being deleted, will requeue")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Refresh the colony object before removing finalizer
+	if err := r.Get(ctx, req.NamespacedName, colony); err != nil {
+		if errors.IsNotFound(err) {
+			// Colony already deleted, nothing more to do
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to refetch Colony before removing finalizer")
+		return ctrl.Result{}, err
+	}
+
+	controllerutil.RemoveFinalizer(colony, colonyFinalizer)
+	if err := r.Update(ctx, colony); err != nil {
+		log.Error(err, "Failed to remove finalizer from Colony")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// cleanupAssociatedResources triggers deletion of ClusterDeployment and associated resources.
+// Returns (stillExists, error) - stillExists is true if the ClusterDeployment is still being deleted.
+func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster) (bool, error) {
+	log := log.FromContext(ctx)
+
+	clusterDeploymentName := colony.Name + "-" + colonyCluster.ClusterName
 
 	// First, delete patched bootstrap secrets to avoid garbage collection conflicts
 	// This prevents the ClusterDeployment deletion from hanging due to field ownership issues
@@ -293,24 +327,47 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 		}
 	}
 
-	// Delete the ClusterDeployment object which will trigger the deletion of all associated resources
-	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Name + "-" + colonyCluster.ClusterName,
-			Namespace: colony.Namespace,
-		},
-	}
-	if err := r.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
-		log.Error(err, "Failed to delete ClusterDeployment", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
-		return err
+	// Check if the ClusterDeployment still exists
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{}
+	err := r.Get(ctx, client.ObjectKey{Name: clusterDeploymentName, Namespace: colony.Namespace}, clusterDeployment)
+
+	if errors.IsNotFound(err) {
+		// ClusterDeployment is already deleted
+		log.Info("ClusterDeployment already deleted", "ClusterDeployment.Name", clusterDeploymentName)
+
+		// Clean up associated PVC
+		pvcClusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      clusterDeploymentName,
+				Namespace: colony.Namespace,
+			},
+		}
+		if err := clusterdeployment.DeletePVCForClusterDeployment(ctx, r.Client, pvcClusterDeployment); err != nil {
+			log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", clusterDeploymentName)
+			// Don't return error here as the main deletion was successful
+		}
+
+		return false, nil
 	}
 
-	// wait for the cluster to be deleted
-	if err := clusterdeployment.WaitForClusterDeletion(ctx, r.Client, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
-		log.Error(err, "Failed to wait for Cluster deletion")
-		return err
+	if err != nil {
+		log.Error(err, "Failed to get ClusterDeployment", "ClusterDeployment.Name", clusterDeploymentName)
+		return false, err
 	}
-	return nil
+
+	// ClusterDeployment still exists - trigger deletion if not already being deleted
+	if clusterDeployment.DeletionTimestamp.IsZero() {
+		log.Info("Deleting ClusterDeployment", "ClusterDeployment.Name", clusterDeploymentName, "ClusterDeployment.Namespace", colony.Namespace)
+		if err := r.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
+			log.Error(err, "Failed to delete ClusterDeployment", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
+			return false, err
+		}
+	} else {
+		log.Info("ClusterDeployment is being deleted, waiting", "ClusterDeployment.Name", clusterDeploymentName)
+	}
+
+	// Return true to indicate deletion is still in progress
+	return true, nil
 }
 
 // updateColonyStatusFromClusters checks all clusters referenced in the Colony status
