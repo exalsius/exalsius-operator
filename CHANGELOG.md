@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.11](https://github.com/exalsius/exalsius-operator/compare/v0.4.10...v0.4.11) (2025-12-03)
+
+
+### Bug Fixes
+
+* wait for k0smotron finalizer to be deleted ([#121](https://github.com/exalsius/exalsius-operator/issues/121)) ([5a13fc1](https://github.com/exalsius/exalsius-operator/commit/5a13fc1fd9571b449628afe1e298bf3f0c8c7f7b))
+
 ## [0.4.10](https://github.com/exalsius/exalsius-operator/compare/v0.4.9...v0.4.10) (2025-12-03)
 
 
