@@ -195,8 +195,10 @@ func updateColonyStatusWithRetry(ctx context.Context, c client.Client, colony *i
 }
 
 // CleanupOrphanedClusterDeployments removes ClusterDeployment objects that are no longer
-// referenced in the Colony spec but still exist in the status
-func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
+// referenced in the Colony spec but still exist in the status.
+// Returns (hasPendingDeletions, error) - hasPendingDeletions is true if there are still
+// ClusterDeployments being deleted that require a requeue.
+func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, colony *infrav1.Colony) (bool, error) {
 	log := log.FromContext(ctx)
 
 	// Create a set of expected cluster names from the spec
@@ -206,64 +208,88 @@ func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, col
 		expectedClusterNames[expectedClusterName] = true
 	}
 
-	// Find and delete orphaned ClusterDeployments
-	var orphanedRefs []*corev1.ObjectReference
+	// Find orphaned ClusterDeployments
+	var deletedRefs []*corev1.ObjectReference
+	var pendingDeletions []*corev1.ObjectReference
+
 	for _, ref := range colony.Status.ClusterDeploymentRefs {
 		if !expectedClusterNames[ref.Name] {
-			log.Info("Found orphaned ClusterDeployment, deleting", "ClusterDeployment.Name", ref.Name, "ClusterDeployment.Namespace", ref.Namespace)
+			// Check if the ClusterDeployment still exists
+			clusterDeployment := &k0rdentv1beta1.ClusterDeployment{}
+			err := c.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ref.Namespace}, clusterDeployment)
 
-			clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      ref.Name,
-					Namespace: ref.Namespace,
-				},
+			if errors.IsNotFound(err) {
+				// ClusterDeployment is already deleted, we can remove from status
+				log.Info("Orphaned ClusterDeployment already deleted", "ClusterDeployment.Name", ref.Name, "ClusterDeployment.Namespace", ref.Namespace)
+
+				// Clean up associated PVC
+				pvcClusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      ref.Name,
+						Namespace: ref.Namespace,
+					},
+				}
+				if err := DeletePVCForClusterDeployment(ctx, c, pvcClusterDeployment); err != nil {
+					log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", ref.Name)
+					// Don't return error here as the main deletion was successful
+				}
+
+				deletedRefs = append(deletedRefs, ref)
+				continue
 			}
 
-			if err := c.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
-				log.Error(err, "Failed to delete orphaned ClusterDeployment", "ClusterDeployment.Name", ref.Name, "ClusterDeployment.Namespace", ref.Namespace)
-				return err
+			if err != nil {
+				log.Error(err, "Failed to get orphaned ClusterDeployment", "ClusterDeployment.Name", ref.Name)
+				return false, err
 			}
 
-			// Wait for the cluster to be deleted
-			if err := WaitForClusterDeletion(ctx, c, clusterDeployment, 10*time.Minute, 10*time.Second); err != nil {
-				log.Error(err, "Failed to wait for orphaned ClusterDeployment deletion")
-				return err
+			// ClusterDeployment still exists - trigger deletion if not already being deleted
+			if clusterDeployment.DeletionTimestamp.IsZero() {
+				log.Info("Found orphaned ClusterDeployment, triggering deletion", "ClusterDeployment.Name", ref.Name, "ClusterDeployment.Namespace", ref.Namespace)
+				if err := c.Delete(ctx, clusterDeployment); err != nil && !errors.IsNotFound(err) {
+					log.Error(err, "Failed to delete orphaned ClusterDeployment", "ClusterDeployment.Name", ref.Name, "ClusterDeployment.Namespace", ref.Namespace)
+					return false, err
+				}
+			} else {
+				log.Info("Orphaned ClusterDeployment is being deleted, waiting", "ClusterDeployment.Name", ref.Name, "ClusterDeployment.Namespace", ref.Namespace)
 			}
 
-			orphanedRefs = append(orphanedRefs, ref)
+			// Track as pending deletion - will be removed from status on next reconciliation
+			pendingDeletions = append(pendingDeletions, ref)
 		}
 	}
 
-	// Remove orphaned references from status
-	if len(orphanedRefs) > 0 {
+	// Remove deleted references from status
+	if len(deletedRefs) > 0 {
 		orig := colony.DeepCopy()
 		var updatedRefs []*corev1.ObjectReference
 		for _, ref := range colony.Status.ClusterDeploymentRefs {
-			isOrphaned := false
-			for _, orphanedRef := range orphanedRefs {
-				if ref.Name == orphanedRef.Name && ref.Namespace == orphanedRef.Namespace {
-					isOrphaned = true
+			isDeleted := false
+			for _, deletedRef := range deletedRefs {
+				if ref.Name == deletedRef.Name && ref.Namespace == deletedRef.Namespace {
+					isDeleted = true
 					break
 				}
 			}
-			if !isOrphaned {
+			if !isDeleted {
 				updatedRefs = append(updatedRefs, ref)
 			}
 		}
 		colony.Status.ClusterDeploymentRefs = updatedRefs
 
 		if err := c.Status().Patch(ctx, colony, client.MergeFrom(orig)); err != nil {
-			return fmt.Errorf("failed to update Colony status after cleanup: %w", err)
+			return false, fmt.Errorf("failed to update Colony status after cleanup: %w", err)
 		}
 
-		log.Info("Cleaned up orphaned ClusterDeployment references", "count", len(orphanedRefs))
+		log.Info("Cleaned up orphaned ClusterDeployment references", "count", len(deletedRefs))
 	}
 
-	return nil
+	// Return true if there are still pending deletions that need requeue
+	return len(pendingDeletions) > 0, nil
 }
 
-// deletePVCForClusterDeployment deletes the PVC associated with a ClusterDeployment
-func deletePVCForClusterDeployment(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment) error {
+// DeletePVCForClusterDeployment deletes the PVC associated with a ClusterDeployment
+func DeletePVCForClusterDeployment(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment) error {
 	log := log.FromContext(ctx)
 
 	// Construct PVC name following the pattern: etcd-data-kmc-<cluster-deployment-name>-etcd-0
@@ -307,7 +333,7 @@ func WaitForClusterDeletion(ctx context.Context, c client.Client, clusterDeploym
 				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 
 				// Delete the associated PVC after ClusterDeployment is confirmed deleted
-				if err := deletePVCForClusterDeployment(ctx, c, clusterDeployment); err != nil {
+				if err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment); err != nil {
 					log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", clusterDeployment.Name)
 					// Don't return error here as the main deletion was successful
 				}
