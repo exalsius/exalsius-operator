@@ -52,6 +52,15 @@ func (r *RemoteMachineDefaulter) Default(ctx context.Context, obj runtime.Object
 
 	log := log.FromContext(ctx)
 
+	// Don't add finalizers to objects being deleted
+	// This prevents the race condition: "no new finalizers can be added if the object is being deleted"
+	if !rm.DeletionTimestamp.IsZero() {
+		log.V(1).Info("RemoteMachine is being deleted, skipping finalizer addition",
+			"remotemachine", rm.Name,
+			"namespace", rm.Namespace)
+		return nil
+	}
+
 	// Only add finalizer if it doesn't already exist
 	if !controllerutil.ContainsFinalizer(rm, NetBirdCleanupFinalizer) {
 		log.V(1).Info("Adding NetBird cleanup finalizer to RemoteMachine",

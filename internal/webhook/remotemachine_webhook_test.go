@@ -97,6 +97,23 @@ func TestRemoteMachineDefaulter_Default(t *testing.T) {
 			expectFinalizer: true,
 			expectError:     false,
 		},
+		{
+			name: "does not add finalizer to object being deleted",
+			remoteMachine: &infrastructurev1beta1.RemoteMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "test-machine",
+					Namespace:         "default",
+					DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+					Finalizers:        []string{"other-finalizer"}, // Must have at least one to be valid for deletion
+				},
+				Spec: infrastructurev1beta1.RemoteMachineSpec{
+					Address: "192.168.1.1",
+					Port:    22,
+				},
+			},
+			expectFinalizer: false,
+			expectError:     false,
+		},
 	}
 
 	for _, tt := range tests {
