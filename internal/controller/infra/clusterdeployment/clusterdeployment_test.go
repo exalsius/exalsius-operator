@@ -307,7 +307,6 @@ var _ = Describe("WaitForClusterDeletion", func() {
 var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 	var (
 		scheme *runtime.Scheme
-		colony *infrav1.Colony
 		ctx    context.Context
 	)
 
@@ -316,67 +315,420 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 		_ = k0rdentv1beta1.AddToScheme(scheme)
 		_ = infrav1.AddToScheme(scheme)
 		_ = corev1.AddToScheme(scheme)
-
-		colony = &infrav1.Colony{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-colony",
-				Namespace: "default",
-			},
-			Spec: infrav1.ColonySpec{
-				ColonyClusters: []infrav1.ColonyCluster{
-					{
-						ClusterName: "cluster-1",
-					},
-				},
-			},
-			Status: infrav1.ColonyStatus{
-				ClusterDeploymentRefs: []*corev1.ObjectReference{
-					{
-						Name:      "test-colony-cluster-1",
-						Namespace: "default",
-					},
-					{
-						Name:      "test-colony-cluster-2", // This is orphaned
-						Namespace: "default",
-					},
-				},
-			},
-		}
-
 		ctx = context.TODO()
 	})
 
-	It("should delete PVC when cleaning up orphaned ClusterDeployment", func() {
-		// Create a PVC for the orphaned cluster (but don't create the ClusterDeployment)
-		pvc := &corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "etcd-data-kmc-test-colony-cluster-2-etcd-0",
-				Namespace: "default",
-			},
-			Spec: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("1Gi"),
+	Context("when there are no orphaned ClusterDeployments", func() {
+		It("should return false with no error", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+						{ClusterName: "cluster-2"},
 					},
 				},
-			},
-		}
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"},
+					},
+				},
+			}
 
-		c := fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithStatusSubresource(&infrav1.Colony{}).
-			WithObjects(colony, pvc).
-			Build()
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				Build()
 
-		// Call cleanup - since the ClusterDeployment doesn't exist, it should immediately detect it's "deleted" and delete the PVC
-		err := CleanupOrphanedClusterDeployments(ctx, c, colony)
-		Expect(err).NotTo(HaveOccurred())
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse())
+			// Status should be unchanged
+			Expect(colony.Status.ClusterDeploymentRefs).To(HaveLen(2))
+		})
+	})
 
-		// Verify PVC was deleted
-		deletedPVC := &corev1.PersistentVolumeClaim{}
-		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-colony-cluster-2-etcd-0", Namespace: "default"}, deletedPVC)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("not found"))
+	Context("when orphaned ClusterDeployment is already deleted", func() {
+		It("should remove from status and return false (no pending)", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"}, // orphaned and doesn't exist
+					},
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse())
+			// Orphaned ref should be removed from status
+			Expect(colony.Status.ClusterDeploymentRefs).To(HaveLen(1))
+			Expect(colony.Status.ClusterDeploymentRefs[0].Name).To(Equal("test-colony-cluster-1"))
+		})
+
+		It("should delete associated PVC when ClusterDeployment is gone", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"}, // orphaned
+					},
+				},
+			}
+
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "etcd-data-kmc-test-colony-cluster-2-etcd-0",
+					Namespace: "default",
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony, pvc).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse())
+
+			// Verify PVC was deleted
+			deletedPVC := &corev1.PersistentVolumeClaim{}
+			err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-colony-cluster-2-etcd-0", Namespace: "default"}, deletedPVC)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+	})
+
+	Context("when orphaned ClusterDeployment exists and is not being deleted", func() {
+		It("should trigger deletion and return true (pending)", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"}, // orphaned
+					},
+				},
+			}
+
+			// Create the orphaned ClusterDeployment (exists but shouldn't)
+			orphanedCD := &k0rdentv1beta1.ClusterDeployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony-cluster-2",
+					Namespace: "default",
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony, orphanedCD).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeTrue()) // Should indicate pending deletion
+
+			// Status should NOT be updated yet (CD still exists)
+			Expect(colony.Status.ClusterDeploymentRefs).To(HaveLen(2))
+
+			// Verify deletion was triggered (in fake client, Delete removes immediately unless there are finalizers)
+			cd := &k0rdentv1beta1.ClusterDeployment{}
+			err = c.Get(ctx, client.ObjectKey{Name: "test-colony-cluster-2", Namespace: "default"}, cd)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+	})
+
+	Context("when orphaned ClusterDeployment is being deleted (has DeletionTimestamp)", func() {
+		It("should return true (pending) without triggering another delete", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"}, // orphaned, being deleted
+					},
+				},
+			}
+
+			now := metav1.Now()
+			// Create orphaned ClusterDeployment with DeletionTimestamp (being deleted)
+			orphanedCD := &k0rdentv1beta1.ClusterDeployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "test-colony-cluster-2",
+					Namespace:         "default",
+					DeletionTimestamp: &now,
+					Finalizers:        []string{"some-finalizer"}, // Must have finalizer to have DeletionTimestamp
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony, orphanedCD).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeTrue()) // Deletion is pending
+
+			// Status should NOT be updated yet
+			Expect(colony.Status.ClusterDeploymentRefs).To(HaveLen(2))
+
+			// ClusterDeployment should still exist (not deleted again)
+			cd := &k0rdentv1beta1.ClusterDeployment{}
+			err = c.Get(ctx, client.ObjectKey{Name: "test-colony-cluster-2", Namespace: "default"}, cd)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Context("when there are multiple orphaned ClusterDeployments in various states", func() {
+		It("should handle mixed states correctly", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"}, // Not orphaned
+						{Name: "test-colony-cluster-2", Namespace: "default"}, // Orphaned, already deleted
+						{Name: "test-colony-cluster-3", Namespace: "default"}, // Orphaned, exists
+						{Name: "test-colony-cluster-4", Namespace: "default"}, // Orphaned, being deleted
+					},
+				},
+			}
+
+			now := metav1.Now()
+			// cluster-3: exists, needs deletion
+			cd3 := &k0rdentv1beta1.ClusterDeployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony-cluster-3",
+					Namespace: "default",
+				},
+			}
+			// cluster-4: exists with DeletionTimestamp
+			cd4 := &k0rdentv1beta1.ClusterDeployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "test-colony-cluster-4",
+					Namespace:         "default",
+					DeletionTimestamp: &now,
+					Finalizers:        []string{"some-finalizer"},
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony, cd3, cd4).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeTrue()) // cluster-4 is still pending
+
+			// cluster-2 should be removed from status (was already deleted)
+			// cluster-3 and cluster-4 still pending
+			Expect(colony.Status.ClusterDeploymentRefs).To(HaveLen(3))
+
+			// Verify cluster-2 was removed
+			found := false
+			for _, ref := range colony.Status.ClusterDeploymentRefs {
+				if ref.Name == "test-colony-cluster-2" {
+					found = true
+				}
+			}
+			Expect(found).To(BeFalse())
+		})
+	})
+
+	Context("when all orphaned ClusterDeployments are already deleted", func() {
+		It("should remove all from status and return false", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"}, // orphaned, deleted
+						{Name: "test-colony-cluster-3", Namespace: "default"}, // orphaned, deleted
+					},
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse())
+
+			// Only cluster-1 should remain in status
+			Expect(colony.Status.ClusterDeploymentRefs).To(HaveLen(1))
+			Expect(colony.Status.ClusterDeploymentRefs[0].Name).To(Equal("test-colony-cluster-1"))
+		})
+	})
+
+	Context("when Colony has empty ClusterDeploymentRefs", func() {
+		It("should handle gracefully", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{},
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse())
+		})
+	})
+
+	Context("when Colony has nil ClusterDeploymentRefs", func() {
+		It("should handle gracefully", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						{ClusterName: "cluster-1"},
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: nil,
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse())
+		})
+	})
+
+	Context("when Colony spec has no ColonyClusters (all should be orphaned)", func() {
+		It("should mark all ClusterDeploymentRefs as orphaned", func() {
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-colony",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{}, // Empty spec
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "test-colony-cluster-1", Namespace: "default"},
+						{Name: "test-colony-cluster-2", Namespace: "default"},
+					},
+				},
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				Build()
+
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPending).To(BeFalse()) // Both were already deleted (not found)
+
+			// Both should be removed from status
+			Expect(colony.Status.ClusterDeploymentRefs).To(BeEmpty())
+		})
 	})
 })
