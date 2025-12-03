@@ -37,6 +37,11 @@ import (
 const (
 	// NetBirdCleanupFinalizer is added to RemoteMachines that need NetBird cleanup
 	NetBirdCleanupFinalizer = "netbird.exalsius.ai/cleanup"
+
+	// K0smotronFinalizer is k0smotron's finalizer on RemoteMachines
+	// We must wait for k0smotron to remove its finalizer before removing ours
+	// to avoid a race condition with k0smotron's patch helper
+	K0smotronFinalizer = "remotemachine.k0smotron.io/finalizer"
 )
 
 // RemoteMachineCleanupReconciler watches RemoteMachine deletions and runs NetBird cleanup
@@ -100,8 +105,21 @@ func (r *RemoteMachineCleanupReconciler) Reconcile(ctx context.Context, req ctrl
 		log.Info("NetBird not enabled for this RemoteMachine, skipping cleanup", "machine", rm.Name)
 	}
 
-	// Always remove finalizer (whether cleanup was needed or not)
-	// This ensures deletion is never blocked unnecessarily
+	// IMPORTANT: Wait for k0smotron to finish before removing our finalizer.
+	// k0smotron's patch helper takes a snapshot at the start of reconciliation.
+	// If we remove our finalizer while k0smotron is still processing, k0smotron's
+	// patch will try to "restore" our finalizer (because it was in the snapshot),
+	// which fails with "no new finalizers can be added if the object is being deleted".
+	// By waiting for k0smotron's finalizer to be removed first, we ensure k0smotron's
+	// patch succeeds, then we can safely remove ours.
+	if controllerutil.ContainsFinalizer(rm, K0smotronFinalizer) {
+		log.Info("Waiting for k0smotron to finish cleanup before removing our finalizer",
+			"machine", rm.Name,
+			"k0smotronFinalizer", K0smotronFinalizer)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	// k0smotron is done, safe to remove our finalizer
 	controllerutil.RemoveFinalizer(rm, NetBirdCleanupFinalizer)
 	if err := r.Update(ctx, rm); err != nil {
 		// If update fails, the object might already be gone - log but don't fail
