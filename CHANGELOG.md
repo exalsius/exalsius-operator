@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.12](https://github.com/exalsius/exalsius-operator/compare/v0.4.11...v0.4.12) (2025-12-03)
+
+
+### Bug Fixes
+
+* move netbird cleanup after k0smotron cleanup ([#123](https://github.com/exalsius/exalsius-operator/issues/123)) ([2f27e16](https://github.com/exalsius/exalsius-operator/commit/2f27e16b84a0a6e2715b50ed6ab054e582ac65c9))
+
 ## [0.4.11](https://github.com/exalsius/exalsius-operator/compare/v0.4.10...v0.4.11) (2025-12-03)
 
 
