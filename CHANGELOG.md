@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/exalsius/exalsius-operator/compare/v0.4.12...v0.5.0) (2025-12-15)
+
+
+### Features
+
+* add cp-api-endpoint ConfigMap for non-NetBird clusters ([#125](https://github.com/exalsius/exalsius-operator/issues/125)) ([8592762](https://github.com/exalsius/exalsius-operator/commit/859276240e211b31674425903f8341ed0bde8e99))
+
 ## [0.4.12](https://github.com/exalsius/exalsius-operator/compare/v0.4.11...v0.4.12) (2025-12-03)
 
 
