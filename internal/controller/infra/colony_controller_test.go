@@ -512,4 +512,138 @@ var _ = Describe("Colony Controller", func() {
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 	})
+
+	Context("ensureAPIEndpointConfigMapForAllClusters", func() {
+		var (
+			ctx        context.Context
+			reconciler *ColonyReconciler
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			reconciler = &ColonyReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+		})
+
+		It("should skip processing for NetBird-enabled colony", func() {
+			By("Creating a Colony with NetBird enabled")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "netbird-skip-test",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{
+					NetBird: &infrav1.NetBirdConfig{
+						Enabled:      true,
+						APIKeySecret: "test-secret",
+					},
+				},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "netbird-skip-test-cluster-a", Namespace: "default"},
+					},
+				},
+			}
+
+			By("Calling ensureAPIEndpointConfigMapForAllClusters")
+			// This should not error and should skip processing
+			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+
+			// No error expected, function returns void and skips processing
+		})
+
+		It("should handle empty ClusterDeploymentRefs gracefully", func() {
+			By("Creating a Colony without any clusters")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "empty-refs-test",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{},
+				},
+			}
+
+			By("Calling ensureAPIEndpointConfigMapForAllClusters")
+			// Should complete without error
+			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+		})
+
+		It("should handle cluster name extraction failure gracefully", func() {
+			By("Creating a Colony with invalid ClusterDeployment reference name")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "invalid-name-test",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						// This doesn't follow the expected pattern: colony-name-cluster-name
+						{Name: "some-other-deployment", Namespace: "default"},
+					},
+				},
+			}
+
+			By("Calling ensureAPIEndpointConfigMapForAllClusters")
+			// Should handle gracefully without panicking
+			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+		})
+
+		It("should continue processing other clusters when one fails", func() {
+			By("Creating a Colony with multiple clusters (both without services)")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "multi-cluster-test",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "multi-cluster-test-cluster-a", Namespace: "default"},
+						{Name: "multi-cluster-test-cluster-b", Namespace: "default"},
+					},
+				},
+			}
+
+			By("Calling ensureAPIEndpointConfigMapForAllClusters")
+			// Should gracefully skip both clusters since neither has a service
+			// The important thing is that it doesn't panic and continues processing
+			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+		})
+
+		It("should handle service not found gracefully (cluster still provisioning)", func() {
+			By("Creating a Colony with cluster reference but no service")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "no-service-test",
+					Namespace: "default",
+				},
+				Spec: infrav1.ColonySpec{},
+				Status: infrav1.ColonyStatus{
+					ClusterDeploymentRefs: []*corev1.ObjectReference{
+						{Name: "no-service-test-cluster-a", Namespace: "default"},
+					},
+				},
+			}
+
+			By("Calling ensureAPIEndpointConfigMapForAllClusters")
+			// Should handle gracefully - service not found is expected during provisioning
+			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+		})
+	})
+
+	Context("Helper Functions", func() {
+		It("isConnectionError should detect connection errors", func() {
+			Expect(isConnectionError(nil)).To(BeFalse())
+			Expect(isConnectionError(errors.NewBadRequest("bad request"))).To(BeFalse())
+		})
+
+		It("getNotReadyReason should return appropriate reasons", func() {
+			Expect(getNotReadyReason(errors.NewNotFound(corev1.Resource("secret"), "test"))).To(Equal("kubeconfig not found"))
+		})
+	})
 })

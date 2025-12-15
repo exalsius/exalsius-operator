@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -36,7 +37,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/cilium"
 	clusterdeployment "github.com/exalsius/exalsius-operator/internal/controller/infra/clusterdeployment"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
 	netbirdpkg "github.com/exalsius/exalsius-operator/internal/controller/infra/netbird"
 )
 
@@ -150,6 +153,10 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 		)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
+
+	// Ensure API endpoint ConfigMap exists in all child clusters
+	// This is done for non-NetBird clusters; NetBird clusters are handled by the NetBird reconciler
+	r.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
 
 	// Ensure aggregated kubeconfig secret exists
 	if result, err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {
@@ -441,6 +448,98 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	// This avoids multiple patches that can conflict and lose NetBird status
 
 	return nil
+}
+
+// ensureAPIEndpointConfigMapForAllClusters ensures the cp-api-endpoint ConfigMap exists
+// in all child clusters. For NetBird-enabled colonies, this is handled by the NetBird reconciler.
+// For non-NetBird colonies, this function creates the ConfigMap directly.
+func (r *ColonyReconciler) ensureAPIEndpointConfigMapForAllClusters(ctx context.Context, colony *infrav1.Colony) {
+	log := log.FromContext(ctx)
+
+	// Skip if NetBird is enabled - the NetBird reconciler handles this
+	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
+		log.V(1).Info("Skipping API endpoint ConfigMap creation for NetBird-enabled colony")
+		return
+	}
+
+	// Iterate over all clusters in the colony
+	for _, clusterRef := range colony.Status.ClusterDeploymentRefs {
+		clusterName := common.ExtractClusterNameFromDeploymentName(clusterRef.Name, colony.Name)
+		if clusterName == "" {
+			log.Info("Could not extract cluster name from ClusterDeployment", "name", clusterRef.Name)
+			continue
+		}
+
+		// Discover the control plane service for this cluster
+		service, err := common.DiscoverControlPlaneService(ctx, r.Client, colony.Namespace, colony.Name, clusterName)
+		if err != nil {
+			// Service not found is expected during provisioning - don't log as error
+			if strings.Contains(err.Error(), "not found yet") || strings.Contains(err.Error(), "still provisioning") {
+				log.Info("Control plane service not available yet, will retry", "cluster", clusterName)
+			} else {
+				log.Error(err, "Failed to discover control plane service", "cluster", clusterName)
+			}
+			// Continue with other clusters - don't fail the entire reconciliation
+			continue
+		}
+
+		// Determine the API endpoint (external LoadBalancer address if available, otherwise ClusterIP)
+		endpoint, err := common.DetermineAPIEndpoint(service)
+		if err != nil {
+			log.Error(err, "Failed to determine API endpoint", "cluster", clusterName)
+			continue
+		}
+
+		log.Info("Creating/updating API endpoint ConfigMap for cluster",
+			"cluster", clusterName,
+			"endpoint", endpoint,
+			"serviceType", service.Spec.Type)
+
+		// Create/update the ConfigMap in the child cluster
+		if err := cilium.EnsureAPIEndpointConfigMap(ctx, r.Client, colony, clusterName, endpoint, r.Scheme); err != nil {
+			// Distinguish between "not ready yet" (expected) and actual errors
+			if errors.IsNotFound(err) || isConnectionError(err) {
+				log.Info("Child cluster not ready yet, will retry ConfigMap creation on next reconcile",
+					"cluster", clusterName,
+					"reason", getNotReadyReason(err))
+			} else {
+				log.Error(err, "Failed to create API endpoint ConfigMap, will retry",
+					"cluster", clusterName)
+			}
+			// Don't fail the reconciliation - this will be retried on the next reconcile
+		}
+	}
+}
+
+// isConnectionError checks if the error is a connection/network error
+// indicating the API server is not ready yet.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "connect: connection timed out")
+}
+
+// getNotReadyReason returns a human-readable reason for why the cluster is not ready.
+func getNotReadyReason(err error) string {
+	if errors.IsNotFound(err) {
+		return "kubeconfig not found"
+	}
+	errStr := err.Error()
+	if strings.Contains(errStr, "connection refused") {
+		return "API server not ready"
+	}
+	if strings.Contains(errStr, "i/o timeout") {
+		return "API server timeout"
+	}
+	if strings.Contains(errStr, "no such host") {
+		return "DNS not ready"
+	}
+	return "cluster starting up"
 }
 
 // updateColonyStatusWithRetry handles status updates with conflict resolution
