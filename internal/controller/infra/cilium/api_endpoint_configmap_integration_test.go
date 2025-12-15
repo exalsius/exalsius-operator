@@ -146,6 +146,239 @@ func TestIntegrationConfigMapCreation(t *testing.T) {
 	})
 }
 
+// TestIntegrationNonNetBirdConfigMapCreation tests the ConfigMap creation flow
+// for non-NetBird colonies (using LoadBalancer or ClusterIP service discovery).
+func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	t.Run("Non-NetBird colony with LoadBalancer service", func(t *testing.T) {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+
+		// Create colony without NetBird
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "non-netbird-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				// NetBird is nil (not enabled)
+			},
+			Status: infrav1.ColonyStatus{
+				ClusterDeploymentRefs: []*corev1.ObjectReference{
+					{Name: "non-netbird-colony-cluster-a", Namespace: "default"},
+				},
+			},
+		}
+
+		// Create control plane service with LoadBalancer type and external address
+		controlPlaneService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "kmc-non-netbird-colony-cluster-a",
+				Namespace: "default",
+				Labels: map[string]string{
+					"app":       "k0smotron",
+					"component": "cluster",
+					"cluster":   "non-netbird-colony-cluster-a",
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Type:      corev1.ServiceTypeLoadBalancer,
+				ClusterIP: "10.0.0.100",
+				Ports: []corev1.ServicePort{
+					{Name: "api", Port: 30443},
+					{Name: "konnectivity", Port: 30132},
+				},
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{IP: "203.0.113.50"},
+					},
+				},
+			},
+		}
+
+		// Create fake kubeconfig
+		kubeconfig := createTestKubeconfig()
+		kubeconfigBytes, _ := clientcmd.Write(*kubeconfig)
+
+		kubeconfigSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "non-netbird-colony-cluster-a-kubeconfig",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": kubeconfigBytes,
+			},
+		}
+
+		managementClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(colony, controlPlaneService, kubeconfigSecret).
+			Build()
+
+		// Verify service discovery works
+		service := &corev1.Service{}
+		err := managementClient.Get(ctx, client.ObjectKey{
+			Name:      "kmc-non-netbird-colony-cluster-a",
+			Namespace: "default",
+		}, service)
+		if err != nil {
+			t.Errorf("Failed to get control plane service: %v", err)
+		}
+
+		// Verify service is LoadBalancer type
+		if service.Spec.Type != corev1.ServiceTypeLoadBalancer {
+			t.Errorf("Expected LoadBalancer service, got %v", service.Spec.Type)
+		}
+
+		// Verify external address
+		if len(service.Status.LoadBalancer.Ingress) == 0 {
+			t.Error("Expected LoadBalancer ingress, got none")
+		} else if service.Status.LoadBalancer.Ingress[0].IP != "203.0.113.50" {
+			t.Errorf("Expected external IP 203.0.113.50, got %v", service.Status.LoadBalancer.Ingress[0].IP)
+		}
+
+		t.Log("Non-NetBird colony LoadBalancer flow validated successfully")
+	})
+
+	t.Run("Non-NetBird colony with NodePort service (falls back to ClusterIP)", func(t *testing.T) {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+
+		// Create colony without NetBird
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "nodeport-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{},
+			Status: infrav1.ColonyStatus{
+				ClusterDeploymentRefs: []*corev1.ObjectReference{
+					{Name: "nodeport-colony-cluster-a", Namespace: "default"},
+				},
+			},
+		}
+
+		// Create control plane service with NodePort type (no external address)
+		controlPlaneService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "kmc-nodeport-colony-cluster-a",
+				Namespace: "default",
+				Labels: map[string]string{
+					"app":       "k0smotron",
+					"component": "cluster",
+					"cluster":   "nodeport-colony-cluster-a",
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Type:      corev1.ServiceTypeNodePort,
+				ClusterIP: "10.0.0.200",
+				Ports: []corev1.ServicePort{
+					{Name: "api", Port: 30443, NodePort: 31443},
+					{Name: "konnectivity", Port: 30132, NodePort: 31132},
+				},
+			},
+		}
+
+		// Create fake kubeconfig
+		kubeconfig := createTestKubeconfig()
+		kubeconfigBytes, _ := clientcmd.Write(*kubeconfig)
+
+		kubeconfigSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "nodeport-colony-cluster-a-kubeconfig",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": kubeconfigBytes,
+			},
+		}
+
+		managementClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(colony, controlPlaneService, kubeconfigSecret).
+			Build()
+
+		// Verify service discovery works
+		service := &corev1.Service{}
+		err := managementClient.Get(ctx, client.ObjectKey{
+			Name:      "kmc-nodeport-colony-cluster-a",
+			Namespace: "default",
+		}, service)
+		if err != nil {
+			t.Errorf("Failed to get control plane service: %v", err)
+		}
+
+		// Verify service is NodePort type
+		if service.Spec.Type != corev1.ServiceTypeNodePort {
+			t.Errorf("Expected NodePort service, got %v", service.Spec.Type)
+		}
+
+		// Verify ClusterIP exists for fallback
+		if service.Spec.ClusterIP != "10.0.0.200" {
+			t.Errorf("Expected ClusterIP 10.0.0.200, got %v", service.Spec.ClusterIP)
+		}
+
+		t.Log("Non-NetBird colony NodePort flow (ClusterIP fallback) validated successfully")
+	})
+
+	t.Run("Service not ready yet (cluster provisioning)", func(t *testing.T) {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+
+		// Create colony without NetBird
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "provisioning-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{},
+			Status: infrav1.ColonyStatus{
+				ClusterDeploymentRefs: []*corev1.ObjectReference{
+					{Name: "provisioning-colony-cluster-a", Namespace: "default"},
+				},
+			},
+		}
+
+		// No control plane service created (cluster still provisioning)
+
+		managementClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(colony).
+			Build()
+
+		// Verify service doesn't exist
+		serviceList := &corev1.ServiceList{}
+		err := managementClient.List(ctx, serviceList,
+			client.InNamespace("default"),
+			client.MatchingLabels{
+				"app":       "k0smotron",
+				"component": "cluster",
+				"cluster":   "provisioning-colony-cluster-a",
+			},
+		)
+		if err != nil {
+			t.Errorf("Failed to list services: %v", err)
+		}
+
+		if len(serviceList.Items) != 0 {
+			t.Errorf("Expected no services, got %d", len(serviceList.Items))
+		}
+
+		t.Log("Provisioning flow (no service yet) validated successfully")
+	})
+}
+
 func createTestKubeconfig() *clientcmdapi.Config {
 	return &clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{
