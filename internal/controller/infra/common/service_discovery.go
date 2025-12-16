@@ -188,5 +188,3 @@ func DetermineAPIEndpoint(service *corev1.Service) (string, error) {
 	// Fall back to ClusterIP
 	return fmt.Sprintf("%s:%d", service.Spec.ClusterIP, apiPort), nil
 }
-
-
