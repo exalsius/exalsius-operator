@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/exalsius/exalsius-operator/compare/v0.5.1...v0.5.2) (2025-12-16)
+
+
+### Bug Fixes
+
+* only add NetBird finalizer when NetBird is enabled ([#129](https://github.com/exalsius/exalsius-operator/issues/129)) ([bec5fb8](https://github.com/exalsius/exalsius-operator/commit/bec5fb8e1d6dfc12cb4ec11584afebe410af021b))
+
 ## [0.5.1](https://github.com/exalsius/exalsius-operator/compare/v0.5.0...v0.5.1) (2025-12-16)
 
 
