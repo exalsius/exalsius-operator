@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/exalsius/exalsius-operator/compare/v0.5.0...v0.5.1) (2025-12-16)
+
+
+### Bug Fixes
+
+* create cp-api-endpoint ConfigMap during cluster provisioning ([#127](https://github.com/exalsius/exalsius-operator/issues/127)) ([1747a41](https://github.com/exalsius/exalsius-operator/commit/1747a41651b7f64e14d2b3cf7b8de156e3d7d06d))
+
 ## [0.5.0](https://github.com/exalsius/exalsius-operator/compare/v0.4.12...v0.5.0) (2025-12-15)
 
 
