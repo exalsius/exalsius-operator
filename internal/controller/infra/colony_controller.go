@@ -145,6 +145,13 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 	}
 	log.Info("Successfully persisted Colony status")
 
+	// Ensure API endpoint ConfigMap exists in all child clusters
+	// This runs on every reconcile (even during provisioning) because:
+	// 1. The control plane service may exist before cluster is fully ready
+	// 2. The function handles gracefully when services/clusters aren't ready yet
+	// For NetBird-enabled colonies, this is handled by the NetBird reconciler instead
+	r.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+
 	// Requeue sooner if not all clusters are ready
 	if colony.Status.ReadyClusters != colony.Status.TotalClusters {
 		log.Info("Not all clusters are ready, requeueing",
@@ -153,10 +160,6 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 		)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
-
-	// Ensure API endpoint ConfigMap exists in all child clusters
-	// This is done for non-NetBird clusters; NetBird clusters are handled by the NetBird reconciler
-	r.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
 
 	// Ensure aggregated kubeconfig secret exists
 	if result, err := r.ensureAggregatedKubeconfigSecretExists(ctx, colony); err != nil {

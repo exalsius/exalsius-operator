@@ -781,7 +781,8 @@ func SecretToColonyMapper(c client.Client) func(context.Context, client.Object) 
 		// Extract the Colony owner from the ClusterDeployment's owner references
 		colonyName, err := getColonyOwner(clusterDeployment)
 		if err != nil {
-			log.Error(err, "Failed to extract Colony owner from ClusterDeployment",
+			// Not an error - this ClusterDeployment might not be managed by a Colony
+			log.V(1).Info("ClusterDeployment not managed by Colony, skipping",
 				"clusterDeployment", clusterDeployment.Name,
 				"secret", secret.Name)
 			return nil
