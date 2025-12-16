@@ -20,153 +20,430 @@ import (
 	"context"
 	"testing"
 
+	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
+	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	infrastructurev1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestRemoteMachineDefaulter_Default(t *testing.T) {
-	tests := []struct {
-		name            string
-		remoteMachine   *infrastructurev1beta1.RemoteMachine
-		expectFinalizer bool
-		expectError     bool
-	}{
-		{
-			name: "adds finalizer to new RemoteMachine without finalizers",
-			remoteMachine: &infrastructurev1beta1.RemoteMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-machine",
-					Namespace: "default",
-				},
-				Spec: infrastructurev1beta1.RemoteMachineSpec{
-					Address: "192.168.1.1",
-					Port:    22,
-				},
-			},
-			expectFinalizer: true,
-			expectError:     false,
+func newScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
+	_ = infrastructurev1beta1.AddToScheme(scheme)
+	_ = k0rdentv1beta1.AddToScheme(scheme)
+	_ = infrav1.AddToScheme(scheme)
+	return scheme
+}
+
+func TestRemoteMachineDefaulter_Default_WithNetBirdEnabled(t *testing.T) {
+	scheme := newScheme()
+
+	// Create Colony with NetBird enabled
+	colony := &infrav1.Colony{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-colony",
+			Namespace: "default",
 		},
-		{
-			name: "idempotent - doesn't duplicate finalizer if already present",
-			remoteMachine: &infrastructurev1beta1.RemoteMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-machine",
-					Namespace:  "default",
-					Finalizers: []string{NetBirdCleanupFinalizer},
-				},
-				Spec: infrastructurev1beta1.RemoteMachineSpec{
-					Address: "192.168.1.1",
-					Port:    22,
-				},
+		Spec: infrav1.ColonySpec{
+			NetBird: &infrav1.NetBirdConfig{
+				Enabled: true,
 			},
-			expectFinalizer: true,
-			expectError:     false,
-		},
-		{
-			name: "adds finalizer even when other finalizers exist",
-			remoteMachine: &infrastructurev1beta1.RemoteMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-machine",
-					Namespace:  "default",
-					Finalizers: []string{"remotemachine.k0smotron.io/finalizer"},
-				},
-				Spec: infrastructurev1beta1.RemoteMachineSpec{
-					Address: "192.168.1.1",
-					Port:    22,
-				},
-			},
-			expectFinalizer: true,
-			expectError:     false,
-		},
-		{
-			name: "preserves existing finalizers when adding",
-			remoteMachine: &infrastructurev1beta1.RemoteMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-machine",
-					Namespace:  "default",
-					Finalizers: []string{"other-finalizer", "another-finalizer"},
-				},
-				Spec: infrastructurev1beta1.RemoteMachineSpec{
-					Address: "192.168.1.1",
-					Port:    22,
-				},
-			},
-			expectFinalizer: true,
-			expectError:     false,
-		},
-		{
-			name: "does not add finalizer to object being deleted",
-			remoteMachine: &infrastructurev1beta1.RemoteMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "test-machine",
-					Namespace:         "default",
-					DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
-					Finalizers:        []string{"other-finalizer"}, // Must have at least one to be valid for deletion
-				},
-				Spec: infrastructurev1beta1.RemoteMachineSpec{
-					Address: "192.168.1.1",
-					Port:    22,
-				},
-			},
-			expectFinalizer: false,
-			expectError:     false,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client
-			fakeClient := fake.NewClientBuilder().Build()
-
-			webhook := &RemoteMachineDefaulter{
-				Client: fakeClient,
-			}
-
-			// Store original finalizers for comparison
-			originalFinalizers := make([]string, len(tt.remoteMachine.Finalizers))
-			copy(originalFinalizers, tt.remoteMachine.Finalizers)
-
-			// Call the webhook
-			err := webhook.Default(context.Background(), tt.remoteMachine)
-
-			// Verify error expectation
-			if tt.expectError {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-
-			// Verify finalizer expectation
-			if tt.expectFinalizer {
-				assert.Contains(t, tt.remoteMachine.Finalizers, NetBirdCleanupFinalizer,
-					"NetBird cleanup finalizer should be present")
-
-				// Verify we didn't duplicate the finalizer
-				finalizerCount := 0
-				for _, f := range tt.remoteMachine.Finalizers {
-					if f == NetBirdCleanupFinalizer {
-						finalizerCount++
-					}
-				}
-				assert.Equal(t, 1, finalizerCount,
-					"NetBird cleanup finalizer should appear exactly once")
-
-				// Verify other finalizers are preserved
-				for _, originalFinalizer := range originalFinalizers {
-					if originalFinalizer != NetBirdCleanupFinalizer {
-						assert.Contains(t, tt.remoteMachine.Finalizers, originalFinalizer,
-							"Original finalizer %s should be preserved", originalFinalizer)
-					}
-				}
-			} else {
-				assert.NotContains(t, tt.remoteMachine.Finalizers, NetBirdCleanupFinalizer,
-					"NetBird cleanup finalizer should not be present")
-			}
-		})
+	// Create ClusterDeployment owned by Colony
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "infra.exalsius.ai/v1",
+					Kind:       "Colony",
+					Name:       "test-colony",
+				},
+			},
+		},
 	}
+
+	// Create RemoteMachine with cluster label
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			Labels: map[string]string{
+				ClusterNameLabel: "test-cluster",
+			},
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(colony, clusterDeployment).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.Contains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should be added when NetBird is enabled")
+}
+
+func TestRemoteMachineDefaulter_Default_WithNetBirdDisabled(t *testing.T) {
+	scheme := newScheme()
+
+	// Create Colony with NetBird disabled
+	colony := &infrav1.Colony{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-colony",
+			Namespace: "default",
+		},
+		Spec: infrav1.ColonySpec{
+			NetBird: &infrav1.NetBirdConfig{
+				Enabled: false,
+			},
+		},
+	}
+
+	// Create ClusterDeployment owned by Colony
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "infra.exalsius.ai/v1",
+					Kind:       "Colony",
+					Name:       "test-colony",
+				},
+			},
+		},
+	}
+
+	// Create RemoteMachine with cluster label
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			Labels: map[string]string{
+				ClusterNameLabel: "test-cluster",
+			},
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(colony, clusterDeployment).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.NotContains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should NOT be added when NetBird is disabled")
+}
+
+func TestRemoteMachineDefaulter_Default_WithNoNetBirdConfig(t *testing.T) {
+	scheme := newScheme()
+
+	// Create Colony without NetBird config
+	colony := &infrav1.Colony{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-colony",
+			Namespace: "default",
+		},
+		Spec: infrav1.ColonySpec{
+			// No NetBird config
+		},
+	}
+
+	// Create ClusterDeployment owned by Colony
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "infra.exalsius.ai/v1",
+					Kind:       "Colony",
+					Name:       "test-colony",
+				},
+			},
+		},
+	}
+
+	// Create RemoteMachine with cluster label
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			Labels: map[string]string{
+				ClusterNameLabel: "test-cluster",
+			},
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(colony, clusterDeployment).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.NotContains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should NOT be added when no NetBird config exists")
+}
+
+func TestRemoteMachineDefaulter_Default_WithNoColonyOwner(t *testing.T) {
+	scheme := newScheme()
+
+	// Create ClusterDeployment without Colony owner (standalone cluster)
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "standalone-cluster",
+			Namespace: "default",
+			// No owner references
+		},
+	}
+
+	// Create RemoteMachine with cluster label
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			Labels: map[string]string{
+				ClusterNameLabel: "standalone-cluster",
+			},
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(clusterDeployment).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.NotContains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should NOT be added for standalone clusters without Colony owner")
+}
+
+func TestRemoteMachineDefaulter_Default_WithNoClusterLabel(t *testing.T) {
+	scheme := newScheme()
+
+	// Create RemoteMachine without cluster label
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			// No cluster label
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.NotContains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should NOT be added when cluster label is missing")
+}
+
+func TestRemoteMachineDefaulter_Default_WithMissingClusterDeployment(t *testing.T) {
+	scheme := newScheme()
+
+	// Create RemoteMachine pointing to non-existent ClusterDeployment
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			Labels: map[string]string{
+				ClusterNameLabel: "non-existent-cluster",
+			},
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.NotContains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should NOT be added when ClusterDeployment doesn't exist")
+}
+
+func TestRemoteMachineDefaulter_Default_Idempotent(t *testing.T) {
+	scheme := newScheme()
+
+	// Create Colony with NetBird enabled
+	colony := &infrav1.Colony{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-colony",
+			Namespace: "default",
+		},
+		Spec: infrav1.ColonySpec{
+			NetBird: &infrav1.NetBirdConfig{
+				Enabled: true,
+			},
+		},
+	}
+
+	// Create ClusterDeployment owned by Colony
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "infra.exalsius.ai/v1",
+					Kind:       "Colony",
+					Name:       "test-colony",
+				},
+			},
+		},
+	}
+
+	// Create RemoteMachine that already has the finalizer
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			Labels: map[string]string{
+				ClusterNameLabel: "test-cluster",
+			},
+			Finalizers: []string{NetBirdCleanupFinalizer},
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(colony, clusterDeployment).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	// Count finalizers
+	finalizerCount := 0
+	for _, f := range remoteMachine.Finalizers {
+		if f == NetBirdCleanupFinalizer {
+			finalizerCount++
+		}
+	}
+	assert.Equal(t, 1, finalizerCount, "Finalizer should appear exactly once (idempotent)")
+}
+
+func TestRemoteMachineDefaulter_Default_SkipsDeletingObjects(t *testing.T) {
+	scheme := newScheme()
+
+	// Create Colony with NetBird enabled
+	colony := &infrav1.Colony{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-colony",
+			Namespace: "default",
+		},
+		Spec: infrav1.ColonySpec{
+			NetBird: &infrav1.NetBirdConfig{
+				Enabled: true,
+			},
+		},
+	}
+
+	// Create ClusterDeployment owned by Colony
+	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "infra.exalsius.ai/v1",
+					Kind:       "Colony",
+					Name:       "test-colony",
+				},
+			},
+		},
+	}
+
+	// Create RemoteMachine that is being deleted
+	remoteMachine := &infrastructurev1beta1.RemoteMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test-machine",
+			Namespace:         "default",
+			DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+			Labels: map[string]string{
+				ClusterNameLabel: "test-cluster",
+			},
+			Finalizers: []string{"other-finalizer"}, // Must have at least one for valid deletion
+		},
+		Spec: infrastructurev1beta1.RemoteMachineSpec{
+			Address: "192.168.1.1",
+			Port:    22,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(colony, clusterDeployment).
+		Build()
+
+	webhook := &RemoteMachineDefaulter{Client: fakeClient}
+
+	err := webhook.Default(context.Background(), remoteMachine)
+	require.NoError(t, err)
+
+	assert.NotContains(t, remoteMachine.Finalizers, NetBirdCleanupFinalizer,
+		"NetBird cleanup finalizer should NOT be added to objects being deleted")
 }
 
 func TestRemoteMachineDefaulter_FinalizerValue(t *testing.T) {
