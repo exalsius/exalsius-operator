@@ -57,6 +57,8 @@ type ColonyCluster struct {
 	ClusterDeploymentSpec *runtime.RawExtension `json:"clusterDeploymentSpec,omitempty"`
 	// ClusterLabels are the labels to be applied to the ClusterDeployment resource
 	ClusterLabels map[string]string `json:"clusterLabels,omitempty"`
+	// ClusterAnnotations are the annotations to be applied to the ClusterDeployment resource
+	ClusterAnnotations map[string]string `json:"clusterAnnotations,omitempty"`
 }
 
 // GetClusterDeploymentSpec returns the ClusterDeploymentSpec as a typed object

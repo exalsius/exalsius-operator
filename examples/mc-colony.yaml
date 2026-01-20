@@ -11,6 +11,7 @@ spec:
           credential: docker-stub-credential
           config:
             clusterLabels: {}
+            clusterAnnotations: {}
             workersNumber: 2
     - clusterName: aws-1
       clusterDeploymentSpec:
@@ -18,6 +19,7 @@ spec:
           credential: aws-cluster-identity-cred
           config:
             clusterLabels: {}
+            clusterAnnotations: {}
             region: eu-central-1
             controlPlane:
               instanceType: t3.small
