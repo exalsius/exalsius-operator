@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/exalsius/exalsius-operator/compare/v0.5.2...v0.6.0) (2026-01-23)
+
+
+### Features
+
+* extend colony CRD; handle clusterAnnotations ([#131](https://github.com/exalsius/exalsius-operator/issues/131)) ([8e5329d](https://github.com/exalsius/exalsius-operator/commit/8e5329df6afb23a074a4b790c8174cf9cab1c0bd))
+
 ## [0.5.2](https://github.com/exalsius/exalsius-operator/compare/v0.5.1...v0.5.2) (2025-12-16)
 
 
