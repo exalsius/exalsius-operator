@@ -33,9 +33,10 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 
 	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      colony.Name + "-" + colonyCluster.ClusterName,
-			Namespace: colony.Namespace,
-			Labels:    colonyCluster.ClusterLabels,
+			Name:        colony.Name + "-" + colonyCluster.ClusterName,
+			Namespace:   colony.Namespace,
+			Labels:      colonyCluster.ClusterLabels,
+			Annotations: colonyCluster.ClusterAnnotations,
 		},
 		Spec: *spec,
 	}
@@ -65,21 +66,26 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 
 		// Merge labels: preserve existing labels and add/update our labels
 		mergedLabels := mergeLabels(existing.Labels, colonyCluster.ClusterLabels)
+		// Merge annotations: preserve existing annotations and add/update our annotations
+		mergedAnnotations := mergeAnnotations(existing.Annotations, colonyCluster.ClusterAnnotations)
 
-		// Check if the spec or our labels have changed
+		// Check if the spec, labels, or annotations have changed
 		specChanged := !reflect.DeepEqual(existing.Spec, clusterDeployment.Spec)
 		labelsChanged := !reflect.DeepEqual(existing.Labels, mergedLabels)
+		annotationsChanged := !reflect.DeepEqual(existing.Annotations, mergedAnnotations)
 
-		if specChanged || labelsChanged {
-			log.Info("ClusterDeployment spec or labels have changed, updating",
+		if specChanged || labelsChanged || annotationsChanged {
+			log.Info("ClusterDeployment spec, labels, or annotations have changed, updating",
 				"name", clusterDeployment.Name,
 				"namespace", clusterDeployment.Namespace,
 				"specChanged", specChanged,
-				"labelsChanged", labelsChanged)
+				"labelsChanged", labelsChanged,
+				"annotationsChanged", annotationsChanged)
 
-			// Update the existing object with new spec and merged labels
+			// Update the existing object with new spec, merged labels, and merged annotations
 			existing.Spec = clusterDeployment.Spec
 			existing.Labels = mergedLabels
+			existing.Annotations = mergedAnnotations
 
 			// Retry update with conflict resolution
 			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec, colonyCluster); err != nil {
@@ -88,7 +94,7 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 			}
 			log.Info("Updated cluster deployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 		} else {
-			log.Info("ClusterDeployment spec and labels unchanged", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
+			log.Info("ClusterDeployment spec, labels, and annotations unchanged", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 		}
 		actual = existing
 	}
@@ -132,9 +138,10 @@ func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, exis
 			return fmt.Errorf("failed to get latest version of ClusterDeployment: %w", err)
 		}
 
-		// Update the spec and merge labels (preserving existing labels from other components)
+		// Update the spec and merge labels/annotations (preserving existing labels/annotations from other components)
 		latest.Spec = newSpec
 		latest.Labels = mergeLabels(latest.Labels, colonyCluster.ClusterLabels)
+		latest.Annotations = mergeAnnotations(latest.Annotations, colonyCluster.ClusterAnnotations)
 
 		// Try to update
 		if err := c.Update(ctx, latest); err != nil {
@@ -355,6 +362,22 @@ func mergeLabels(existingLabels, newLabels map[string]string) map[string]string 
 	}
 
 	for k, v := range newLabels {
+		merged[k] = v
+	}
+
+	return merged
+}
+
+// mergeAnnotations merges existing annotations with new annotations from ColonyCluster
+// It preserves existing annotations and adds/updates only the annotations specified in the ColonyCluster
+func mergeAnnotations(existingAnnotations, newAnnotations map[string]string) map[string]string {
+	merged := make(map[string]string)
+
+	for k, v := range existingAnnotations {
+		merged[k] = v
+	}
+
+	for k, v := range newAnnotations {
 		merged[k] = v
 	}
 

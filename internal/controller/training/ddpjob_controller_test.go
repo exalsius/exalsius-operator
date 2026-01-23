@@ -236,6 +236,9 @@ var _ = Describe("DDPJob Controller", func() {
 							"environment": "test",
 							"purpose":     "training",
 						},
+						ClusterAnnotations: map[string]string{
+							"team": "platform",
+						},
 					},
 				},
 			},

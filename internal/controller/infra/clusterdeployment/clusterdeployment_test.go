@@ -39,6 +39,9 @@ var _ = Describe("EnsureClusterDeployment", func() {
 				"environment": "test",
 				"team":        "platform",
 			},
+			ClusterAnnotations: map[string]string{
+				"exalsius.ai/description": "Test cluster",
+			},
 		}
 
 		spec := &k0rdentv1beta1.ClusterDeploymentSpec{
@@ -87,6 +90,11 @@ var _ = Describe("EnsureClusterDeployment", func() {
 		Expect(cd.Labels).To(Equal(map[string]string{
 			"environment": "test",
 			"team":        "platform",
+		}))
+
+		// Check that the annotations were applied
+		Expect(cd.Annotations).To(Equal(map[string]string{
+			"exalsius.ai/description": "Test cluster",
 		}))
 
 		// Check that the colony status was updated
@@ -154,6 +162,44 @@ var _ = Describe("EnsureClusterDeployment", func() {
 		}))
 	})
 
+	It("should update annotations when they change", func() {
+		// Create initial ClusterDeployment
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err := EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify initial annotations
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Annotations).To(Equal(map[string]string{
+			"exalsius.ai/description": "Test cluster",
+		}))
+
+		// Update the annotations
+		colonyCluster.ClusterAnnotations = map[string]string{
+			"exalsius.ai/description": "Production cluster",
+			"exalsius.ai/region":      "us-west-2",
+		}
+
+		// Run the controller again
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify updated annotations
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Annotations).To(Equal(map[string]string{
+			"exalsius.ai/description": "Production cluster",
+			"exalsius.ai/region":      "us-west-2",
+		}))
+	})
+
 	It("should preserve existing labels from other operators when updating", func() {
 		// Create initial ClusterDeployment with some existing labels from another operator
 		existing := &k0rdentv1beta1.ClusterDeployment{
@@ -189,6 +235,41 @@ var _ = Describe("EnsureClusterDeployment", func() {
 			"team":                 "platform",    // Our label
 		}
 		Expect(cd.Labels).To(Equal(expectedLabels))
+	})
+
+	It("should preserve existing annotations from other operators when updating", func() {
+		// Create initial ClusterDeployment with some existing annotations from another operator
+		existing := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-test-cluster",
+				Namespace: "default",
+				Annotations: map[string]string{
+					"other-operator.io/annotation": "other-value",
+					"exalsius.ai/description":      "Test cluster", // This will be updated by our operator
+				},
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony, existing).
+			Build()
+
+		err := EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify that our annotations are applied and existing annotations are preserved
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Should have our annotations AND the existing annotation from other operator
+		expectedAnnotations := map[string]string{
+			"other-operator.io/annotation": "other-value",  // Preserved from other operator
+			"exalsius.ai/description":      "Test cluster", // Our annotation
+		}
+		Expect(cd.Annotations).To(Equal(expectedAnnotations))
 	})
 
 })

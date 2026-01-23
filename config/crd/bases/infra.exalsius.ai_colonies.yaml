@@ -53,6 +53,12 @@ spec:
                 description: ColonyClusters is the list of clusters to create.
                 items:
                   properties:
+                    clusterAnnotations:
+                      additionalProperties:
+                        type: string
+                      description: ClusterAnnotations are the annotations to be applied
+                        to the ClusterDeployment resource
+                      type: object
                     clusterDeploymentSpec:
                       description: |-
                         ClusterDeployment is the specification for the cluster deployment.

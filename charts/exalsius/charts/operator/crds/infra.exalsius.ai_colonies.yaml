@@ -65,6 +65,12 @@ spec:
                       description: ClusterLabels are the labels to be applied to the
                         ClusterDeployment resource
                       type: object
+                    clusterAnnotations:
+                      additionalProperties:
+                        type: string
+                      description: ClusterAnnotations are the annotations to be applied
+                        to the ClusterDeployment resource
+                      type: object
                     clusterName:
                       description: Name is the name of the cluster.
                       type: string
