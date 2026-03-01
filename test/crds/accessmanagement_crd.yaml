@@ -297,9 +297,16 @@
                       AccessRule is the definition of the AccessManagement access rule. Each AccessRule enforces
                       Templates and Credentials distribution to the TargetNamespaces
                     properties:
+                      clusterAuthentications:
+                        description: |-
+                          ClusterAuthentications is the list of ClusterAuthentication names that will be distributed to all the
+                          namespaces specified in TargetNamespaces.
+                        items:
+                          type: string
+                        type: array
                       clusterTemplateChains:
                         description: |-
-                          ClusterTemplateChains lists the names of ClusterTemplateChains whose ClusterTemplates
+                          ClusterTemplateChains is the list of ClusterTemplateChain names whose ClusterTemplates
                           will be distributed to all namespaces specified in TargetNamespaces.
                         items:
                           type: string
@@ -311,9 +318,16 @@
                         items:
                           type: string
                         type: array
+                      dataSources:
+                        description: |-
+                          DataSources is the list of DataSource names that will be distributed to all the
+                          namespaces specified in TargetNamespaces.
+                        items:
+                          type: string
+                        type: array
                       serviceTemplateChains:
                         description: |-
-                          ServiceTemplateChains lists the names of ServiceTemplateChains whose ServiceTemplates
+                          ServiceTemplateChains is the list of ServiceTemplateChain names whose ServiceTemplates
                           will be distributed to all namespaces specified in TargetNamespaces.
                         items:
                           type: string
@@ -402,9 +416,16 @@
                       AccessRule is the definition of the AccessManagement access rule. Each AccessRule enforces
                       Templates and Credentials distribution to the TargetNamespaces
                     properties:
+                      clusterAuthentications:
+                        description: |-
+                          ClusterAuthentications is the list of ClusterAuthentication names that will be distributed to all the
+                          namespaces specified in TargetNamespaces.
+                        items:
+                          type: string
+                        type: array
                       clusterTemplateChains:
                         description: |-
-                          ClusterTemplateChains lists the names of ClusterTemplateChains whose ClusterTemplates
+                          ClusterTemplateChains is the list of ClusterTemplateChain names whose ClusterTemplates
                           will be distributed to all namespaces specified in TargetNamespaces.
                         items:
                           type: string
@@ -416,9 +437,16 @@
                         items:
                           type: string
                         type: array
+                      dataSources:
+                        description: |-
+                          DataSources is the list of DataSource names that will be distributed to all the
+                          namespaces specified in TargetNamespaces.
+                        items:
+                          type: string
+                        type: array
                       serviceTemplateChains:
                         description: |-
-                          ServiceTemplateChains lists the names of ServiceTemplateChains whose ServiceTemplates
+                          ServiceTemplateChains is the list of ServiceTemplateChain names whose ServiceTemplates
                           will be distributed to all namespaces specified in TargetNamespaces.
                         items:
                           type: string
@@ -510,4 +538,3 @@
       storage: true
       subresources:
         status: {}
-  
