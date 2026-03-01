@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -50,6 +51,7 @@ import (
 	capsulev1beta2 "github.com/projectcapsule/capsule/api/v1beta2"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
+	"github.com/exalsius/exalsius-operator/internal/preflight"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -230,30 +232,62 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&infracontroller.ColonyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Colony")
-		os.Exit(1)
-	}
-	if err = (&infracontroller.TenantReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Tenant")
-		os.Exit(1)
-	}
-	if err = (&infracontroller.RemoteMachineCleanupReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
+	// Preflight: check which CRDs are available and conditionally register controllers.
+	preflightResults, err := preflight.CheckCRDsAvailable(
+		context.Background(),
+		ctrl.GetConfigOrDie(),
+		preflight.OperatorDependencies,
+		preflight.DefaultCheckOptions(),
+		setupLog.WithName("preflight"),
+	)
+	if err != nil {
+		setupLog.Error(err, "preflight CRD check failed")
 		os.Exit(1)
 	}
 
+	enabled := make(map[string]bool)
+	for _, r := range preflightResults {
+		enabled[r.Name] = r.Available
+		if !r.Available {
+			names := make([]string, len(r.Missing))
+			for i, m := range r.Missing {
+				names[i] = m.Description
+			}
+			setupLog.Info("controller disabled, missing CRDs",
+				"controller", r.Name, "missing", names)
+		}
+	}
+
+	if enabled["Colony"] {
+		if err = (&infracontroller.ColonyReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Colony")
+			os.Exit(1)
+		}
+	}
+	if enabled["Tenant"] {
+		if err = (&infracontroller.TenantReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Tenant")
+			os.Exit(1)
+		}
+	}
+	if enabled["RemoteMachineCleanup"] {
+		if err = (&infracontroller.RemoteMachineCleanupReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
+			os.Exit(1)
+		}
+	}
+
 	// Setup webhooks if enabled
-	if webhookCertDir != "" {
+	if webhookCertDir != "" && enabled["RemoteMachineWebhook"] {
 		setupLog.Info("Setting up webhooks")
 		if err = (&webhook.RemoteMachineDefaulter{
 			Client: mgr.GetClient(),
