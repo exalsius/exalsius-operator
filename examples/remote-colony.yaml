@@ -4,8 +4,6 @@ metadata:
   name: remote-colony
 spec:
   k8sVersion: v1.27.2
-  workloadDependencies:
-    - name: volcano-sh
 
   hostedControlPlaneEnabled: true
   # In case the nodes of the management cluster have the external IP not set,

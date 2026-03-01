@@ -3,7 +3,6 @@
 # It should be run by config/default
 resources:
 - bases/infra.exalsius.ai_colonies.yaml
-- bases/training.exalsius.ai_ddpjobs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
