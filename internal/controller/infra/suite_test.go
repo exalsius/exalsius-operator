@@ -34,6 +34,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	capsulev1beta2 "github.com/projectcapsule/capsule/api/v1beta2"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -65,6 +66,10 @@ var _ = BeforeSuite(func() {
 
 	// Add k0rdent types to the scheme for testing
 	err = k0rdentv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Add Capsule types to the scheme for testing
+	err = capsulev1beta2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
