@@ -37,8 +37,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta2"
 	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
@@ -49,6 +49,7 @@ import (
 	k0sinfrav1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 
 	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
+	capsulev1beta2 "github.com/projectcapsule/capsule/api/v1beta2"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
@@ -93,6 +94,10 @@ func init() {
 	}
 	if err := k0rdentv1beta1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add K0rdent to scheme")
+		os.Exit(1)
+	}
+	if err := capsulev1beta2.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Capsule to scheme")
 		os.Exit(1)
 	}
 
@@ -247,11 +252,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Colony")
 		os.Exit(1)
 	}
-	if err = (&infracontroller.UserReconciler{
+	if err = (&infracontroller.TenantReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "User")
+		setupLog.Error(err, "unable to create controller", "controller", "Tenant")
 		os.Exit(1)
 	}
 	if err = (&infracontroller.RemoteMachineCleanupReconciler{
