@@ -7,18 +7,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - namespaces
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - get
@@ -34,6 +22,26 @@ rules:
   - update
   - watch
 - apiGroups:
+  - capsule.clastix.io
+  resources:
+  - tenants
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - capsule.clastix.io
+  resources:
+  - tenants/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - capsule.clastix.io
+  resources:
+  - tenants/status
+  verbs:
+  - get
+- apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters
@@ -48,32 +56,6 @@ rules:
   verbs:
   - get
   - list
-- apiGroups:
-  - infra.exalsius.ai
-  resources:
-  - users
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - infra.exalsius.ai
-  resources:
-  - users/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - infra.exalsius.ai
-  resources:
-  - users/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
