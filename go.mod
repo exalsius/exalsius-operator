@@ -21,7 +21,6 @@ require (
 	sigs.k8s.io/cluster-api/test v1.11.4
 	sigs.k8s.io/controller-runtime v0.22.5
 	sigs.k8s.io/yaml v1.6.0
-	volcano.sh/apis v1.11.0
 )
 
 require (
