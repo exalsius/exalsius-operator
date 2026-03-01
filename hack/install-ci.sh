@@ -35,14 +35,6 @@ else
   echo "ulimit -n 65535"
 fi
 
-# install volcano
-echo "installing volcano"
-helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
-helm upgrade --install volcano volcano-sh/volcano \
-  --namespace volcano-system \
-  --create-namespace \
-  --wait
-
 echo "installing kcm"
 helm install kcm oci://ghcr.io/k0rdent/kcm/charts/kcm --version 1.0.0 -n kcm-system --create-namespace
 

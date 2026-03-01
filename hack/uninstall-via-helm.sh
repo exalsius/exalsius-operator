@@ -27,8 +27,5 @@ fi
 echo "uninstalling cluster-api"
 safe_helm_uninstall capi-operator capi-system
 
-echo "uninstalling volcano"
-safe_helm_uninstall volcano volcano-system
-
 echo "uninstalling cert-manager"
 safe_helm_uninstall cert-manager cert-manager
