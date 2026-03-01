@@ -39,10 +39,8 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta2"
-	vol "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
-	trainingv1 "github.com/exalsius/exalsius-operator/api/training/v1"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
@@ -52,7 +50,6 @@ import (
 	capsulev1beta2 "github.com/projectcapsule/capsule/api/v1beta2"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
-	trainingcontroller "github.com/exalsius/exalsius-operator/internal/controller/training"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -65,13 +62,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(trainingv1.AddToScheme(scheme))
 	utilruntime.Must(infrav1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
-	if err := vol.AddToScheme(scheme); err != nil {
-		setupLog.Error(err, "unable to add Volcano API to scheme")
-		os.Exit(1)
-	}
 	if err := clusterv1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Cluster API to scheme")
 		os.Exit(1)
@@ -238,13 +230,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&trainingcontroller.DDPJobReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DDPJob")
-		os.Exit(1)
-	}
 	if err = (&infracontroller.ColonyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
