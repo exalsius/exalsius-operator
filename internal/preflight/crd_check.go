@@ -71,13 +71,6 @@ var OperatorDependencies = []ControllerDependencies{
 		},
 	},
 	{
-		Name: "Tenant",
-		Dependencies: []CRDDependency{
-			{GroupVersion: "capsule.clastix.io/v1beta2", Resource: "tenants", Description: "Capsule Tenant"},
-			{GroupVersion: "k0rdent.mirantis.com/v1beta1", Resource: "accessmanagements", Description: "K0rdent AccessManagement"},
-		},
-	},
-	{
 		Name: "RemoteMachineCleanup",
 		Dependencies: []CRDDependency{
 			{GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta1", Resource: "remotemachines", Description: "K0smotron RemoteMachine"},

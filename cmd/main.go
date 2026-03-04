@@ -48,7 +48,6 @@ import (
 	k0sinfrav1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
 
 	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
-	capsulev1beta2 "github.com/projectcapsule/capsule/api/v1beta2"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	"github.com/exalsius/exalsius-operator/internal/preflight"
@@ -90,11 +89,6 @@ func init() {
 		setupLog.Error(err, "unable to add K0rdent to scheme")
 		os.Exit(1)
 	}
-	if err := capsulev1beta2.AddToScheme(scheme); err != nil {
-		setupLog.Error(err, "unable to add Capsule to scheme")
-		os.Exit(1)
-	}
-
 }
 
 // nolint:gocyclo
@@ -264,15 +258,6 @@ func main() {
 			Scheme: mgr.GetScheme(),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Colony")
-			os.Exit(1)
-		}
-	}
-	if enabled["Tenant"] {
-		if err = (&infracontroller.TenantReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "Tenant")
 			os.Exit(1)
 		}
 	}

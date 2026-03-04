@@ -11,7 +11,6 @@ require (
 	github.com/k0sproject/rig/v2 v2.0.0-alpha.3
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
-	github.com/projectcapsule/capsule v0.12.4
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.35.0
 	k8s.io/apiextensions-apiserver v0.35.0

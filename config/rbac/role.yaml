@@ -22,26 +22,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - capsule.clastix.io
-  resources:
-  - tenants
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - capsule.clastix.io
-  resources:
-  - tenants/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - capsule.clastix.io
-  resources:
-  - tenants/status
-  verbs:
-  - get
-- apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters
@@ -72,16 +52,6 @@ rules:
   - remotemachines/status
   verbs:
   - get
-- apiGroups:
-  - k0rdent.mirantis.com
-  resources:
-  - accessmanagements
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - k0rdent.mirantis.com
   resources:

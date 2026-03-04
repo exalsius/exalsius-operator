@@ -51,13 +51,6 @@ func allResources() []*metav1.APIResourceList {
 			GroupVersion: "k0rdent.mirantis.com/v1beta1",
 			APIResources: []metav1.APIResource{
 				{Name: "clusterdeployments", Kind: "ClusterDeployment"},
-				{Name: "accessmanagements", Kind: "AccessManagement"},
-			},
-		},
-		{
-			GroupVersion: "capsule.clastix.io/v1beta2",
-			APIResources: []metav1.APIResource{
-				{Name: "tenants", Kind: "Tenant"},
 			},
 		},
 		{
@@ -87,14 +80,8 @@ func TestAllCRDsPresent(t *testing.T) {
 
 func TestK0rdentMissing(t *testing.T) {
 	logger := zap.New(zap.UseDevMode(true))
-	// Only Capsule and K0smotron present, no K0rdent.
+	// Only K0smotron present, no K0rdent.
 	fd := newFakeDiscovery([]*metav1.APIResourceList{
-		{
-			GroupVersion: "capsule.clastix.io/v1beta2",
-			APIResources: []metav1.APIResource{
-				{Name: "tenants", Kind: "Tenant"},
-			},
-		},
 		{
 			GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
 			APIResources: []metav1.APIResource{
@@ -110,46 +97,6 @@ func TestK0rdentMissing(t *testing.T) {
 
 	expected := map[string]bool{
 		"Colony":               false, // needs K0rdent clusterdeployments
-		"Tenant":               false, // needs K0rdent accessmanagements
-		"RemoteMachineCleanup": true,
-		"RemoteMachineWebhook": true,
-	}
-	for _, r := range results {
-		if want, ok := expected[r.Name]; ok {
-			if r.Available != want {
-				t.Errorf("controller %q: got Available=%v, want %v", r.Name, r.Available, want)
-			}
-		}
-	}
-}
-
-func TestOnlyCapsuleMissing(t *testing.T) {
-	logger := zap.New(zap.UseDevMode(true))
-	// K0rdent and K0smotron present, no Capsule.
-	fd := newFakeDiscovery([]*metav1.APIResourceList{
-		{
-			GroupVersion: "k0rdent.mirantis.com/v1beta1",
-			APIResources: []metav1.APIResource{
-				{Name: "clusterdeployments", Kind: "ClusterDeployment"},
-				{Name: "accessmanagements", Kind: "AccessManagement"},
-			},
-		},
-		{
-			GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
-			APIResources: []metav1.APIResource{
-				{Name: "remotemachines", Kind: "RemoteMachine"},
-			},
-		},
-	})
-
-	results, err := checkCRDsWithClient(context.Background(), fd, OperatorDependencies, noRetryOpts, logger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := map[string]bool{
-		"Colony":               true,
-		"Tenant":               false, // needs Capsule tenants
 		"RemoteMachineCleanup": true,
 		"RemoteMachineWebhook": true,
 	}
@@ -164,19 +111,12 @@ func TestOnlyCapsuleMissing(t *testing.T) {
 
 func TestOnlyK0smotronMissing(t *testing.T) {
 	logger := zap.New(zap.UseDevMode(true))
-	// K0rdent and Capsule present, no K0smotron.
+	// K0rdent present, no K0smotron.
 	fd := newFakeDiscovery([]*metav1.APIResourceList{
 		{
 			GroupVersion: "k0rdent.mirantis.com/v1beta1",
 			APIResources: []metav1.APIResource{
 				{Name: "clusterdeployments", Kind: "ClusterDeployment"},
-				{Name: "accessmanagements", Kind: "AccessManagement"},
-			},
-		},
-		{
-			GroupVersion: "capsule.clastix.io/v1beta2",
-			APIResources: []metav1.APIResource{
-				{Name: "tenants", Kind: "Tenant"},
 			},
 		},
 	})
@@ -188,7 +128,6 @@ func TestOnlyK0smotronMissing(t *testing.T) {
 
 	expected := map[string]bool{
 		"Colony":               true,
-		"Tenant":               true,
 		"RemoteMachineCleanup": false, // needs K0smotron remotemachines
 		"RemoteMachineWebhook": false,
 	}
@@ -235,7 +174,6 @@ func TestCRDsAppearOnRetry(t *testing.T) {
 					GroupVersion: "k0rdent.mirantis.com/v1beta1",
 					APIResources: []metav1.APIResource{
 						{Name: "clusterdeployments", Kind: "ClusterDeployment"},
-						{Name: "accessmanagements", Kind: "AccessManagement"},
 					},
 				},
 			}
