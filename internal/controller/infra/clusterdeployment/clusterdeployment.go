@@ -2,6 +2,7 @@ package clusterdeployment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -9,6 +10,7 @@ import (
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,6 +18,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// jsonConfigsEqual compares two JSON configs for semantic equality.
+// It unmarshals both sides so that key ordering differences don't cause false positives.
+func jsonConfigsEqual(a, b *apiextv1.JSON) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	var aVal, bVal interface{}
+	if err := json.Unmarshal(a.Raw, &aVal); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b.Raw, &bVal); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(aVal, bVal)
+}
 
 func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infrav1.Colony, colonyCluster *infrav1.ColonyCluster, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
@@ -31,6 +52,13 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 		return nil
 	}
 
+	// Extract only the fields we manage (not KCM-managed fields like ipamClaim, serviceSpec, propagateCredentials)
+	managedConfig := spec.Config
+	managedCredential := spec.Credential
+	managedTemplate := spec.Template
+
+	// Full spec is used for initial creation only. Updates use field-specific logic
+	// in updateManagedFields to avoid overwriting KCM-managed fields.
 	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        colony.Name + "-" + colonyCluster.ClusterName,
@@ -64,39 +92,26 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 	} else {
 		log.Info("Cluster deployment already exists, checking for updates", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 
-		// Merge labels: preserve existing labels and add/update our labels
-		mergedLabels := mergeLabels(existing.Labels, colonyCluster.ClusterLabels)
-		// Merge annotations: preserve existing annotations and add/update our annotations
-		mergedAnnotations := mergeAnnotations(existing.Annotations, colonyCluster.ClusterAnnotations)
-
-		// Check if the spec, labels, or annotations have changed
-		specChanged := !reflect.DeepEqual(existing.Spec, clusterDeployment.Spec)
-		labelsChanged := !reflect.DeepEqual(existing.Labels, mergedLabels)
-		annotationsChanged := !reflect.DeepEqual(existing.Annotations, mergedAnnotations)
-
-		if specChanged || labelsChanged || annotationsChanged {
-			log.Info("ClusterDeployment spec, labels, or annotations have changed, updating",
-				"name", clusterDeployment.Name,
-				"namespace", clusterDeployment.Namespace,
-				"specChanged", specChanged,
-				"labelsChanged", labelsChanged,
-				"annotationsChanged", annotationsChanged)
-
-			// Update the existing object with new spec, merged labels, and merged annotations
-			existing.Spec = clusterDeployment.Spec
-			existing.Labels = mergedLabels
-			existing.Annotations = mergedAnnotations
-
-			// Retry update with conflict resolution
-			if err := updateClusterDeploymentWithRetry(ctx, c, existing, clusterDeployment.Spec, colonyCluster); err != nil {
-				log.Error(err, "Failed to update cluster deployment after retries")
-				return err
-			}
+		// Update only managed fields to avoid overwriting KCM-managed fields.
+		// updateManagedFields re-fetches the latest version internally and returns
+		// early (nil, nil) if nothing changed, so no redundant API calls are made.
+		updated, err := updateManagedFields(ctx, c, existing,
+			managedConfig,
+			managedCredential,
+			managedTemplate,
+			colonyCluster.ClusterLabels,
+			colonyCluster.ClusterAnnotations)
+		if err != nil {
+			log.Error(err, "Failed to update cluster deployment after retries")
+			return err
+		}
+		if updated != nil {
+			actual = updated
 			log.Info("Updated cluster deployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 		} else {
+			actual = existing
 			log.Info("ClusterDeployment spec, labels, and annotations unchanged", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 		}
-		actual = existing
 	}
 
 	clusterDeploymentRef := &corev1.ObjectReference{
@@ -125,41 +140,82 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 	return nil
 }
 
-// updateClusterDeploymentWithRetry handles the update with conflict resolution
-func updateClusterDeploymentWithRetry(ctx context.Context, c client.Client, existing *k0rdentv1beta1.ClusterDeployment, newSpec k0rdentv1beta1.ClusterDeploymentSpec, colonyCluster *infrav1.ColonyCluster) error {
+// updateManagedFields updates only the fields that the operator manages.
+// This prevents overwriting KCM-managed fields.
+// Returns the updated object on success, or (nil, nil) if no changes were needed.
+func updateManagedFields(ctx context.Context, c client.Client,
+	existing *k0rdentv1beta1.ClusterDeployment,
+	newConfig *apiextv1.JSON,
+	newCredential string,
+	newTemplate string,
+	colonyLabels map[string]string,
+	colonyAnnotations map[string]string) (*k0rdentv1beta1.ClusterDeployment, error) {
+
 	log := log.FromContext(ctx)
 	maxRetries := 5
 	backoff := time.Millisecond * 100
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Get the latest version of the object
+		// Get the latest version
 		latest := &k0rdentv1beta1.ClusterDeployment{}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(existing), latest); err != nil {
-			return fmt.Errorf("failed to get latest version of ClusterDeployment: %w", err)
+			return nil, fmt.Errorf("failed to get latest ClusterDeployment: %w", err)
 		}
 
-		// Update the spec and merge labels/annotations (preserving existing labels/annotations from other components)
-		latest.Spec = newSpec
-		latest.Labels = mergeLabels(latest.Labels, colonyCluster.ClusterLabels)
-		latest.Annotations = mergeAnnotations(latest.Annotations, colonyCluster.ClusterAnnotations)
+		changed := false
 
-		// Try to update
+		// Update Config if different
+		if !jsonConfigsEqual(latest.Spec.Config, newConfig) {
+			latest.Spec.Config = newConfig
+			changed = true
+		}
+
+		// Update Credential if different
+		if latest.Spec.Credential != newCredential {
+			latest.Spec.Credential = newCredential
+			changed = true
+		}
+
+		// Update Template if different
+		if latest.Spec.Template != newTemplate {
+			latest.Spec.Template = newTemplate
+			changed = true
+		}
+
+		// Update Labels (merge colony labels with existing to preserve KCM-added labels)
+		mergedLabels := mergeLabels(latest.Labels, colonyLabels)
+		if !reflect.DeepEqual(latest.Labels, mergedLabels) {
+			latest.Labels = mergedLabels
+			changed = true
+		}
+
+		// Update Annotations (merge colony annotations with existing)
+		mergedAnnotations := mergeAnnotations(latest.Annotations, colonyAnnotations)
+		if !reflect.DeepEqual(latest.Annotations, mergedAnnotations) {
+			latest.Annotations = mergedAnnotations
+			changed = true
+		}
+
+		// No changes needed
+		if !changed {
+			return nil, nil
+		}
+
+		// Attempt update
 		if err := c.Update(ctx, latest); err != nil {
 			if errors.IsConflict(err) {
-				log.Info("Conflict detected, retrying update", "attempt", attempt+1, "name", latest.Name)
+				log.Info("Conflict detected, retrying", "attempt", attempt+1, "name", latest.Name)
 				time.Sleep(backoff)
-				backoff *= 2 // Exponential backoff
+				backoff *= 2
 				continue
 			}
-			return fmt.Errorf("failed to update ClusterDeployment: %w", err)
+			return nil, fmt.Errorf("failed to update ClusterDeployment: %w", err)
 		}
 
-		// Update successful, copy the updated object back to existing
-		*existing = *latest
-		return nil
+		return latest, nil
 	}
 
-	return fmt.Errorf("failed to update ClusterDeployment after %d attempts due to conflicts", maxRetries)
+	return nil, fmt.Errorf("failed to update ClusterDeployment after %d attempts", maxRetries)
 }
 
 // updateColonyStatusWithRetry handles Colony status updates with conflict resolution
