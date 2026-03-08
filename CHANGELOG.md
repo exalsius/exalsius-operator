@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/exalsius/exalsius-operator/compare/v0.6.0...v0.7.0) (2026-03-08)
+
+
+### Features
+
+* add preflight CRD check with graceful degradation ([d56772e](https://github.com/exalsius/exalsius-operator/commit/d56772e853ccb94179bf203e8d39ce4745503646))
+* add TenantReconciler for Capsule Tenant to K0rdent AccessManagement bridge ([874a3c6](https://github.com/exalsius/exalsius-operator/commit/874a3c60eaec4f6777dbbca2c4b515bb686be13c))
+
+
+### Bug Fixes
+
+* **ci:** bump Go to 1.25 ([17bee8b](https://github.com/exalsius/exalsius-operator/commit/17bee8b39f680e624072770335727e3582386d86))
+* **ci:** bump golangci-lint to v2.4.0 ([4d72957](https://github.com/exalsius/exalsius-operator/commit/4d72957d25d8607cfcf6c1e14a51c5da28a278b4))
+* only update fields in ClusterDeploylemt set by exalsius ([b97d007](https://github.com/exalsius/exalsius-operator/commit/b97d007d0e39cb4bb43ea5cfc71c378578193108))
+
 ## [0.6.0](https://github.com/exalsius/exalsius-operator/compare/v0.5.2...v0.6.0) (2026-01-23)
 
 
