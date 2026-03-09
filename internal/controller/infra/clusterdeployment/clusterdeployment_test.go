@@ -237,6 +237,273 @@ var _ = Describe("EnsureClusterDeployment", func() {
 		Expect(cd.Labels).To(Equal(expectedLabels))
 	})
 
+	It("should update ServiceSpec when services are added to colony", func() {
+		// Create initial ClusterDeployment with no services
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err := EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify no services initially
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.ServiceSpec.Services).To(BeEmpty())
+
+		// Add a service to the colony cluster spec
+		spec, err := colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec = k0rdentv1beta1.ServiceSpec{
+			Services: []k0rdentv1beta1.Service{
+				{
+					Name:      "vscode-devcontainer",
+					Namespace: "default",
+					Template:  "vscode-devcontainer-template",
+					Values:    `{"shmSizeGb": 8, "sshPassword": "test123456"}`,
+				},
+			},
+		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		// Reconcile again
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify the service was added to the ClusterDeployment
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.ServiceSpec.Services).To(HaveLen(1))
+		Expect(cd.Spec.ServiceSpec.Services[0].Name).To(Equal("vscode-devcontainer"))
+		Expect(cd.Spec.ServiceSpec.Services[0].Template).To(Equal("vscode-devcontainer-template"))
+		Expect(cd.Spec.ServiceSpec.Services[0].Values).To(Equal(`{"shmSizeGb": 8, "sshPassword": "test123456"}`))
+	})
+
+	It("should update ServiceSpec when a second service is added", func() {
+		// Create initial spec with one service
+		spec, err := colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec = k0rdentv1beta1.ServiceSpec{
+			Services: []k0rdentv1beta1.Service{
+				{
+					Name:      "existing-service",
+					Namespace: "default",
+					Template:  "existing-template",
+				},
+			},
+		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify initial service
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.ServiceSpec.Services).To(HaveLen(1))
+
+		// Add a second service
+		spec, err = colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec.Services = append(spec.ServiceSpec.Services, k0rdentv1beta1.Service{
+			Name:      "vscode-devcontainer",
+			Namespace: "default",
+			Template:  "vscode-devcontainer-template",
+			Values:    `{"deploymentImage": "", "shmSizeGb": 8}`,
+		})
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		// Reconcile again
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify both services exist
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.ServiceSpec.Services).To(HaveLen(2))
+		Expect(cd.Spec.ServiceSpec.Services[0].Name).To(Equal("existing-service"))
+		Expect(cd.Spec.ServiceSpec.Services[1].Name).To(Equal("vscode-devcontainer"))
+	})
+
+	It("should update ServiceSpec when a service is removed", func() {
+		// Create initial spec with two services
+		spec, err := colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec = k0rdentv1beta1.ServiceSpec{
+			Services: []k0rdentv1beta1.Service{
+				{
+					Name:      "service-a",
+					Namespace: "default",
+					Template:  "template-a",
+				},
+				{
+					Name:      "service-b",
+					Namespace: "default",
+					Template:  "template-b",
+				},
+			},
+		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Remove service-a, keep only service-b
+		spec, err = colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec.Services = []k0rdentv1beta1.Service{
+			{
+				Name:      "service-b",
+				Namespace: "default",
+				Template:  "template-b",
+			},
+		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		// Reconcile again
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify only service-b remains
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.ServiceSpec.Services).To(HaveLen(1))
+		Expect(cd.Spec.ServiceSpec.Services[0].Name).To(Equal("service-b"))
+	})
+
+	It("should update ServiceSpec when service values change", func() {
+		// Create initial spec with a service
+		spec, err := colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec = k0rdentv1beta1.ServiceSpec{
+			Services: []k0rdentv1beta1.Service{
+				{
+					Name:      "vscode-devcontainer",
+					Namespace: "default",
+					Template:  "vscode-devcontainer-template",
+					Values:    `{"shmSizeGb": 8}`,
+				},
+			},
+		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Update the service values
+		spec, err = colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec.Services[0].Values = `{"shmSizeGb": 16, "sshPassword": "newpassword"}`
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		// Reconcile again
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify values were updated
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.ServiceSpec.Services).To(HaveLen(1))
+		Expect(cd.Spec.ServiceSpec.Services[0].Values).To(Equal(`{"shmSizeGb": 16, "sshPassword": "newpassword"}`))
+	})
+
+	It("should update PropagateCredentials when changed in colony", func() {
+		// Create initial ClusterDeployment with PropagateCredentials=false (default)
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err := EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify initial value
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.PropagateCredentials).To(BeFalse())
+
+		// Update PropagateCredentials to true
+		spec, err := colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.PropagateCredentials = true
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		// Reconcile again
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify PropagateCredentials was updated
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.Spec.PropagateCredentials).To(BeTrue())
+	})
+
+	It("should not update ClusterDeployment when ServiceSpec is unchanged", func() {
+		// Create initial spec with a service
+		spec, err := colonyCluster.GetClusterDeploymentSpec()
+		Expect(err).NotTo(HaveOccurred())
+		spec.ServiceSpec = k0rdentv1beta1.ServiceSpec{
+			Services: []k0rdentv1beta1.Service{
+				{
+					Name:      "vscode-devcontainer",
+					Namespace: "default",
+					Template:  "vscode-devcontainer-template",
+				},
+			},
+		}
+		Expect(colonyCluster.SetClusterDeploymentSpec(spec)).To(Succeed())
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&infrav1.Colony{}).
+			WithObjects(colony).
+			Build()
+
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Get the resource version after creation
+		cd := &k0rdentv1beta1.ClusterDeployment{}
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		resourceVersionAfterCreate := cd.ResourceVersion
+
+		// Reconcile again with the same spec (no changes)
+		err = EnsureClusterDeployment(ctx, c, colony, colonyCluster, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify the resource version is unchanged (no update was made)
+		err = c.Get(ctx, client.ObjectKey{Name: "test-colony-test-cluster", Namespace: "default"}, cd)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cd.ResourceVersion).To(Equal(resourceVersionAfterCreate))
+	})
+
 	It("should preserve existing annotations from other operators when updating", func() {
 		// Create initial ClusterDeployment with some existing annotations from another operator
 		existing := &k0rdentv1beta1.ClusterDeployment{

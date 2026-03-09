@@ -52,10 +52,12 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 		return nil
 	}
 
-	// Extract only the fields we manage (not KCM-managed fields like ipamClaim, serviceSpec, propagateCredentials)
+	// Extract the fields we manage (not KCM-managed fields like ipamClaim)
 	managedConfig := spec.Config
 	managedCredential := spec.Credential
 	managedTemplate := spec.Template
+	managedServiceSpec := spec.ServiceSpec
+	managedPropagateCredentials := spec.PropagateCredentials
 
 	// Full spec is used for initial creation only. Updates use field-specific logic
 	// in updateManagedFields to avoid overwriting KCM-managed fields.
@@ -99,6 +101,8 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 			managedConfig,
 			managedCredential,
 			managedTemplate,
+			managedServiceSpec,
+			managedPropagateCredentials,
 			colonyCluster.ClusterLabels,
 			colonyCluster.ClusterAnnotations)
 		if err != nil {
@@ -148,6 +152,8 @@ func updateManagedFields(ctx context.Context, c client.Client,
 	newConfig *apiextv1.JSON,
 	newCredential string,
 	newTemplate string,
+	newServiceSpec k0rdentv1beta1.ServiceSpec,
+	newPropagateCredentials bool,
 	colonyLabels map[string]string,
 	colonyAnnotations map[string]string) (*k0rdentv1beta1.ClusterDeployment, error) {
 
@@ -179,6 +185,18 @@ func updateManagedFields(ctx context.Context, c client.Client,
 		// Update Template if different
 		if latest.Spec.Template != newTemplate {
 			latest.Spec.Template = newTemplate
+			changed = true
+		}
+
+		// Update ServiceSpec if different
+		if !reflect.DeepEqual(latest.Spec.ServiceSpec, newServiceSpec) {
+			latest.Spec.ServiceSpec = newServiceSpec
+			changed = true
+		}
+
+		// Update PropagateCredentials if different
+		if latest.Spec.PropagateCredentials != newPropagateCredentials {
+			latest.Spec.PropagateCredentials = newPropagateCredentials
 			changed = true
 		}
 
