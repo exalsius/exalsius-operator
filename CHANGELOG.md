@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/exalsius/exalsius-operator/compare/v0.7.0...v0.7.1) (2026-03-09)
+
+
+### Bug Fixes
+
+* propagate ServiceSpec and PropagateCredentials updates to existing ClusterDeployment ([53d4268](https://github.com/exalsius/exalsius-operator/commit/53d4268dd9649ea2352211a40b60b6e0bad2a644))
+
 ## [0.7.0](https://github.com/exalsius/exalsius-operator/compare/v0.6.0...v0.7.0) (2026-03-08)
 
 
