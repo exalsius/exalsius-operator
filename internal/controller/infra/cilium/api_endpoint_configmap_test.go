@@ -274,6 +274,135 @@ func TestEnsureAPIEndpointConfigMap(t *testing.T) {
 	}
 }
 
+// TestEnsureAPIEndpointConfigMap_RegionalClient tests the regional client path
+func TestEnsureAPIEndpointConfigMap_RegionalClient(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = infrav1.AddToScheme(scheme)
+
+	tests := []struct {
+		name            string
+		colony          *infrav1.Colony
+		clusterName     string
+		exposedEndpoint string
+		mgmtSetupFunc   func(*fake.ClientBuilder) *fake.ClientBuilder
+		regionalSetup   func(*fake.ClientBuilder) *fake.ClientBuilder
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			name:            "Regional client used for kubeconfig lookup - missing secret on regional",
+			colony:          createTestColony(),
+			clusterName:     "cluster-a",
+			exposedEndpoint: "10.77.0.57:30443",
+			mgmtSetupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
+				// Management cluster does NOT have the kubeconfig secret
+				return builder
+			},
+			regionalSetup: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
+				// Regional cluster also does NOT have the secret
+				return builder
+			},
+			wantErr:     true,
+			errContains: "failed to get kubeconfig secret",
+		},
+		{
+			name:            "Regional client used for kubeconfig lookup - empty secret on regional",
+			colony:          createTestColony(),
+			clusterName:     "cluster-a",
+			exposedEndpoint: "10.77.0.57:30443",
+			mgmtSetupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
+				return builder
+			},
+			regionalSetup: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-colony-cluster-a-kubeconfig",
+						Namespace: "default",
+					},
+					Data: map[string][]byte{},
+				}
+				return builder.WithObjects(secret)
+			},
+			wantErr:     true,
+			errContains: "does not contain key 'value'",
+		},
+		{
+			name:            "Nil regional client falls back to management client",
+			colony:          createTestColony(),
+			clusterName:     "cluster-a",
+			exposedEndpoint: "10.77.0.57:30443",
+			mgmtSetupFunc: func(builder *fake.ClientBuilder) *fake.ClientBuilder {
+				// Management cluster has the secret (legacy path)
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-colony-cluster-a-kubeconfig",
+						Namespace: "default",
+					},
+					Data: map[string][]byte{
+						"value": []byte("invalid kubeconfig data"),
+					},
+				}
+				return builder.WithObjects(secret)
+			},
+			regionalSetup: nil, // nil regional client
+			wantErr:       true,
+			errContains:   "failed to create REST config", // Gets past secret lookup, fails at REST config
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgmtBuilder := fake.NewClientBuilder().WithScheme(scheme)
+			if tt.mgmtSetupFunc != nil {
+				mgmtBuilder = tt.mgmtSetupFunc(mgmtBuilder)
+			}
+			mgmtClient := mgmtBuilder.Build()
+
+			ctx := context.Background()
+
+			if tt.regionalSetup != nil {
+				regionalBuilder := fake.NewClientBuilder().WithScheme(scheme)
+				regionalBuilder = tt.regionalSetup(regionalBuilder)
+				regionalClient := regionalBuilder.Build()
+
+				err := EnsureAPIEndpointConfigMap(ctx, mgmtClient, tt.colony, tt.clusterName, tt.exposedEndpoint, scheme, regionalClient)
+
+				if tt.wantErr {
+					if err == nil {
+						t.Errorf("EnsureAPIEndpointConfigMap() expected error but got none")
+						return
+					}
+					if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+						t.Errorf("EnsureAPIEndpointConfigMap() error = %v, want error containing %q", err, tt.errContains)
+					}
+					return
+				}
+				if err != nil {
+					t.Errorf("EnsureAPIEndpointConfigMap() unexpected error = %v", err)
+				}
+			} else {
+				// Test with nil regional client (should fall back to management client)
+				err := EnsureAPIEndpointConfigMap(ctx, mgmtClient, tt.colony, tt.clusterName, tt.exposedEndpoint, scheme, nil)
+
+				if tt.wantErr {
+					if err == nil {
+						t.Errorf("EnsureAPIEndpointConfigMap() expected error but got none")
+						return
+					}
+					if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+						t.Errorf("EnsureAPIEndpointConfigMap() error = %v, want error containing %q", err, tt.errContains)
+					}
+					return
+				}
+				if err != nil {
+					t.Errorf("EnsureAPIEndpointConfigMap() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
 // Helper functions
 
 func createTestColony() *infrav1.Colony {

@@ -181,24 +181,57 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	// iterate over all clusters in the colony
 	for _, clusterDeploymentRef := range colony.Status.ClusterDeploymentRefs {
 		kubeconfigSecretName := fmt.Sprintf("%s-kubeconfig", clusterDeploymentRef.Name)
+		clusterName := common.ExtractClusterNameFromDeploymentName(clusterDeploymentRef.Name, colony.Name)
 
+		// Check if this is a regional child cluster
 		var kubeconfigSecret corev1.Secret
-		if err := r.Get(ctx, client.ObjectKey{Namespace: clusterDeploymentRef.Namespace, Name: kubeconfigSecretName}, &kubeconfigSecret); err != nil {
-			if errors.IsNotFound(err) {
-				log.Info("Kubeconfig secret not found for cluster, will retry", "cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
-				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-			} else {
-				log.Error(err, "Failed to get Kubeconfig secret for cluster", "cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
+		regionalClient, isRegional, err := common.ResolveRegionalClient(ctx, r.Client, colony, clusterName, r.Scheme)
+		if err != nil {
+			log.Info("Failed to resolve regional client, falling back to management cluster",
+				"cluster", clusterDeploymentRef.Name, "error", err.Error())
+			// Fall back to management cluster lookup
+		}
+
+		if isRegional && regionalClient != nil {
+			// For regional children, the kubeconfig secret lives on the regional cluster.
+			// Fetch it from there and mirror it on the management cluster.
+			if err := regionalClient.Get(ctx, client.ObjectKey{Namespace: clusterDeploymentRef.Namespace, Name: kubeconfigSecretName}, &kubeconfigSecret); err != nil {
+				if errors.IsNotFound(err) {
+					log.Info("Kubeconfig secret not found on regional cluster, will retry",
+						"cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+				}
+				log.Error(err, "Failed to get Kubeconfig secret from regional cluster",
+					"cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
 				return ctrl.Result{}, err
+			}
+
+			// Mirror the kubeconfig secret on the management cluster so downstream
+			// consumers (DDPJob controller, etc.) can find it
+			if err := r.mirrorKubeconfigSecret(ctx, colony, &kubeconfigSecret); err != nil {
+				log.Error(err, "Failed to mirror kubeconfig secret to management cluster",
+					"cluster", clusterDeploymentRef.Name)
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Standard path: kubeconfig secret is on the management cluster
+			if err := r.Get(ctx, client.ObjectKey{Namespace: clusterDeploymentRef.Namespace, Name: kubeconfigSecretName}, &kubeconfigSecret); err != nil {
+				if errors.IsNotFound(err) {
+					log.Info("Kubeconfig secret not found for cluster, will retry", "cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+				} else {
+					log.Error(err, "Failed to get Kubeconfig secret for cluster", "cluster", fmt.Sprintf("%s/%s", clusterDeploymentRef.Namespace, clusterDeploymentRef.Name))
+					return ctrl.Result{}, err
+				}
 			}
 		}
 
-		// Create an ObjectReference for the kubeconfig secret.
+		// Create an ObjectReference for the kubeconfig secret (always points to management cluster).
 		objRef := corev1.ObjectReference{
-			APIVersion: kubeconfigSecret.APIVersion,
-			Kind:       kubeconfigSecret.Kind,
-			Namespace:  kubeconfigSecret.Namespace,
-			Name:       kubeconfigSecret.Name,
+			APIVersion: "v1",
+			Kind:       "Secret",
+			Namespace:  clusterDeploymentRef.Namespace,
+			Name:       kubeconfigSecretName,
 		}
 
 		// JSON-encode the ObjectReference.
@@ -257,6 +290,52 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// mirrorKubeconfigSecret creates or updates a copy of a kubeconfig secret on the management cluster.
+// This is used for regional children whose kubeconfig secrets live on the regional cluster.
+func (r *ColonyReconciler) mirrorKubeconfigSecret(ctx context.Context, colony *infrav1.Colony, sourceSecret *corev1.Secret) error {
+	log := log.FromContext(ctx)
+
+	mirrorSecret := &corev1.Secret{}
+	key := client.ObjectKey{Name: sourceSecret.Name, Namespace: colony.Namespace}
+
+	if err := r.Get(ctx, key, mirrorSecret); err != nil {
+		if errors.IsNotFound(err) {
+			// Create the mirror secret
+			mirrorSecret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      sourceSecret.Name,
+					Namespace: colony.Namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/managed-by":    "exalsius-operator",
+						"exalsius.ai/mirrored-kubeconfig": "true",
+						"exalsius.ai/colony":              colony.Name,
+					},
+				},
+				Data: sourceSecret.Data,
+			}
+			if err := r.Create(ctx, mirrorSecret); err != nil {
+				return fmt.Errorf("failed to create mirrored kubeconfig secret %q: %w", sourceSecret.Name, err)
+			}
+			log.Info("Created mirrored kubeconfig secret on management cluster",
+				"secret", sourceSecret.Name)
+			return nil
+		}
+		return fmt.Errorf("failed to get mirrored kubeconfig secret %q: %w", sourceSecret.Name, err)
+	}
+
+	// Update existing mirror secret if data differs
+	if string(mirrorSecret.Data["value"]) != string(sourceSecret.Data["value"]) {
+		mirrorSecret.Data = sourceSecret.Data
+		if err := r.Update(ctx, mirrorSecret); err != nil {
+			return fmt.Errorf("failed to update mirrored kubeconfig secret %q: %w", sourceSecret.Name, err)
+		}
+		log.Info("Updated mirrored kubeconfig secret on management cluster",
+			"secret", sourceSecret.Name)
+	}
+
+	return nil
 }
 
 // handleColonyDeletion handles the deletion flow for a Colony resource.
@@ -473,8 +552,22 @@ func (r *ColonyReconciler) ensureAPIEndpointConfigMapForAllClusters(ctx context.
 			continue
 		}
 
+		// Check if this is a regional child cluster
+		regionalClient, isRegional, err := common.ResolveRegionalClient(ctx, r.Client, colony, clusterName, r.Scheme)
+		if err != nil {
+			log.Error(err, "Failed to resolve regional client, will retry", "cluster", clusterName)
+			continue
+		}
+
+		// Use regional client for service discovery if this is a regional child
+		discoveryClient := r.Client
+		if isRegional {
+			discoveryClient = regionalClient
+			log.Info("Using regional cluster client for service discovery", "cluster", clusterName)
+		}
+
 		// Discover the control plane service for this cluster
-		service, err := common.DiscoverControlPlaneService(ctx, r.Client, colony.Namespace, colony.Name, clusterName)
+		service, err := common.DiscoverControlPlaneService(ctx, discoveryClient, colony.Namespace, colony.Name, clusterName)
 		if err != nil {
 			// Service not found is expected during provisioning - don't log as error
 			if strings.Contains(err.Error(), "not found yet") || strings.Contains(err.Error(), "still provisioning") {
@@ -499,7 +592,8 @@ func (r *ColonyReconciler) ensureAPIEndpointConfigMapForAllClusters(ctx context.
 			"serviceType", service.Spec.Type)
 
 		// Create/update the ConfigMap in the child cluster
-		if err := cilium.EnsureAPIEndpointConfigMap(ctx, r.Client, colony, clusterName, endpoint, r.Scheme); err != nil {
+		// For regional children, pass the regional client so kubeconfig can be fetched from the regional cluster
+		if err := cilium.EnsureAPIEndpointConfigMap(ctx, r.Client, colony, clusterName, endpoint, r.Scheme, regionalClient); err != nil {
 			// Distinguish between "not ready yet" (expected) and actual errors
 			if errors.IsNotFound(err) || isConnectionError(err) {
 				log.Info("Child cluster not ready yet, will retry ConfigMap creation on next reconcile",
