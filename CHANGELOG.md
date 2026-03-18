@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/exalsius/exalsius-operator/compare/v0.7.1...v0.8.0) (2026-03-18)
+
+
+### Features
+
+* accept optional regional client in EnsureAPIEndpointConfigMap ([1dbd268](https://github.com/exalsius/exalsius-operator/commit/1dbd26824d00a875bc0cf03ff57a10da87116459))
+
 ## [0.7.1](https://github.com/exalsius/exalsius-operator/compare/v0.7.0...v0.7.1) (2026-03-09)
 
 
