@@ -40,6 +40,8 @@ const (
 
 // EnsureAPIEndpointConfigMap creates or updates the cp-api-endpoint ConfigMap in the child cluster
 // with the control plane API server endpoint information.
+// If regionalClient is non-nil, it is used to fetch the kubeconfig secret (for regional children
+// whose kubeconfig lives on the regional cluster rather than the management cluster).
 func EnsureAPIEndpointConfigMap(
 	ctx context.Context,
 	managementClient client.Client,
@@ -47,6 +49,7 @@ func EnsureAPIEndpointConfigMap(
 	clusterName string,
 	exposedEndpoint string,
 	scheme *runtime.Scheme,
+	regionalClient ...client.Client,
 ) error {
 	log := log.FromContext(ctx)
 
@@ -62,8 +65,14 @@ func EnsureAPIEndpointConfigMap(
 		"host", host,
 		"port", port)
 
+	// Determine which client to use for kubeconfig lookup
+	kubeconfigClient := managementClient
+	if len(regionalClient) > 0 && regionalClient[0] != nil {
+		kubeconfigClient = regionalClient[0]
+	}
+
 	// Get client for the child cluster
-	childClient, err := getClientForChildCluster(ctx, managementClient, colony, clusterName, scheme)
+	childClient, err := getClientForChildCluster(ctx, kubeconfigClient, colony, clusterName, scheme)
 	if err != nil {
 		return fmt.Errorf("failed to get client for child cluster: %w", err)
 	}

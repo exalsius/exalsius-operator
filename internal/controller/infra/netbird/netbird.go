@@ -282,8 +282,22 @@ func reconcileControlPlaneExposure(
 ) error {
 	log := log.FromContext(ctx)
 
+	// Check if this is a regional child cluster
+	regionalClient, isRegional, err := common.ResolveRegionalClient(ctx, c, colony, clusterName, scheme)
+	if err != nil {
+		return fmt.Errorf("failed to resolve regional client for cluster %q: %w", clusterName, err)
+	}
+
+	// Determine which client to use for service discovery and kubeconfig lookup
+	discoveryClient := c
+	if isRegional {
+		discoveryClient = regionalClient
+		log.Info("Using regional cluster client for service discovery",
+			"cluster", clusterName)
+	}
+
 	// Discover control plane service
-	service, err := common.DiscoverControlPlaneService(ctx, c, colony.Namespace, colony.Name, clusterName)
+	service, err := common.DiscoverControlPlaneService(ctx, discoveryClient, colony.Namespace, colony.Name, clusterName)
 	if err != nil {
 		return fmt.Errorf("failed to discover control plane service: %w", err)
 	}
@@ -381,7 +395,8 @@ func reconcileControlPlaneExposure(
 	// Create/update the Cilium API endpoint ConfigMap in the child cluster
 	// This must happen as soon as the endpoint is known, so Cilium can start properly
 	// Note: Use ciliumEndpoint (internal DNS for NodePort, external for LoadBalancer)
-	if err := cilium.EnsureAPIEndpointConfigMap(ctx, c, colony, clusterName, ciliumEndpoint, scheme); err != nil {
+	// For regional children, pass the regional client so kubeconfig can be fetched from the regional cluster
+	if err := cilium.EnsureAPIEndpointConfigMap(ctx, c, colony, clusterName, ciliumEndpoint, scheme, regionalClient); err != nil {
 		// Distinguish between "not ready yet" (expected) and actual errors
 		if errors.IsNotFound(err) || isConnectionError(err) {
 			log.Info("Child cluster not ready yet, will retry Cilium ConfigMap creation on next reconcile",
