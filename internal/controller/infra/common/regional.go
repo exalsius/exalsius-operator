@@ -81,6 +81,26 @@ func FindRegionalClusterDeployment(ctx context.Context, c client.Client, namespa
 	return &cdList.Items[0], nil
 }
 
+const (
+	// LabelKOFClusterRole is the label on a ClusterDeployment that identifies
+	// the cluster's role. Regional clusters have the value "regional".
+	LabelKOFClusterRole = "k0rdent.mirantis.com/kof-cluster-role"
+)
+
+// FindRegionalClusterDeploymentsByRole finds all regional ClusterDeployments in a namespace
+// by matching the label k0rdent.mirantis.com/kof-cluster-role=regional.
+func FindRegionalClusterDeploymentsByRole(ctx context.Context, c client.Client, namespace string) ([]k0rdentv1beta1.ClusterDeployment, error) {
+	cdList := &k0rdentv1beta1.ClusterDeploymentList{}
+	if err := c.List(ctx, cdList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{LabelKOFClusterRole: "regional"},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list regional ClusterDeployments in namespace %s: %w", namespace, err)
+	}
+
+	return cdList.Items, nil
+}
+
 // GetRegionalClusterClient builds a controller-runtime client for a regional cluster.
 // It fetches the regional cluster's kubeconfig secret from the management cluster
 // and creates a client that can talk to the regional cluster's API server.
