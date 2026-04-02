@@ -101,7 +101,7 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 	log := log.FromContext(ctx)
 
 	// Clean up ClusterDeployments that are no longer in the spec (non-blocking)
-	hasPendingDeletions, err := clusterdeployment.CleanupOrphanedClusterDeployments(ctx, r.Client, colony)
+	hasPendingDeletions, err := clusterdeployment.CleanupOrphanedClusterDeployments(ctx, r.Client, colony, r.Scheme)
 	if err != nil {
 		log.Error(err, "Failed to cleanup orphaned cluster deployments")
 		return ctrl.Result{}, err
@@ -431,7 +431,7 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 				Namespace: colony.Namespace,
 			},
 		}
-		if err := clusterdeployment.DeletePVCForClusterDeployment(ctx, r.Client, pvcClusterDeployment); err != nil {
+		if err := clusterdeployment.DeletePVCForClusterDeployment(ctx, r.Client, pvcClusterDeployment, colony, r.Scheme); err != nil {
 			log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", clusterDeploymentName)
 			// Don't return error here as the main deletion was successful
 		}

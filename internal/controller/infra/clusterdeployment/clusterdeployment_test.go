@@ -13,6 +13,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -544,6 +545,7 @@ var _ = Describe("EnsureClusterDeployment", func() {
 var _ = Describe("WaitForClusterDeletion", func() {
 	var (
 		scheme            *runtime.Scheme
+		colony            *infrav1.Colony
 		clusterDeployment *k0rdentv1beta1.ClusterDeployment
 		ctx               context.Context
 	)
@@ -551,7 +553,20 @@ var _ = Describe("WaitForClusterDeletion", func() {
 	BeforeEach(func() {
 		scheme = runtime.NewScheme()
 		_ = k0rdentv1beta1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
 		_ = corev1.AddToScheme(scheme)
+
+		colony = &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				ColonyClusters: []infrav1.ColonyCluster{
+					{ClusterName: "cluster"},
+				},
+			},
+		}
 
 		clusterDeployment = &k0rdentv1beta1.ClusterDeployment{
 			ObjectMeta: metav1.ObjectMeta{
@@ -586,7 +601,7 @@ var _ = Describe("WaitForClusterDeletion", func() {
 			Build()
 
 		// Since ClusterDeployment doesn't exist, the function should immediately detect it's "deleted" and delete the PVC
-		err := WaitForClusterDeletion(ctx, c, clusterDeployment, 1*time.Second, 100*time.Millisecond)
+		err := WaitForClusterDeletion(ctx, c, clusterDeployment, colony, scheme, 1*time.Second, 100*time.Millisecond)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Verify PVC was deleted
@@ -603,7 +618,7 @@ var _ = Describe("WaitForClusterDeletion", func() {
 
 		// Since ClusterDeployment doesn't exist, the function should immediately detect it's "deleted" and try to delete PVC
 		// But since PVC doesn't exist either, it should handle the NotFound error gracefully
-		err := WaitForClusterDeletion(ctx, c, clusterDeployment, 1*time.Second, 100*time.Millisecond)
+		err := WaitForClusterDeletion(ctx, c, clusterDeployment, colony, scheme, 1*time.Second, 100*time.Millisecond)
 		Expect(err).NotTo(HaveOccurred())
 		// Should not have any additional errors related to PVC deletion
 	})
@@ -641,7 +656,7 @@ var _ = Describe("WaitForClusterDeletion", func() {
 		Expect(c.Create(ctx, pvc)).To(Succeed())
 
 		// Wait for deletion with a short timeout
-		err := WaitForClusterDeletion(ctx, c, clusterDeployment, 2*time.Second, 50*time.Millisecond)
+		err := WaitForClusterDeletion(ctx, c, clusterDeployment, colony, scheme, 2*time.Second, 50*time.Millisecond)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Verify PVC was deleted
@@ -693,7 +708,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse())
 			// Status should be unchanged
@@ -727,7 +742,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse())
 			// Orphaned ref should be removed from status
@@ -775,7 +790,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony, pvc).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse())
 
@@ -821,7 +836,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony, orphanedCD).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeTrue()) // Should indicate pending deletion
 
@@ -873,7 +888,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony, orphanedCD).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeTrue()) // Deletion is pending
 
@@ -933,7 +948,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony, cd3, cd4).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeTrue()) // cluster-4 is still pending
 
@@ -979,7 +994,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse())
 
@@ -1012,7 +1027,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse())
 		})
@@ -1041,7 +1056,7 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse())
 		})
@@ -1071,12 +1086,240 @@ var _ = Describe("CleanupOrphanedClusterDeployments", func() {
 				WithObjects(colony).
 				Build()
 
-			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony)
+			hasPending, err := CleanupOrphanedClusterDeployments(ctx, c, colony, scheme)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(hasPending).To(BeFalse()) // Both were already deleted (not found)
 
 			// Both should be removed from status
 			Expect(colony.Status.ClusterDeploymentRefs).To(BeEmpty())
 		})
+	})
+})
+
+var _ = Describe("DeletePVCForClusterDeployment", func() {
+	var (
+		scheme *runtime.Scheme
+		ctx    context.Context
+	)
+
+	BeforeEach(func() {
+		scheme = runtime.NewScheme()
+		_ = k0rdentv1beta1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+		_ = corev1.AddToScheme(scheme)
+		ctx = context.TODO()
+	})
+
+	It("should delete PVC on management cluster for standard (non-regional) cluster", func() {
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				ColonyClusters: []infrav1.ColonyCluster{
+					{ClusterName: "cluster-1"},
+				},
+			},
+		}
+
+		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-cluster-1",
+				Namespace: "default",
+			},
+		}
+
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "etcd-data-kmc-test-colony-cluster-1-etcd-0",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pvc).
+			Build()
+
+		err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment, colony, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify PVC was deleted from management cluster
+		deletedPVC := &corev1.PersistentVolumeClaim{}
+		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-colony-cluster-1-etcd-0", Namespace: "default"}, deletedPVC)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not found"))
+	})
+
+	It("should return nil when regional child's kubeconfig secret is not found", func() {
+		// Regional cluster CD must exist so FindRegionalClusterDeployment can find it
+		regionalCD := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-regional-1",
+				Namespace: "default",
+				Labels: map[string]string{
+					common.LabelKOFClusterName: "regional-1",
+				},
+			},
+		}
+
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				ColonyClusters: []infrav1.ColonyCluster{
+					{
+						ClusterName: "child-1",
+						ClusterLabels: map[string]string{
+							common.LabelKOFRegionalClusterName: "regional-1",
+						},
+					},
+				},
+			},
+		}
+
+		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-child-1",
+				Namespace: "default",
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(regionalCD).
+			Build()
+
+		// No kubeconfig secret exists for regional cluster — should return nil gracefully
+		err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment, colony, scheme)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("should not delete PVC on management cluster for regional child", func() {
+		// Regional cluster CD exists but no kubeconfig secret
+		regionalCD := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-regional-1",
+				Namespace: "default",
+				Labels: map[string]string{
+					common.LabelKOFClusterName: "regional-1",
+				},
+			},
+		}
+
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				ColonyClusters: []infrav1.ColonyCluster{
+					{
+						ClusterName: "child-1",
+						ClusterLabels: map[string]string{
+							common.LabelKOFRegionalClusterName: "regional-1",
+						},
+					},
+				},
+			},
+		}
+
+		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-child-1",
+				Namespace: "default",
+			},
+		}
+
+		// PVC exists on management cluster — should NOT be deleted since this is a regional child
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "etcd-data-kmc-test-colony-child-1-etcd-0",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(regionalCD, pvc).
+			Build()
+
+		err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment, colony, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// PVC on management cluster should still exist — it was not deleted
+		existingPVC := &corev1.PersistentVolumeClaim{}
+		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-colony-child-1-etcd-0", Namespace: "default"}, existingPVC)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("should fall back to management client when no matching ColonyCluster is found", func() {
+		colony := &infrav1.Colony{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony",
+				Namespace: "default",
+			},
+			Spec: infrav1.ColonySpec{
+				ColonyClusters: []infrav1.ColonyCluster{
+					{ClusterName: "cluster-1"},
+				},
+			},
+		}
+
+		// CD name doesn't match any colony-cluster combination
+		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-colony-unknown-cluster",
+				Namespace: "default",
+			},
+		}
+
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "etcd-data-kmc-test-colony-unknown-cluster-etcd-0",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pvc).
+			Build()
+
+		err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment, colony, scheme)
+		Expect(err).NotTo(HaveOccurred())
+
+		// PVC should be deleted from management cluster (fallback behavior)
+		deletedPVC := &corev1.PersistentVolumeClaim{}
+		err = c.Get(ctx, client.ObjectKey{Name: "etcd-data-kmc-test-colony-unknown-cluster-etcd-0", Namespace: "default"}, deletedPVC)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not found"))
 	})
 })

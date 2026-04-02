@@ -9,6 +9,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
 	corev1 "k8s.io/api/core/v1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -279,7 +280,7 @@ func updateColonyStatusWithRetry(ctx context.Context, c client.Client, colony *i
 // referenced in the Colony spec but still exist in the status.
 // Returns (hasPendingDeletions, error) - hasPendingDeletions is true if there are still
 // ClusterDeployments being deleted that require a requeue.
-func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, colony *infrav1.Colony) (bool, error) {
+func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, colony *infrav1.Colony, scheme *runtime.Scheme) (bool, error) {
 	log := log.FromContext(ctx)
 
 	// Create a set of expected cluster names from the spec
@@ -310,7 +311,7 @@ func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, col
 						Namespace: ref.Namespace,
 					},
 				}
-				if err := DeletePVCForClusterDeployment(ctx, c, pvcClusterDeployment); err != nil {
+				if err := DeletePVCForClusterDeployment(ctx, c, pvcClusterDeployment, colony, scheme); err != nil {
 					log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", ref.Name)
 					// Don't return error here as the main deletion was successful
 				}
@@ -369,9 +370,51 @@ func CleanupOrphanedClusterDeployments(ctx context.Context, c client.Client, col
 	return len(pendingDeletions) > 0, nil
 }
 
-// DeletePVCForClusterDeployment deletes the PVC associated with a ClusterDeployment
-func DeletePVCForClusterDeployment(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment) error {
+// DeletePVCForClusterDeployment deletes the PVC associated with a ClusterDeployment.
+// For regional child clusters, it resolves a client for the regional cluster and deletes the PVC there.
+// For standard clusters, it deletes the PVC on the management cluster using c.
+// If the regional client cannot be resolved (e.g. kubeconfig secret already deleted),
+// the error is logged and nil is returned — the PVC is likely already gone with the regional cluster.
+func DeletePVCForClusterDeployment(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment, colony *infrav1.Colony, scheme *runtime.Scheme) error {
 	log := log.FromContext(ctx)
+
+	// Determine which client to use for PVC deletion
+	pvcClient := c
+
+	// Match ClusterDeployment to a ColonyCluster to check if it's a regional child
+	for i := range colony.Spec.ColonyClusters {
+		colonyCluster := &colony.Spec.ColonyClusters[i]
+		expectedName := colony.Name + "-" + colonyCluster.ClusterName
+		if expectedName != clusterDeployment.Name {
+			continue
+		}
+
+		isRegional, regionalName := common.IsRegionalChild(colonyCluster)
+		if !isRegional {
+			break
+		}
+
+		log.Info("ClusterDeployment is a regional child, resolving regional client for PVC cleanup",
+			"ClusterDeployment.Name", clusterDeployment.Name,
+			"regionalCluster", regionalName)
+
+		regionalCD, err := common.FindRegionalClusterDeployment(ctx, c, colony.Namespace, regionalName)
+		if err != nil {
+			log.Info("Could not find regional ClusterDeployment, PVC likely already cleaned up",
+				"regionalCluster", regionalName, "error", err)
+			return nil
+		}
+
+		regionalClient, err := common.GetRegionalClusterClient(ctx, c, colony.Namespace, regionalCD.Name, scheme)
+		if err != nil {
+			log.Info("Could not create regional cluster client, PVC likely already cleaned up",
+				"regionalCluster", regionalName, "error", err)
+			return nil
+		}
+
+		pvcClient = regionalClient
+		break
+	}
 
 	// Construct PVC name following the pattern: etcd-data-kmc-<cluster-deployment-name>-etcd-0
 	pvcName := fmt.Sprintf("etcd-data-kmc-%s-etcd-0", clusterDeployment.Name)
@@ -383,7 +426,7 @@ func DeletePVCForClusterDeployment(ctx context.Context, c client.Client, cluster
 		},
 	}
 
-	if err := c.Delete(ctx, pvc); err != nil {
+	if err := pvcClient.Delete(ctx, pvc); err != nil {
 		if errors.IsNotFound(err) {
 			log.Info("PVC not found, already deleted or never existed", "PVC.Name", pvcName, "PVC.Namespace", clusterDeployment.Namespace)
 			return nil
@@ -397,7 +440,7 @@ func DeletePVCForClusterDeployment(ctx context.Context, c client.Client, cluster
 }
 
 // WaitForClusterDeletion polls until the given ClusterDeployment is no longer found.
-func WaitForClusterDeletion(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment, timeout, interval time.Duration) error {
+func WaitForClusterDeletion(ctx context.Context, c client.Client, clusterDeployment *k0rdentv1beta1.ClusterDeployment, colony *infrav1.Colony, scheme *runtime.Scheme, timeout, interval time.Duration) error {
 	log := log.FromContext(ctx)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -414,7 +457,7 @@ func WaitForClusterDeletion(ctx context.Context, c client.Client, clusterDeploym
 				log.Info("ClusterDeployment deleted", "ClusterDeployment.Namespace", clusterDeployment.Namespace, "ClusterDeployment.Name", clusterDeployment.Name)
 
 				// Delete the associated PVC after ClusterDeployment is confirmed deleted
-				if err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment); err != nil {
+				if err := DeletePVCForClusterDeployment(ctx, c, clusterDeployment, colony, scheme); err != nil {
 					log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", clusterDeployment.Name)
 					// Don't return error here as the main deletion was successful
 				}
