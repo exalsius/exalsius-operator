@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/exalsius/exalsius-operator/compare/v0.8.0...v0.8.1) (2026-04-02)
+
+
+### Bug Fixes
+
+* delete etcd PVCs on regional cluster for regional child ClusterDeployments ([a1ca6c0](https://github.com/exalsius/exalsius-operator/commit/a1ca6c040a5acea691d4e752e77b8e1b7275b0c7))
+
 ## [0.8.0](https://github.com/exalsius/exalsius-operator/compare/v0.7.1...v0.8.0) (2026-03-18)
 
 
