@@ -431,7 +431,7 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 				Namespace: colony.Namespace,
 			},
 		}
-		if err := clusterdeployment.DeletePVCForClusterDeployment(ctx, r.Client, pvcClusterDeployment, colony, r.Scheme); err != nil {
+		if err := clusterdeployment.DeletePVCForClusterDeployment(ctx, r.Client, pvcClusterDeployment, r.Scheme); err != nil {
 			log.Error(err, "Failed to delete PVC for ClusterDeployment", "ClusterDeployment.Name", clusterDeploymentName)
 			// Don't return error here as the main deletion was successful
 		}
