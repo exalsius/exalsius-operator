@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/exalsius/exalsius-operator/compare/v0.8.1...v0.8.2) (2026-04-02)
+
+
+### Bug Fixes
+
+* discover regional clusters by label for PVC cleanup instead of relying on Colony spec ([193a350](https://github.com/exalsius/exalsius-operator/commit/193a350b80b2897a7ec77323e014912e5ddfea0e))
+
 ## [0.8.1](https://github.com/exalsius/exalsius-operator/compare/v0.8.0...v0.8.1) (2026-04-02)
 
 
