@@ -42,6 +42,7 @@ import (
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta2"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
@@ -50,6 +51,7 @@ import (
 	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
+	workspacescontroller "github.com/exalsius/exalsius-operator/internal/controller/workspaces"
 	"github.com/exalsius/exalsius-operator/internal/preflight"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
@@ -64,6 +66,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(infrav1.AddToScheme(scheme))
+	utilruntime.Must(workspacesv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 	if err := clusterv1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Cluster API to scheme")
@@ -269,6 +272,15 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
 			os.Exit(1)
 		}
+	}
+
+	// Workspace controllers — always enabled since we own the CRDs
+	if err = (&workspacescontroller.WorkspaceDeploymentReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
+		os.Exit(1)
 	}
 
 	// Setup webhooks if enabled
