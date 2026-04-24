@@ -22,7 +22,15 @@ go.work
 # editor and IDE paraphernalia
 .idea
 .vscode
+.opencode/
 *.swp
 *.swo
 *~
+
+# local build and runtime artifacts
+/main
+*.log
+
+# local scratch / working notes
+/workspace-refactoring/
 
