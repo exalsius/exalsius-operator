@@ -261,6 +261,7 @@ func patchBootstrapSecret(
 	secret.ManagedFields = nil
 
 	// Use Server-Side Apply to avoid conflicts with CAPI bootstrap controller
+	//nolint:staticcheck // client.Apply is deprecated; migrating to client.Client.Apply() is a separate cleanup
 	if err := c.Patch(ctx, secret, client.Apply, &client.PatchOptions{
 		FieldManager: "netbird-patcher",
 		Force:        ptr.To(true), // Take ownership from k0s-bootstrap
