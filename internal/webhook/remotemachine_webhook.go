@@ -22,7 +22,6 @@ import (
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	infrastructurev1beta1 "github.com/k0sproject/k0smotron/api/infrastructure/v1beta1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,12 +49,7 @@ type RemoteMachineDefaulter struct {
 }
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
-func (r *RemoteMachineDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	rm, ok := obj.(*infrastructurev1beta1.RemoteMachine)
-	if !ok {
-		return nil
-	}
-
+func (r *RemoteMachineDefaulter) Default(ctx context.Context, rm *infrastructurev1beta1.RemoteMachine) error {
 	log := log.FromContext(ctx)
 
 	// Don't add finalizers to objects being deleted
@@ -167,8 +161,7 @@ func (r *RemoteMachineDefaulter) isNetBirdEnabledForRemoteMachine(ctx context.Co
 
 // SetupWebhookWithManager registers the webhook with the manager
 func (r *RemoteMachineDefaulter) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&infrastructurev1beta1.RemoteMachine{}).
+	return ctrl.NewWebhookManagedBy(mgr, &infrastructurev1beta1.RemoteMachine{}).
 		WithDefaulter(r).
 		Complete()
 }
