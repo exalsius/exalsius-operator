@@ -95,8 +95,8 @@ var _ = Describe("WorkspaceClass", func() {
 						GPUCount: int32Ptr(1),
 					},
 				},
-				Prerequisites: []workspacesv1.ServiceTemplateRef{
-					{Name: "slurm-operator", VersionConstraint: ">=0.5.0"},
+				Prerequisites: []workspacesv1.PrerequisiteSpec{
+					{ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "slurm-operator"}},
 				},
 				AccessEndpoints: []workspacesv1.AccessEndpoint{
 					{Name: "login", Protocol: workspacesv1.RouteProtocolSSH, Port: 22},

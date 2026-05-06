@@ -27,16 +27,55 @@ const (
 )
 
 // WorkspaceDeploymentPhase represents the lifecycle state of a deployment.
-// +kubebuilder:validation:Enum=Pending;Deploying;Running;Failed;Deleting
+// +kubebuilder:validation:Enum=Pending;InstallingPrerequisites;Deploying;Running;Failed;Deleting
 type WorkspaceDeploymentPhase string
 
 const (
-	WorkspaceDeploymentPhasePending   WorkspaceDeploymentPhase = "Pending"
-	WorkspaceDeploymentPhaseDeploying WorkspaceDeploymentPhase = "Deploying"
-	WorkspaceDeploymentPhaseRunning   WorkspaceDeploymentPhase = "Running"
-	WorkspaceDeploymentPhaseFailed    WorkspaceDeploymentPhase = "Failed"
-	WorkspaceDeploymentPhaseDeleting  WorkspaceDeploymentPhase = "Deleting"
+	WorkspaceDeploymentPhasePending                 WorkspaceDeploymentPhase = "Pending"
+	WorkspaceDeploymentPhaseInstallingPrerequisites WorkspaceDeploymentPhase = "InstallingPrerequisites"
+	WorkspaceDeploymentPhaseDeploying               WorkspaceDeploymentPhase = "Deploying"
+	WorkspaceDeploymentPhaseRunning                 WorkspaceDeploymentPhase = "Running"
+	WorkspaceDeploymentPhaseFailed                  WorkspaceDeploymentPhase = "Failed"
+	WorkspaceDeploymentPhaseDeleting                WorkspaceDeploymentPhase = "Deleting"
 )
+
+// PrerequisitePhase reports the install state of a single prerequisite.
+// +kubebuilder:validation:Enum=Pending;Installing;Satisfied;Failed
+type PrerequisitePhase string
+
+const (
+	PrerequisitePhasePending    PrerequisitePhase = "Pending"
+	PrerequisitePhaseInstalling PrerequisitePhase = "Installing"
+	PrerequisitePhaseSatisfied  PrerequisitePhase = "Satisfied"
+	PrerequisitePhaseFailed     PrerequisitePhase = "Failed"
+)
+
+// PrerequisiteSource identifies who is providing a prerequisite.
+// +kubebuilder:validation:Enum=workspace;colony
+type PrerequisiteSource string
+
+const (
+	// PrerequisiteSourceWorkspace means the workspace controller installed
+	// the prerequisite via a wsprereq-* ServiceSet.
+	PrerequisiteSourceWorkspace PrerequisiteSource = "workspace"
+	// PrerequisiteSourceColony means the prerequisite is satisfied by a
+	// service entry on the ClusterDeployment (managed by the colony controller).
+	PrerequisiteSourceColony PrerequisiteSource = "colony"
+)
+
+// PrerequisiteStatus reports the per-prerequisite install state.
+type PrerequisiteStatus struct {
+	// Name is the ServiceTemplate name from WorkspaceClass.spec.prerequisites.
+	Name string `json:"name"`
+	// Phase is the current state of this prerequisite.
+	Phase PrerequisitePhase `json:"phase"`
+	// Source identifies who is providing the prerequisite.
+	// +optional
+	Source PrerequisiteSource `json:"source,omitempty"`
+	// Message is a human-readable detail (e.g., the underlying failure reason).
+	// +optional
+	Message string `json:"message,omitempty"`
+}
 
 // Condition types for WorkspaceDeployment.
 const (
@@ -48,17 +87,19 @@ const (
 
 // Condition reasons for WorkspaceDeployment.
 const (
-	ReasonClassNotFound         = "ClassNotFound"
-	ReasonClassResolved         = "ClassResolved"
-	ReasonPrerequisitesNotReady = "PrerequisitesNotReady"
-	ReasonPrerequisitesMet      = "PrerequisitesMet"
-	ReasonHelmReleaseNotReady   = "HelmReleaseNotReady"
-	ReasonHelmReleaseDeployed   = "HelmReleaseDeployed"
-	ReasonHelmReleaseFailed     = "HelmReleaseFailed"
-	ReasonDeploymentReady       = "DeploymentReady"
-	ReasonDeletionInProgress    = "DeletionInProgress"
-	ReasonInternalError         = "InternalError"
-	ReasonSuspended             = "Suspended"
+	ReasonClassNotFound           = "ClassNotFound"
+	ReasonClassResolved           = "ClassResolved"
+	ReasonPrerequisitesNotReady   = "PrerequisitesNotReady"
+	ReasonPrerequisitesMet        = "PrerequisitesMet"
+	ReasonInstallingPrerequisites = "InstallingPrerequisites"
+	ReasonHelmReleaseNotReady     = "HelmReleaseNotReady"
+	ReasonHelmReleaseDeployed     = "HelmReleaseDeployed"
+	ReasonHelmReleaseFailed       = "HelmReleaseFailed"
+	ReasonDeploymentReady         = "DeploymentReady"
+	ReasonDeletionInProgress      = "DeletionInProgress"
+	ReasonInternalError           = "InternalError"
+	ReasonSuspended               = "Suspended"
+	ReasonInvalidPrerequisite     = "InvalidPrerequisite"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.
@@ -132,6 +173,13 @@ type WorkspaceDeploymentStatus struct {
 	// ResolvedResources captures the effective resources after merging.
 	// +optional
 	ResolvedResources *WorkspaceResourceSpec `json:"resolvedResources,omitempty"`
+
+	// Prerequisites reports the per-prerequisite install state. Only populated
+	// when the resolved WorkspaceClass declares prerequisites.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Prerequisites []PrerequisiteStatus `json:"prerequisites,omitempty"`
 
 	// Message is a human-readable error or status detail.
 	// +optional

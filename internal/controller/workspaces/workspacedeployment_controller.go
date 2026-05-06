@@ -19,6 +19,7 @@ package workspaces
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
@@ -28,7 +29,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
 )
@@ -101,32 +104,12 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		ObservedGeneration: wsd.Generation,
 	})
 
-	// Check prerequisites (validation only — no auto-install)
+	// Auto-install prerequisites declared on the WorkspaceClass. Skipped
+	// entirely when no prereqs are declared — the common case.
 	if len(wsc.Spec.Prerequisites) > 0 {
-		met, missing, err := r.checkPrerequisites(ctx, wsd, wsc)
-		if err != nil {
-			return ctrl.Result{}, err
+		if res, done, err := r.reconcilePrerequisites(ctx, wsd, wsc); err != nil || done {
+			return res, err
 		}
-		if !met {
-			wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-			wsd.Status.Message = fmt.Sprintf("Missing prerequisites on cluster %q: %s", wsd.Spec.ClusterDeploymentRef.Name, missing)
-			setCondition(&wsd.Status, metav1.Condition{
-				Type:               workspacesv1.ConditionPrerequisitesMet,
-				Status:             metav1.ConditionFalse,
-				Reason:             workspacesv1.ReasonPrerequisitesNotReady,
-				Message:            wsd.Status.Message,
-				ObservedGeneration: wsd.Generation,
-			})
-			_ = r.Status().Update(ctx, wsd)
-			return ctrl.Result{}, nil
-		}
-		setCondition(&wsd.Status, metav1.Condition{
-			Type:               workspacesv1.ConditionPrerequisitesMet,
-			Status:             metav1.ConditionTrue,
-			Reason:             workspacesv1.ReasonPrerequisitesMet,
-			Message:            "All prerequisites are installed",
-			ObservedGeneration: wsd.Generation,
-		})
 	}
 
 	// If already deploying, check service readiness
@@ -202,58 +185,156 @@ func (r *WorkspaceDeploymentReconciler) resolveWorkspaceClass(ctx context.Contex
 	return wsc, nil
 }
 
-// checkPrerequisites checks if all prerequisite services are deployed on the
-// target ClusterDeployment. Returns (met, missingNames, error).
-func (r *WorkspaceDeploymentReconciler) checkPrerequisites(ctx context.Context, wsd *workspacesv1.WorkspaceDeployment, wsc *workspacesv1.WorkspaceClass) (bool, string, error) {
-	cdRef := wsd.Spec.ClusterDeploymentRef
-	cd := &k0rdentv1beta1.ClusterDeployment{}
-	if err := r.Get(ctx, client.ObjectKey{Name: cdRef.Name, Namespace: cdRef.Namespace}, cd); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, fmt.Sprintf("ClusterDeployment %q not found", cdRef.Name), nil
+// reconcilePrerequisites evaluates and (if needed) installs prerequisites for
+// the WorkspaceDeployment. Returns (result, done, err) where `done=true` means
+// the caller should return the result without proceeding to Deploying — either
+// because we set a terminal Failed phase, or because we're still waiting on
+// installs.
+func (r *WorkspaceDeploymentReconciler) reconcilePrerequisites(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	wsc *workspacesv1.WorkspaceClass,
+) (ctrl.Result, bool, error) {
+	verdict, statuses, err := evaluatePrerequisites(ctx, r.Client, wsd, wsc)
+	if err != nil {
+		return ctrl.Result{}, true, err
+	}
+	wsd.Status.Prerequisites = statuses
+
+	switch verdict {
+	case PrerequisitesVerdictInvalid:
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
+		var msg string
+		if len(statuses) > 0 {
+			msg = statuses[0].Message
 		}
-		return false, "", err
-	}
+		wsd.Status.Message = msg
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionPrerequisitesMet,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonInvalidPrerequisite,
+			Message:            msg,
+			ObservedGeneration: wsd.Generation,
+		})
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{}, true, nil
 
-	// Build a set of deployed service template names from status
-	deployed := make(map[string]bool)
-	for _, svc := range cd.Status.Services {
-		if svc.State == k0rdentv1beta1.ServiceStateDeployed {
-			deployed[svc.Template] = true
+	case PrerequisitesVerdictFailed:
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
+		failed := firstFailedPrerequisite(statuses)
+		msg := fmt.Sprintf("Prerequisite %q failed: %s", failed.Name, failed.Message)
+		wsd.Status.Message = msg
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionPrerequisitesMet,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonPrerequisitesNotReady,
+			Message:            msg,
+			ObservedGeneration: wsd.Generation,
+		})
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{}, true, nil
+
+	case PrerequisitesVerdictMissing:
+		// Create the missing wsprereq SSes. Subsequent reconciles (via the
+		// SS watch mapper) will pick up state changes.
+		for i, st := range statuses {
+			if st.Phase != workspacesv1.PrerequisitePhasePending {
+				continue
+			}
+			if err := ensurePrerequisiteServiceSet(ctx, r.Client, wsd, wsc, wsc.Spec.Prerequisites[i]); err != nil {
+				return ctrl.Result{}, true, err
+			}
+			statuses[i].Phase = workspacesv1.PrerequisitePhaseInstalling
 		}
-	}
-
-	// Also check spec.serviceSpec.services for entries that may not have status yet
-	for _, svc := range cd.Spec.ServiceSpec.Services {
-		deployed[svc.Template] = true
-	}
-
-	var missing []string
-	for _, prereq := range wsc.Spec.Prerequisites {
-		if !deployed[prereq.Name] {
-			missing = append(missing, prereq.Name)
+		wsd.Status.Prerequisites = statuses
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseInstallingPrerequisites
+		wsd.Status.Message = installingMessage(statuses)
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionPrerequisitesMet,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonInstallingPrerequisites,
+			Message:            wsd.Status.Message,
+			ObservedGeneration: wsd.Generation,
+		})
+		if err := r.Status().Update(ctx, wsd); err != nil {
+			return ctrl.Result{}, true, err
 		}
-	}
+		return ctrl.Result{RequeueAfter: requeueInterval}, true, nil
 
-	if len(missing) > 0 {
-		return false, fmt.Sprintf("%v", missing), nil
+	case PrerequisitesVerdictInstalling:
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseInstallingPrerequisites
+		wsd.Status.Message = installingMessage(statuses)
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionPrerequisitesMet,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonInstallingPrerequisites,
+			Message:            wsd.Status.Message,
+			ObservedGeneration: wsd.Generation,
+		})
+		if err := r.Status().Update(ctx, wsd); err != nil {
+			return ctrl.Result{}, true, err
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, true, nil
+
+	case PrerequisitesVerdictSatisfied:
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionPrerequisitesMet,
+			Status:             metav1.ConditionTrue,
+			Reason:             workspacesv1.ReasonPrerequisitesMet,
+			Message:            "All prerequisites are installed",
+			ObservedGeneration: wsd.Generation,
+		})
+		// Fall through to Deploying.
+		return ctrl.Result{}, false, nil
 	}
-	return true, "", nil
+	return ctrl.Result{}, false, nil
 }
 
-// checkServiceReadiness reads the ClusterDeployment status to determine if the
-// workspace's service entry has been deployed or failed.
+// firstFailedPrerequisite returns the first prereq with phase=Failed, or a
+// zero PrerequisiteStatus if none.
+func firstFailedPrerequisite(statuses []workspacesv1.PrerequisiteStatus) workspacesv1.PrerequisiteStatus {
+	for _, s := range statuses {
+		if s.Phase == workspacesv1.PrerequisitePhaseFailed {
+			return s
+		}
+	}
+	return workspacesv1.PrerequisiteStatus{}
+}
+
+// installingMessage formats a status summary like "Installing 1/2 prerequisites: foo".
+func installingMessage(statuses []workspacesv1.PrerequisiteStatus) string {
+	var inFlight []string
+	for _, s := range statuses {
+		if s.Phase == workspacesv1.PrerequisitePhaseInstalling || s.Phase == workspacesv1.PrerequisitePhasePending {
+			inFlight = append(inFlight, s.Name)
+		}
+	}
+	return fmt.Sprintf("Installing %d/%d prerequisites: %s",
+		len(inFlight), len(statuses), strings.Join(inFlight, ", "))
+}
+
+// checkServiceReadiness reads the ServiceSet status to determine if the
+// workspace's service entry has been deployed or failed. K0rdent's CD-status
+// aggregation only reflects services that the ClusterDeployment itself spawned
+// from spec.serviceSpec.services[]; standalone ServiceSets are invisible
+// there, so the ServiceSet's own status is the authoritative source.
 func (r *WorkspaceDeploymentReconciler) checkServiceReadiness(ctx context.Context, wsd *workspacesv1.WorkspaceDeployment) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	cdRef := wsd.Spec.ClusterDeploymentRef
-	cd := &k0rdentv1beta1.ClusterDeployment{}
-	if err := r.Get(ctx, client.ObjectKey{Name: cdRef.Name, Namespace: cdRef.Namespace}, cd); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get ClusterDeployment: %w", err)
-	}
-
+	ssName := serviceSetName(wsd)
 	entryName := serviceEntryName(wsd)
 
-	for _, svc := range cd.Status.Services {
+	ss := &k0rdentv1beta1.ServiceSet{}
+	if err := r.Get(ctx, client.ObjectKey{Name: ssName, Namespace: cdRef.Namespace}, ss); err != nil {
+		if apierrors.IsNotFound(err) {
+			// ServiceSet hasn't materialised yet — keep polling.
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("failed to get ServiceSet: %w", err)
+	}
+
+	for _, svc := range ss.Status.Services {
 		if svc.Name != entryName {
 			continue
 		}
@@ -304,8 +385,8 @@ func (r *WorkspaceDeploymentReconciler) checkServiceReadiness(ctx context.Contex
 		}
 	}
 
-	// Service not yet in status — still waiting for k0rdent to report
-	log.Info("Waiting for service status", "service", entryName)
+	// Service not yet in ServiceSet status — still waiting for k0rdent to report
+	log.Info("Waiting for ServiceSet status", "serviceSet", ssName, "service", entryName)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
@@ -354,9 +435,78 @@ func setCondition(status *workspacesv1.WorkspaceDeploymentStatus, condition meta
 	status.Conditions = append(status.Conditions, condition)
 }
 
+// workspaceDeploymentForServiceSet maps a ServiceSet event back to the
+// WorkspaceDeployment(s) that depend on it. Two paths:
+//
+//  1. Workspace ServiceSet (one-to-one): the SS's name matches a WSD's
+//     serviceSetName(). Single reconcile request.
+//  2. Prerequisite ServiceSet (one-to-many, identified by labels): fan out
+//     to every WSD whose WorkspaceClass declares the SS's template as a
+//     prerequisite AND targets the same ClusterDeployment.
+func (r *WorkspaceDeploymentReconciler) workspaceDeploymentForServiceSet(
+	ctx context.Context, obj client.Object,
+) []reconcile.Request {
+	ss, ok := obj.(*k0rdentv1beta1.ServiceSet)
+	if !ok {
+		return nil
+	}
+
+	var wsds workspacesv1.WorkspaceDeploymentList
+	if err := r.List(ctx, &wsds, client.InNamespace(ss.Namespace)); err != nil {
+		log.FromContext(ctx).Error(err,
+			"failed to list WorkspaceDeployments for ServiceSet watch",
+			"serviceSet", client.ObjectKeyFromObject(ss))
+		return nil
+	}
+
+	if isPrerequisiteServiceSet(ss) {
+		cdName := ss.Labels[labelPrerequisiteCluster]
+		templateName := ss.Labels[labelPrerequisiteTemplate]
+		if cdName == "" || templateName == "" {
+			return nil
+		}
+		var requests []reconcile.Request
+		seen := map[string]bool{} // dedupe in case of duplicate prereqs
+		for i := range wsds.Items {
+			wsd := &wsds.Items[i]
+			if wsd.Spec.ClusterDeploymentRef.Name != cdName {
+				continue
+			}
+			wsc := &workspacesv1.WorkspaceClass{}
+			if err := r.Get(ctx, client.ObjectKey{Name: wsd.Spec.WorkspaceClassRef}, wsc); err != nil {
+				continue
+			}
+			for _, prereq := range wsc.Spec.Prerequisites {
+				if sanitizeLabelValue(prereq.ServiceTemplate.Name) == templateName && !seen[wsd.Name] {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: client.ObjectKeyFromObject(wsd),
+					})
+					seen[wsd.Name] = true
+					break
+				}
+			}
+		}
+		return requests
+	}
+
+	// Workspace SS path.
+	for i := range wsds.Items {
+		if serviceSetName(&wsds.Items[i]) == ss.Name {
+			return []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&wsds.Items[i]),
+			}}
+		}
+	}
+	return nil
+}
+
 func (r *WorkspaceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&workspacesv1.WorkspaceDeployment{}).
+		Watches(
+			&k0rdentv1beta1.ServiceSet{},
+			handler.EnqueueRequestsFromMapFunc(r.workspaceDeploymentForServiceSet),
+		).
 		Named("workspace-deployment").
 		Complete(r)
 }

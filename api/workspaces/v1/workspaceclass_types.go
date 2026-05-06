@@ -175,7 +175,7 @@ type WorkspaceClassSpec struct {
 	// Prerequisites lists additional ServiceTemplates that must be healthy on the
 	// target cluster before the workspace can be deployed.
 	// +optional
-	Prerequisites []ServiceTemplateRef `json:"prerequisites,omitempty"`
+	Prerequisites []PrerequisiteSpec `json:"prerequisites,omitempty"`
 
 	// AccessEndpoints declares the network endpoints this workspace type exposes.
 	// +optional
@@ -195,9 +195,28 @@ type WorkspaceClassSpec struct {
 	// +optional
 	DeployTimeout *metav1.Duration `json:"deployTimeout,omitempty"`
 
+	// PrerequisiteDeployTimeout overrides DeployTimeout for prerequisite Helm
+	// releases. Useful when prerequisite operators take noticeably longer or
+	// shorter to install than the workspace itself. Defaults to DeployTimeout
+	// when nil.
+	// +optional
+	PrerequisiteDeployTimeout *metav1.Duration `json:"prerequisiteDeployTimeout,omitempty"`
+
 	// DefaultValues provides base Helm values that are always applied.
 	// +optional
 	DefaultValues *apiextensionsv1.JSON `json:"defaultValues,omitempty"`
+}
+
+// PrerequisiteSpec declares a ServiceTemplate dependency with optional Helm
+// value overrides applied when the operator auto-installs the prerequisite
+// onto the target cluster.
+type PrerequisiteSpec struct {
+	// ServiceTemplate references the prerequisite ServiceTemplate.
+	ServiceTemplate ServiceTemplateRef `json:"serviceTemplate"`
+	// Values are optional Helm value overrides applied when installing this
+	// prerequisite. When nil, chart defaults are used.
+	// +optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
 }
 
 // WorkspaceClassStatus reports the observed state of a WorkspaceClass.

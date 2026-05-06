@@ -216,14 +216,18 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
 		}, timeout, interval).Should(Succeed())
 
-		// Simulate k0rdent reporting the service as Deployed
-		// by updating the ClusterDeployment status using the typed Go client.
+		// Simulate k0rdent reporting the service as Deployed by writing to
+		// the ServiceSet's status (the controller reads ServiceSet status —
+		// CD.status.services[] only reflects services k0rdent itself spawned).
 		Eventually(func(g Gomega) {
-			cdFetched := &k0rdentv1beta1.ClusterDeployment{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "test-colony-running-cluster", Namespace: "default"}, cdFetched)).To(Succeed())
+			ss := &k0rdentv1beta1.ServiceSet{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+				Name:      "wsd-test-colony-running-cluster-test-running",
+				Namespace: "default",
+			}, ss)).To(Succeed())
 
 			now := metav1.Now()
-			cdFetched.Status.Services = []k0rdentv1beta1.ServiceState{
+			ss.Status.Services = []k0rdentv1beta1.ServiceState{
 				{
 					Name:                    "wsd-test-colony-running-cluster-test-running",
 					Namespace:               "default",
@@ -233,13 +237,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					LastStateTransitionTime: &now,
 				},
 			}
-			g.Expect(k8sClient.Status().Update(ctx, cdFetched)).To(Succeed())
-
-			// Verify the status was written
-			cdVerify := &k0rdentv1beta1.ClusterDeployment{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "test-colony-running-cluster", Namespace: "default"}, cdVerify)).To(Succeed())
-			g.Expect(cdVerify.Status.Services).To(HaveLen(1))
-			g.Expect(cdVerify.Status.Services[0].State).To(Equal(k0rdentv1beta1.ServiceStateDeployed))
+			ss.Status.Deployed = true
+			g.Expect(k8sClient.Status().Update(ctx, ss)).To(Succeed())
 		}, timeout, interval).Should(Succeed())
 
 		// The controller should detect the Deployed state and transition to Running
@@ -527,12 +526,15 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
 		}, timeout, interval).Should(Succeed())
 
-		// Simulate k0rdent reporting the service as Failed
+		// Simulate k0rdent reporting the service as Failed via the ServiceSet status.
 		Eventually(func(g Gomega) {
-			cdFetched := &k0rdentv1beta1.ClusterDeployment{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "test-fail-cluster", Namespace: "default"}, cdFetched)).To(Succeed())
+			ss := &k0rdentv1beta1.ServiceSet{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+				Name:      "wsd-test-fail-cluster-test-fail-wsd",
+				Namespace: "default",
+			}, ss)).To(Succeed())
 			now := metav1.Now()
-			cdFetched.Status.Services = []k0rdentv1beta1.ServiceState{
+			ss.Status.Services = []k0rdentv1beta1.ServiceState{
 				{
 					Name:                    "wsd-test-fail-cluster-test-fail-wsd",
 					Namespace:               "default",
@@ -543,7 +545,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					LastStateTransitionTime: &now,
 				},
 			}
-			g.Expect(k8sClient.Status().Update(ctx, cdFetched)).To(Succeed())
+			g.Expect(k8sClient.Status().Update(ctx, ss)).To(Succeed())
 		}, timeout, interval).Should(Succeed())
 
 		// Controller should transition to Failed
@@ -559,68 +561,58 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 		}, timeout, interval).Should(Succeed())
 	})
 
-	It("should fail when prerequisite is missing from ClusterDeployment", func() {
-		// Create WorkspaceClass with a prerequisite
+	It("should auto-install missing prerequisites and enter InstallingPrerequisites", func() {
 		wsc := &workspacesv1.WorkspaceClass{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "test-llm-prereq",
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: "test-llm-prereq"},
 			Spec: workspacesv1.WorkspaceClassSpec{
-				DisplayName: "LLM Inference",
-				ServiceTemplate: workspacesv1.ServiceTemplateRef{
-					Name: "llm-template",
-				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
+				DisplayName:     "LLM Inference",
+				ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "llm-template"},
+				ResourceShape:   workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
-						CPU: resourceQuantityPtr("4"),
-					},
+					PerNode: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("4")},
 				},
-				Prerequisites: []workspacesv1.ServiceTemplateRef{
-					{Name: "llm-d-stack"},
+				Prerequisites: []workspacesv1.PrerequisiteSpec{
+					{ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "llm-d-stack"}},
 				},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 
-		// Create ClusterDeployment WITHOUT the prerequisite installed
 		cd := &k0rdentv1beta1.ClusterDeployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-prereq-cluster",
-				Namespace: "default",
-			},
-			Spec: k0rdentv1beta1.ClusterDeploymentSpec{
-				Template: "some-template",
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: "test-prereq-cluster", Namespace: "default"},
+			Spec:       k0rdentv1beta1.ClusterDeploymentSpec{Template: "some-template"},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 		wsd := &workspacesv1.WorkspaceDeployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-prereq-wsd",
-				Namespace: "default",
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: "test-prereq-wsd", Namespace: "default"},
 			Spec: workspacesv1.WorkspaceDeploymentSpec{
 				WorkspaceClassRef: "test-llm-prereq",
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
-					Name:      "test-prereq-cluster",
-					Namespace: "default",
+					Name: "test-prereq-cluster", Namespace: "default",
 				},
 				Owner: workspacesv1.OwnerInfo{Username: "testuser"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
 
-		// Should fail with PrerequisitesMet=False
+		// WSD should reach InstallingPrerequisites; wsprereq SS must be created.
 		Eventually(func(g Gomega) {
 			fetched := &workspacesv1.WorkspaceDeployment{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
-			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseFailed))
-			g.Expect(fetched.Status.Message).To(ContainSubstring("llm-d-stack"))
-			prereqCondition := findCondition(fetched.Status.Conditions, workspacesv1.ConditionPrerequisitesMet)
-			g.Expect(prereqCondition).NotTo(BeNil())
-			g.Expect(prereqCondition.Status).To(Equal(metav1.ConditionFalse))
-			g.Expect(prereqCondition.Reason).To(Equal(workspacesv1.ReasonPrerequisitesNotReady))
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseInstallingPrerequisites))
+			g.Expect(fetched.Status.Prerequisites).To(HaveLen(1))
+			g.Expect(fetched.Status.Prerequisites[0].Name).To(Equal("llm-d-stack"))
+			g.Expect(fetched.Status.Prerequisites[0].Source).To(Equal(workspacesv1.PrerequisiteSourceWorkspace))
+			g.Expect(fetched.Status.Prerequisites[0].Phase).To(Equal(workspacesv1.PrerequisitePhaseInstalling))
+
+			ss := &k0rdentv1beta1.ServiceSet{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+				Name:      "wsprereq-test-prereq-cluster-llm-d-stack",
+				Namespace: "default",
+			}, ss)).To(Succeed())
+			g.Expect(ss.Labels).To(HaveKeyWithValue("workspaces.exalsius.ai/role", "prerequisite"))
+			g.Expect(ss.Spec.Cluster).To(Equal("test-prereq-cluster"))
 		}, timeout, interval).Should(Succeed())
 	})
 
