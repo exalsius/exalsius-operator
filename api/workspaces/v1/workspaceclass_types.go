@@ -210,6 +210,12 @@ type WorkspaceClassStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration is the .metadata.generation that was last reconciled.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Valid indicates whether the referenced ServiceTemplate is available and
+	// itself reports valid=true.
+	Valid bool `json:"valid"`
+	// ValidationError describes why the WorkspaceClass is not valid.
+	// Empty when Valid is true.
+	ValidationError string `json:"validationError,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -218,6 +224,8 @@ type WorkspaceClassStatus struct {
 // +kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 // +kubebuilder:printcolumn:name="Shape",type=string,JSONPath=`.spec.resourceShape`
 // +kubebuilder:printcolumn:name="ServiceTemplate",type=string,JSONPath=`.spec.serviceTemplate.name`
+// +kubebuilder:printcolumn:name="Valid",type=boolean,JSONPath=`.status.valid`
+// +kubebuilder:printcolumn:name="ValidationError",type=string,JSONPath=`.status.validationError`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // WorkspaceClass is a cluster-scoped catalog entry that defines a workspace type.

@@ -282,6 +282,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
 		os.Exit(1)
 	}
+	if err = (&workspacescontroller.WorkspaceClassReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceClass")
+		os.Exit(1)
+	}
 
 	// Setup webhooks if enabled
 	if webhookCertDir != "" && enabled["RemoteMachineWebhook"] {
