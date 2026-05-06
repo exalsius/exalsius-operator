@@ -237,11 +237,49 @@ spec:
                 description: Phase is a human-readable summary of the deployment lifecycle.
                 enum:
                 - Pending
+                - InstallingPrerequisites
                 - Deploying
                 - Running
                 - Failed
                 - Deleting
                 type: string
+              prerequisites:
+                description: |-
+                  Prerequisites reports the per-prerequisite install state. Only populated
+                  when the resolved WorkspaceClass declares prerequisites.
+                items:
+                  description: PrerequisiteStatus reports the per-prerequisite install
+                    state.
+                  properties:
+                    message:
+                      description: Message is a human-readable detail (e.g., the underlying
+                        failure reason).
+                      type: string
+                    name:
+                      description: Name is the ServiceTemplate name from WorkspaceClass.spec.prerequisites.
+                      type: string
+                    phase:
+                      description: Phase is the current state of this prerequisite.
+                      enum:
+                      - Pending
+                      - Installing
+                      - Satisfied
+                      - Failed
+                      type: string
+                    source:
+                      description: Source identifies who is providing the prerequisite.
+                      enum:
+                      - workspace
+                      - colony
+                      type: string
+                  required:
+                  - name
+                  - phase
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               resolvedResources:
                 description: ResolvedResources captures the effective resources after
                   merging.

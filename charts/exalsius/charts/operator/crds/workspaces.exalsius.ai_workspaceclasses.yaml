@@ -178,29 +178,49 @@ spec:
                   catalog.
                 minLength: 1
                 type: string
+              prerequisiteDeployTimeout:
+                description: |-
+                  PrerequisiteDeployTimeout overrides DeployTimeout for prerequisite Helm
+                  releases. Useful when prerequisite operators take noticeably longer or
+                  shorter to install than the workspace itself. Defaults to DeployTimeout
+                  when nil.
+                type: string
               prerequisites:
                 description: |-
                   Prerequisites lists additional ServiceTemplates that must be healthy on the
                   target cluster before the workspace can be deployed.
                 items:
-                  description: ServiceTemplateRef references a k0rdent ServiceTemplate
-                    CR.
+                  description: |-
+                    PrerequisiteSpec declares a ServiceTemplate dependency with optional Helm
+                    value overrides applied when the operator auto-installs the prerequisite
+                    onto the target cluster.
                   properties:
-                    name:
-                      description: Name is the name of the ServiceTemplate CR.
-                      maxLength: 253
-                      minLength: 1
-                      type: string
-                    namespace:
-                      description: Namespace of the ServiceTemplate. When unspecified,
-                        the system namespace is implied.
-                      type: string
-                    versionConstraint:
-                      description: VersionConstraint is an optional SemVer constraint
-                        (e.g. ">=1.2.0").
-                      type: string
+                    serviceTemplate:
+                      description: ServiceTemplate references the prerequisite ServiceTemplate.
+                      properties:
+                        name:
+                          description: Name is the name of the ServiceTemplate CR.
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                        namespace:
+                          description: Namespace of the ServiceTemplate. When unspecified,
+                            the system namespace is implied.
+                          type: string
+                        versionConstraint:
+                          description: VersionConstraint is an optional SemVer constraint
+                            (e.g. ">=1.2.0").
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    values:
+                      description: |-
+                        Values are optional Helm value overrides applied when installing this
+                        prerequisite. When nil, chart defaults are used.
+                      x-kubernetes-preserve-unknown-fields: true
                   required:
-                  - name
+                  - serviceTemplate
                   type: object
                 type: array
               resourceShape:
