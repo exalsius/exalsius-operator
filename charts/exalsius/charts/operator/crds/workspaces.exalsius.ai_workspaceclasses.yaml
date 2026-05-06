@@ -26,6 +26,13 @@ spec:
     - jsonPath: .spec.serviceTemplate.name
       name: ServiceTemplate
       type: string
+    - jsonPath: .status.valid
+      name: Valid
+      type: boolean
+    - jsonPath: .status.validationError
+      name: ValidationError
+      priority: 1
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -353,6 +360,18 @@ spec:
                   last reconciled.
                 format: int64
                 type: integer
+              valid:
+                description: |-
+                  Valid indicates whether the referenced ServiceTemplate is available and
+                  itself reports valid=true.
+                type: boolean
+              validationError:
+                description: |-
+                  ValidationError describes why the WorkspaceClass is not valid.
+                  Empty when Valid is true.
+                type: string
+            required:
+            - valid
             type: object
         required:
         - spec

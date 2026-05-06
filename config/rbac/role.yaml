@@ -56,6 +56,7 @@ rules:
   - k0rdent.mirantis.com
   resources:
   - clusterdeployments
+  - servicetemplates
   verbs:
   - get
   - list
@@ -89,6 +90,15 @@ rules:
 - apiGroups:
   - workspaces.exalsius.ai
   resources:
+  - workspaceclasses/status
+  - workspacedeployments/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - workspaces.exalsius.ai
+  resources:
   - workspacedeployments
   verbs:
   - create
@@ -103,12 +113,4 @@ rules:
   resources:
   - workspacedeployments/finalizers
   verbs:
-  - update
-- apiGroups:
-  - workspaces.exalsius.ai
-  resources:
-  - workspacedeployments/status
-  verbs:
-  - get
-  - patch
   - update

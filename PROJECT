@@ -20,20 +20,18 @@ resources:
   version: v1
 - api:
     crdVersion: v1
-    namespaced: true
-  controller: true
   domain: exalsius.ai
-  group: training
-  kind: DDPJob
-  path: github.com/exalsius/exalsius-operator/api/training/v1
+  group: workspaces
+  kind: WorkspaceClass
+  path: github.com/exalsius/exalsius-operator/api/workspaces/v1
   version: v1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: exalsius.ai
-  group: infra
-  kind: User
-  path: github.com/exalsius/exalsius-operator/api/infra/v1
+  group: workspaces
+  kind: WorkspaceDeployment
+  path: github.com/exalsius/exalsius-operator/api/workspaces/v1
   version: v1
 version: "3"
