@@ -95,15 +95,8 @@ spec:
               resources:
                 description: Resources overrides the default resources from the WorkspaceClass.
                 properties:
-                  nodeCount:
-                    description: |-
-                      NodeCount is the number of worker nodes for MultiNode workspaces.
-                      Ignored for SingleNode shape.
-                    format: int32
-                    minimum: 1
-                    type: integer
-                  perNode:
-                    description: PerNode specifies resources requested per node.
+                  perReplica:
+                    description: PerReplica specifies resources requested per replica.
                     properties:
                       cpu:
                         anyOf:
@@ -115,12 +108,22 @@ spec:
                         x-kubernetes-int-or-string: true
                       gpuCount:
                         description: GPUCount is the number of GPUs requested per
-                          node.
+                          replica.
                         format: int32
                         minimum: 0
                         type: integer
+                      gpuType:
+                        description: |-
+                          GPUType is a deployment-time preference for a specific GPU model
+                          (e.g. "H100", "A100", "L40"). When unset on a WorkspaceDeployment,
+                          feasibility matches GPUs of any model. Cannot be set on a
+                          WorkspaceClass — type is a per-deployment cluster-dependent choice.
+                        type: string
                       gpuVendor:
-                        description: GPUVendor specifies the preferred GPU vendor.
+                        description: |-
+                          GPUVendor constrains the GPU vendor (NVIDIA or AMD). Set on a
+                          WorkspaceClass to express chart-level vendor compatibility (e.g. CUDA
+                          vs ROCm); inheritable into a WorkspaceDeployment that doesn't override it.
                         enum:
                         - NVIDIA
                         - AMD
@@ -142,8 +145,16 @@ spec:
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                     type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of pod-shaped instances the workspace deploys.
+                      Defaults to 1.
+                    format: int32
+                    minimum: 1
+                    type: integer
                 required:
-                - perNode
+                - perReplica
                 type: object
               suspend:
                 description: Suspend, when true, causes the operator to skip reconciliation.
@@ -225,6 +236,156 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              feasibility:
+                description: |-
+                  Feasibility reports whether the cluster has enough free capacity to
+                  deploy this workspace. Refreshed on every reconcile while the
+                  workspace is being deployed; not updated once the workspace is Running.
+                properties:
+                  available:
+                    description: Available is the cluster-wide free capacity at evaluation
+                      time.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU in cores (decimal-encoded resource.Quantity).
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the total number of GPUs.
+                        format: int32
+                        type: integer
+                      gpuType:
+                        description: GPUType identifies the GPU model that was matched.
+                          Empty when wildcard.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor identifies the vendor that was matched (when feasibility
+                          considered vendor as a constraint). Empty when wildcard.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  demanded:
+                    description: |-
+                      Demanded is the total resource demand that was checked
+                      (Replicas × PerReplica from the merged class+deployment spec).
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU in cores (decimal-encoded resource.Quantity).
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the total number of GPUs.
+                        format: int32
+                        type: integer
+                      gpuType:
+                        description: GPUType identifies the GPU model that was matched.
+                          Empty when wildcard.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor identifies the vendor that was matched (when feasibility
+                          considered vendor as a constraint). Empty when wildcard.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  evaluatedAt:
+                    description: EvaluatedAt is when this feasibility verdict was
+                      computed.
+                    format: date-time
+                    type: string
+                  fits:
+                    description: Fits is true when the demanded resources can be satisfied.
+                    type: boolean
+                  message:
+                    description: Message is a human-readable summary.
+                    type: string
+                  missing:
+                    description: Missing describes what's lacking when Fits=false.
+                      Nil when Fits=true.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU in cores (decimal-encoded resource.Quantity).
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the total number of GPUs.
+                        format: int32
+                        type: integer
+                      gpuType:
+                        description: GPUType identifies the GPU model that was matched.
+                          Empty when wildcard.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor identifies the vendor that was matched (when feasibility
+                          considered vendor as a constraint). Empty when wildcard.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                required:
+                - available
+                - demanded
+                - evaluatedAt
+                - fits
+                type: object
               message:
                 description: Message is a human-readable error or status detail.
                 type: string
@@ -284,15 +445,8 @@ spec:
                 description: ResolvedResources captures the effective resources after
                   merging.
                 properties:
-                  nodeCount:
-                    description: |-
-                      NodeCount is the number of worker nodes for MultiNode workspaces.
-                      Ignored for SingleNode shape.
-                    format: int32
-                    minimum: 1
-                    type: integer
-                  perNode:
-                    description: PerNode specifies resources requested per node.
+                  perReplica:
+                    description: PerReplica specifies resources requested per replica.
                     properties:
                       cpu:
                         anyOf:
@@ -304,12 +458,22 @@ spec:
                         x-kubernetes-int-or-string: true
                       gpuCount:
                         description: GPUCount is the number of GPUs requested per
-                          node.
+                          replica.
                         format: int32
                         minimum: 0
                         type: integer
+                      gpuType:
+                        description: |-
+                          GPUType is a deployment-time preference for a specific GPU model
+                          (e.g. "H100", "A100", "L40"). When unset on a WorkspaceDeployment,
+                          feasibility matches GPUs of any model. Cannot be set on a
+                          WorkspaceClass — type is a per-deployment cluster-dependent choice.
+                        type: string
                       gpuVendor:
-                        description: GPUVendor specifies the preferred GPU vendor.
+                        description: |-
+                          GPUVendor constrains the GPU vendor (NVIDIA or AMD). Set on a
+                          WorkspaceClass to express chart-level vendor compatibility (e.g. CUDA
+                          vs ROCm); inheritable into a WorkspaceDeployment that doesn't override it.
                         enum:
                         - NVIDIA
                         - AMD
@@ -331,8 +495,16 @@ spec:
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                     type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of pod-shaped instances the workspace deploys.
+                      Defaults to 1.
+                    format: int32
+                    minimum: 1
+                    type: integer
                 required:
-                - perNode
+                - perReplica
                 type: object
               serviceEntryName:
                 description: ServiceEntryName is the name of the service entry added

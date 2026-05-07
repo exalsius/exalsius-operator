@@ -20,9 +20,9 @@ spec:
     - jsonPath: .spec.displayName
       name: Display Name
       type: string
-    - jsonPath: .spec.resourceShape
-      name: Shape
-      type: string
+    - jsonPath: .spec.defaultResources.replicas
+      name: Replicas
+      type: integer
     - jsonPath: .spec.serviceTemplate.name
       name: ServiceTemplate
       type: string
@@ -109,15 +109,8 @@ spec:
                 description: DefaultResources are applied when a WorkspaceDeployment
                   does not override them.
                 properties:
-                  nodeCount:
-                    description: |-
-                      NodeCount is the number of worker nodes for MultiNode workspaces.
-                      Ignored for SingleNode shape.
-                    format: int32
-                    minimum: 1
-                    type: integer
-                  perNode:
-                    description: PerNode specifies resources requested per node.
+                  perReplica:
+                    description: PerReplica specifies resources requested per replica.
                     properties:
                       cpu:
                         anyOf:
@@ -129,12 +122,22 @@ spec:
                         x-kubernetes-int-or-string: true
                       gpuCount:
                         description: GPUCount is the number of GPUs requested per
-                          node.
+                          replica.
                         format: int32
                         minimum: 0
                         type: integer
+                      gpuType:
+                        description: |-
+                          GPUType is a deployment-time preference for a specific GPU model
+                          (e.g. "H100", "A100", "L40"). When unset on a WorkspaceDeployment,
+                          feasibility matches GPUs of any model. Cannot be set on a
+                          WorkspaceClass — type is a per-deployment cluster-dependent choice.
+                        type: string
                       gpuVendor:
-                        description: GPUVendor specifies the preferred GPU vendor.
+                        description: |-
+                          GPUVendor constrains the GPU vendor (NVIDIA or AMD). Set on a
+                          WorkspaceClass to express chart-level vendor compatibility (e.g. CUDA
+                          vs ROCm); inheritable into a WorkspaceDeployment that doesn't override it.
                         enum:
                         - NVIDIA
                         - AMD
@@ -156,8 +159,16 @@ spec:
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                     type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of pod-shaped instances the workspace deploys.
+                      Defaults to 1.
+                    format: int32
+                    minimum: 1
+                    type: integer
                 required:
-                - perNode
+                - perReplica
                 type: object
               defaultValues:
                 description: DefaultValues provides base Helm values that are always
@@ -223,12 +234,6 @@ spec:
                   - serviceTemplate
                   type: object
                 type: array
-              resourceShape:
-                description: 'ResourceShape declares the topology: SingleNode or MultiNode.'
-                enum:
-                - SingleNode
-                - MultiNode
-                type: string
               serviceTemplate:
                 description: |-
                   ServiceTemplate references the k0rdent ServiceTemplate CR that wraps the
@@ -305,13 +310,12 @@ spec:
             required:
             - defaultResources
             - displayName
-            - resourceShape
             - serviceTemplate
             type: object
             x-kubernetes-validations:
-            - message: nodeCount is required for MultiNode shape
-              rule: 'self.resourceShape == ''MultiNode'' ? has(self.defaultResources.nodeCount)
-                : true'
+            - message: gpuType cannot be set on a WorkspaceClass — it is a per-deployment
+                cluster-dependent choice
+              rule: '!has(self.defaultResources.perReplica.gpuType)'
           status:
             description: WorkspaceClassStatus reports the observed state of a WorkspaceClass.
             properties:
