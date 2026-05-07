@@ -206,6 +206,60 @@ type WorkspaceClassSpec struct {
 	// DefaultValues provides base Helm values that are always applied.
 	// +optional
 	DefaultValues *apiextensionsv1.JSON `json:"defaultValues,omitempty"`
+
+	// ResourceInjection optionally maps resolved per-replica resource fields
+	// to additional Helm value paths in spec.values. The standard
+	// `_exalsius.resources` path is always populated automatically — this
+	// field adds chart-specific paths, typically subchart paths in
+	// umbrella charts. Paths use JSONPath-lite syntax: dot-separated, with
+	// quoted bracket segments for keys containing dots or other special
+	// characters (e.g. 'jupyterhub.singleuser.extraResource.limits["nvidia.com/gpu"]').
+	// User-supplied spec.values at the same paths are overwritten by the
+	// operator (a ResourcesInjected condition surfaces the override).
+	// +optional
+	ResourceInjection *ResourceInjectionMap `json:"resourceInjection,omitempty"`
+}
+
+// InjectionPath is a JSONPath-lite path into the chart's Helm values tree.
+// Dot-separated, with quoted bracket segments for keys containing dots or
+// other special characters (e.g. 'jupyterhub.singleuser.extraResource.limits["nvidia.com/gpu"]').
+// +kubebuilder:validation:MinLength=1
+// +kubebuilder:validation:MaxLength=1024
+type InjectionPath string
+
+// ResourceInjectionMap declares additional Helm value paths in spec.values
+// that should receive the resolved per-replica resource fields at deploy time.
+// Each list contains JSONPath-lite paths that get the corresponding value.
+// All fields are optional; nil-resolved fields are skipped silently.
+type ResourceInjectionMap struct {
+	// Replicas lists Helm value paths receiving the resolved replica count (int).
+	// +optional
+	// +listType=set
+	Replicas []InjectionPath `json:"replicas,omitempty"`
+	// CPU lists Helm value paths receiving the resolved per-replica CPU (string).
+	// +optional
+	// +listType=set
+	CPU []InjectionPath `json:"cpu,omitempty"`
+	// Memory lists Helm value paths receiving the resolved per-replica memory (string).
+	// +optional
+	// +listType=set
+	Memory []InjectionPath `json:"memory,omitempty"`
+	// Storage lists Helm value paths receiving the resolved per-replica storage (string).
+	// +optional
+	// +listType=set
+	Storage []InjectionPath `json:"storage,omitempty"`
+	// GPUCount lists Helm value paths receiving the resolved per-replica GPU count (int).
+	// +optional
+	// +listType=set
+	GPUCount []InjectionPath `json:"gpuCount,omitempty"`
+	// GPUVendor lists Helm value paths receiving the resolved GPU vendor (string).
+	// +optional
+	// +listType=set
+	GPUVendor []InjectionPath `json:"gpuVendor,omitempty"`
+	// GPUType lists Helm value paths receiving the resolved GPU type (string).
+	// +optional
+	// +listType=set
+	GPUType []InjectionPath `json:"gpuType,omitempty"`
 }
 
 // PrerequisiteSpec declares a ServiceTemplate dependency with optional Helm

@@ -49,37 +49,52 @@ func mergeResources(classDefaults workspacesv1.WorkspaceResourceSpec, userOverri
 	return result
 }
 
-// mergeValues merges class default Helm values with user-provided values.
-// User values take precedence over class defaults (shallow merge at the top level).
-// Returns the merged JSON string for the service entry's values field.
-func mergeValues(classDefaults *apiextensionsv1.JSON, userValues *apiextensionsv1.JSON) (string, error) {
+// mergeValuesMap merges class default Helm values with user-provided values
+// into a single map. User values take precedence over class defaults (shallow
+// merge at the top level). Used as the input to resource injection before the
+// final values get serialised onto the ServiceSet.
+func mergeValuesMap(classDefaults *apiextensionsv1.JSON, userValues *apiextensionsv1.JSON) (map[string]any, error) {
 	merged := make(map[string]any)
 
-	// Start with class defaults
 	if classDefaults != nil && len(classDefaults.Raw) > 0 {
 		if err := json.Unmarshal(classDefaults.Raw, &merged); err != nil {
-			return "", fmt.Errorf("failed to unmarshal class default values: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal class default values: %w", err)
 		}
 	}
 
-	// Overlay user values (user wins)
 	if userValues != nil && len(userValues.Raw) > 0 {
 		var userMap map[string]any
 		if err := json.Unmarshal(userValues.Raw, &userMap); err != nil {
-			return "", fmt.Errorf("failed to unmarshal user values: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal user values: %w", err)
 		}
 		for k, v := range userMap {
 			merged[k] = v
 		}
 	}
 
+	return merged, nil
+}
+
+// serializeValues turns the merged values map into the inline-YAML/JSON string
+// format that k0rdent's ServiceSet.spec.services[].values expects.
+func serializeValues(merged map[string]any) (string, error) {
 	if len(merged) == 0 {
 		return "", nil
 	}
-
 	data, err := json.Marshal(merged)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal merged values: %w", err)
 	}
 	return string(data), nil
+}
+
+// mergeValues is the legacy entrypoint — preserved for callers that don't
+// participate in resource injection (e.g. prerequisite ServiceSet values,
+// which come straight from PrerequisiteSpec.Values without injection).
+func mergeValues(classDefaults *apiextensionsv1.JSON, userValues *apiextensionsv1.JSON) (string, error) {
+	merged, err := mergeValuesMap(classDefaults, userValues)
+	if err != nil {
+		return "", err
+	}
+	return serializeValues(merged)
 }

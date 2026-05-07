@@ -117,6 +117,13 @@ func (r *WorkspaceClassReconciler) evaluate(
 		return false, msg
 	}
 
+	// Validate resourceInjection paths if set. Surfaces parse errors as
+	// catalog-level invalidity so the API can filter out unusable classes
+	// before users try to deploy.
+	if err := validateInjectionPaths(wsc.Spec.ResourceInjection); err != nil {
+		return false, err.Error()
+	}
+
 	return true, ""
 }
 

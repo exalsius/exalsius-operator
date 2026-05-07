@@ -146,11 +146,21 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	entryName := serviceEntryName(wsd)
 	wsd.Status.ServiceEntryName = entryName
 
-	// Merge values: class defaultValues + user values
-	mergedValues, err := mergeValues(wsc.Spec.DefaultValues, wsd.Spec.Values)
+	// Merge values: class defaultValues + user values, then inject resolved
+	// resources at _exalsius.resources and any class.resourceInjection paths.
+	mergedMap, err := mergeValuesMap(wsc.Spec.DefaultValues, wsd.Spec.Values)
 	if err != nil {
 		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
 		wsd.Status.Message = fmt.Sprintf("Failed to merge values: %v", err)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{}, err
+	}
+	warnings := injectResources(mergedMap, resolved, wsc.Spec.ResourceInjection)
+	r.setResourcesInjectedCondition(wsd, warnings)
+	mergedValues, err := serializeValues(mergedMap)
+	if err != nil {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
+		wsd.Status.Message = fmt.Sprintf("Failed to serialize values: %v", err)
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{}, err
 	}
@@ -266,6 +276,38 @@ func (r *WorkspaceDeploymentReconciler) refreshFeasibility(
 // the caller should return the result without proceeding to Deploying — either
 // because we set a terminal Failed phase, or because we're still waiting on
 // installs.
+// setResourcesInjectedCondition records the result of resource injection into
+// the merged Helm values. Status=True is the steady state; Status=False with
+// reason=UserPathsOverwritten signals that the operator overwrote one or more
+// spec.values paths to align with the structured spec.resources channel —
+// usually a configuration mistake worth surfacing to the user.
+func (r *WorkspaceDeploymentReconciler) setResourcesInjectedCondition(
+	wsd *workspacesv1.WorkspaceDeployment,
+	warnings []resourceInjectionWarning,
+) {
+	if len(warnings) == 0 {
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionResourcesInjected,
+			Status:             metav1.ConditionTrue,
+			Reason:             workspacesv1.ReasonResourcesInjected,
+			Message:            "Resolved resources injected into Helm values",
+			ObservedGeneration: wsd.Generation,
+		})
+		return
+	}
+	msgs := make([]string, 0, len(warnings))
+	for _, w := range warnings {
+		msgs = append(msgs, w.String())
+	}
+	setCondition(&wsd.Status, metav1.Condition{
+		Type:               workspacesv1.ConditionResourcesInjected,
+		Status:             metav1.ConditionFalse,
+		Reason:             workspacesv1.ReasonUserPathsOverwritten,
+		Message:            strings.Join(msgs, "; "),
+		ObservedGeneration: wsd.Generation,
+	})
+}
+
 func (r *WorkspaceDeploymentReconciler) reconcilePrerequisites(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,

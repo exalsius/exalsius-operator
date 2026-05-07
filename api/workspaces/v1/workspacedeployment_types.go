@@ -134,6 +134,12 @@ const (
 	// capacity to deploy the workspace. Set during pre-deploy phases; not
 	// updated once the workspace is Running.
 	ConditionFeasible = "Feasible"
+	// ConditionResourcesInjected surfaces the result of resolving spec.resources
+	// into Helm values. Status=True is the steady state; Status=False signals
+	// that the operator overwrote user-supplied paths in spec.values to align
+	// them with the structured spec.resources channel — i.e., a likely user
+	// configuration error worth surfacing.
+	ConditionResourcesInjected = "ResourcesInjected"
 )
 
 // Condition reasons for WorkspaceDeployment.
@@ -154,6 +160,9 @@ const (
 	ReasonResourcesAvailable      = "ResourcesAvailable"
 	ReasonInsufficientResources   = "InsufficientResources"
 	ReasonFeasibilityUnknown      = "FeasibilityUnknown"
+	ReasonResourcesInjected       = "ResourcesInjected"
+	ReasonUserPathsOverwritten    = "UserPathsOverwritten"
+	ReasonInvalidWorkspaceClass   = "InvalidWorkspaceClass"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.
