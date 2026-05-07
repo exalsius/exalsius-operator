@@ -64,9 +64,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-workspace-1.0.0",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU:    resourceQuantityPtr("2"),
 						Memory: resourceQuantityPtr("8Gi"),
 					},
@@ -168,9 +167,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-workspace-1.0.0",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},
@@ -264,9 +262,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-workspace-1.0.0",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU:      resourceQuantityPtr("2"),
 						Memory:   resourceQuantityPtr("8Gi"),
 						GPUCount: int32Ptr(0),
@@ -319,9 +316,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-delete-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},
@@ -394,9 +390,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-multi-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},
@@ -482,9 +477,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-fail-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},
@@ -567,9 +561,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			Spec: workspacesv1.WorkspaceClassSpec{
 				DisplayName:     "LLM Inference",
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "llm-template"},
-				ResourceShape:   workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("4")},
+					PerReplica: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("4")},
 				},
 				Prerequisites: []workspacesv1.PrerequisiteSpec{
 					{ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "llm-d-stack"}},
@@ -627,9 +620,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-parallel-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},
@@ -716,9 +708,8 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-concurrent-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},

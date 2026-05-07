@@ -22,16 +22,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ResourceShape describes whether a workspace runs on a single node or across
-// multiple nodes.
-// +kubebuilder:validation:Enum=SingleNode;MultiNode
-type ResourceShape string
-
-const (
-	ResourceShapeSingleNode ResourceShape = "SingleNode"
-	ResourceShapeMultiNode  ResourceShape = "MultiNode"
-)
-
 // GPUVendor enumerates supported GPU vendors.
 // +kubebuilder:validation:Enum=NVIDIA;AMD
 type GPUVendor string
@@ -41,7 +31,7 @@ const (
 	GPUVendorAMD    GPUVendor = "AMD"
 )
 
-// ResourceRequirements specifies compute resource requirements for a single node.
+// ResourceRequirements specifies compute resource requirements for a single replica.
 type ResourceRequirements struct {
 	// CPU is the number of CPU cores requested (e.g. "4", "500m").
 	// +optional
@@ -52,24 +42,37 @@ type ResourceRequirements struct {
 	// Storage is the amount of persistent storage requested (e.g. "100Gi").
 	// +optional
 	Storage *resource.Quantity `json:"storage,omitempty"`
-	// GPUCount is the number of GPUs requested per node.
+	// GPUCount is the number of GPUs requested per replica.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	GPUCount *int32 `json:"gpuCount,omitempty"`
-	// GPUVendor specifies the preferred GPU vendor.
+	// GPUVendor constrains the GPU vendor (NVIDIA or AMD). Set on a
+	// WorkspaceClass to express chart-level vendor compatibility (e.g. CUDA
+	// vs ROCm); inheritable into a WorkspaceDeployment that doesn't override it.
 	// +optional
 	GPUVendor *GPUVendor `json:"gpuVendor,omitempty"`
+	// GPUType is a deployment-time preference for a specific GPU model
+	// (e.g. "H100", "A100", "L40"). When unset on a WorkspaceDeployment,
+	// feasibility matches GPUs of any model. Cannot be set on a
+	// WorkspaceClass — type is a per-deployment cluster-dependent choice.
+	// +optional
+	GPUType *string `json:"gpuType,omitempty"`
 }
 
 // WorkspaceResourceSpec defines the compute resources for a workspace.
+// A workspace deploys Replicas pod-shaped instances, each with PerReplica
+// resources. Whether replicas are spread across Kubernetes nodes or
+// co-located is decided by the chart's affinity rules and the K8s scheduler;
+// this spec only describes total demand (Replicas × PerReplica).
 type WorkspaceResourceSpec struct {
-	// NodeCount is the number of worker nodes for MultiNode workspaces.
-	// Ignored for SingleNode shape.
+	// Replicas is the number of pod-shaped instances the workspace deploys.
+	// Defaults to 1.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
-	NodeCount *int32 `json:"nodeCount,omitempty"`
-	// PerNode specifies resources requested per node.
-	PerNode ResourceRequirements `json:"perNode"`
+	// +kubebuilder:default=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// PerReplica specifies resources requested per replica.
+	PerReplica ResourceRequirements `json:"perReplica"`
 }
 
 // ServiceTemplateRef references a k0rdent ServiceTemplate CR.
@@ -154,7 +157,7 @@ type UserFacingConfigField struct {
 
 // WorkspaceClassSpec defines the catalog entry for a workspace type.
 //
-// +kubebuilder:validation:XValidation:rule="self.resourceShape == 'MultiNode' ? has(self.defaultResources.nodeCount) : true",message="nodeCount is required for MultiNode shape"
+// +kubebuilder:validation:XValidation:rule="!has(self.defaultResources.perReplica.gpuType)",message="gpuType cannot be set on a WorkspaceClass — it is a per-deployment cluster-dependent choice"
 type WorkspaceClassSpec struct {
 	// DisplayName is the human-readable name shown in the workspace catalog.
 	// +kubebuilder:validation:MinLength=1
@@ -167,8 +170,6 @@ type WorkspaceClassSpec struct {
 	// Helm chart for this workspace type.
 	ServiceTemplate ServiceTemplateRef `json:"serviceTemplate"`
 
-	// ResourceShape declares the topology: SingleNode or MultiNode.
-	ResourceShape ResourceShape `json:"resourceShape"`
 	// DefaultResources are applied when a WorkspaceDeployment does not override them.
 	DefaultResources WorkspaceResourceSpec `json:"defaultResources"`
 
@@ -241,7 +242,7 @@ type WorkspaceClassStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=wsc
 // +kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
-// +kubebuilder:printcolumn:name="Shape",type=string,JSONPath=`.spec.resourceShape`
+// +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.spec.defaultResources.replicas`
 // +kubebuilder:printcolumn:name="ServiceTemplate",type=string,JSONPath=`.spec.serviceTemplate.name`
 // +kubebuilder:printcolumn:name="Valid",type=boolean,JSONPath=`.status.valid`
 // +kubebuilder:printcolumn:name="ValidationError",type=string,JSONPath=`.status.validationError`,priority=1

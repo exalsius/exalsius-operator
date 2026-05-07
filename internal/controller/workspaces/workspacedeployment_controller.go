@@ -23,6 +23,7 @@ import (
 	"time"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -104,6 +105,16 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		ObservedGeneration: wsd.Generation,
 	})
 
+	// Refresh feasibility status while the workspace hasn't yet reached Running.
+	// This is observability only — no gating; the API gates user-facing
+	// admission. We swallow regional-cluster failures and requeue, the same
+	// way other transient k8s errors are handled.
+	if wsd.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseRunning {
+		if res, err := r.refreshFeasibility(ctx, wsd, wsc); err != nil {
+			return res, err
+		}
+	}
+
 	// Auto-install prerequisites declared on the WorkspaceClass. Skipped
 	// entirely when no prereqs are declared — the common case.
 	if len(wsc.Spec.Prerequisites) > 0 {
@@ -183,6 +194,71 @@ func (r *WorkspaceDeploymentReconciler) resolveWorkspaceClass(ctx context.Contex
 		return nil, err
 	}
 	return wsc, nil
+}
+
+// refreshFeasibility computes feasibility against the live regional cluster
+// and writes status.feasibility + Feasible condition. Pure observability —
+// never changes phase. Regional-cluster transient errors result in a requeue.
+func (r *WorkspaceDeploymentReconciler) refreshFeasibility(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	wsc *workspacesv1.WorkspaceClass,
+) (ctrl.Result, error) {
+	demanded := mergeResources(wsc.Spec.DefaultResources, wsd.Spec.Resources)
+
+	regionalClient, err := common.GetRegionalClusterClient(
+		ctx, r.Client, wsd.Spec.ClusterDeploymentRef.Namespace,
+		wsd.Spec.ClusterDeploymentRef.Name, r.Scheme,
+	)
+	if err != nil {
+		// Set a Feasible=Unknown condition so the API can surface "we don't
+		// know yet" rather than a stale verdict — but keep deploying.
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionFeasible,
+			Status:             metav1.ConditionUnknown,
+			Reason:             workspacesv1.ReasonFeasibilityUnknown,
+			Message:            fmt.Sprintf("Could not reach regional cluster: %v", err),
+			ObservedGeneration: wsd.Generation,
+		})
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	feas, err := computeFeasibility(ctx, regionalClient, demanded)
+	if err != nil {
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionFeasible,
+			Status:             metav1.ConditionUnknown,
+			Reason:             workspacesv1.ReasonFeasibilityUnknown,
+			Message:            fmt.Sprintf("Failed to compute feasibility: %v", err),
+			ObservedGeneration: wsd.Generation,
+		})
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	wsd.Status.Feasibility = feas
+	if feas.Fits {
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionFeasible,
+			Status:             metav1.ConditionTrue,
+			Reason:             workspacesv1.ReasonResourcesAvailable,
+			Message:            feas.Message,
+			ObservedGeneration: wsd.Generation,
+		})
+	} else {
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionFeasible,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonInsufficientResources,
+			Message:            feas.Message,
+			ObservedGeneration: wsd.Generation,
+		})
+	}
+	if err := r.Status().Update(ctx, wsd); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
 // reconcilePrerequisites evaluates and (if needed) installs prerequisites for

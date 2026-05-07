@@ -29,9 +29,8 @@ var _ = Describe("ServiceSet-based workspace deployment", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-ss-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU: resourceQuantityPtr("2"),
 					},
 				},

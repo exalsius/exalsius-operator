@@ -13,7 +13,7 @@ import (
 var _ = Describe("mergeResources", func() {
 	It("should return class defaults when no user overrides", func() {
 		defaults := workspacesv1.WorkspaceResourceSpec{
-			PerNode: workspacesv1.ResourceRequirements{
+			PerReplica: workspacesv1.ResourceRequirements{
 				CPU:      resourceQuantityPtr("2"),
 				Memory:   resourceQuantityPtr("8Gi"),
 				GPUCount: int32Ptr(0),
@@ -21,14 +21,14 @@ var _ = Describe("mergeResources", func() {
 		}
 
 		result := mergeResources(defaults, nil)
-		Expect(result.PerNode.CPU.String()).To(Equal("2"))
-		Expect(result.PerNode.Memory.String()).To(Equal("8Gi"))
-		Expect(*result.PerNode.GPUCount).To(Equal(int32(0)))
+		Expect(result.PerReplica.CPU.String()).To(Equal("2"))
+		Expect(result.PerReplica.Memory.String()).To(Equal("8Gi"))
+		Expect(*result.PerReplica.GPUCount).To(Equal(int32(0)))
 	})
 
 	It("should override only specified fields", func() {
 		defaults := workspacesv1.WorkspaceResourceSpec{
-			PerNode: workspacesv1.ResourceRequirements{
+			PerReplica: workspacesv1.ResourceRequirements{
 				CPU:      resourceQuantityPtr("2"),
 				Memory:   resourceQuantityPtr("8Gi"),
 				Storage:  resourceQuantityPtr("20Gi"),
@@ -37,7 +37,7 @@ var _ = Describe("mergeResources", func() {
 		}
 
 		overrides := &workspacesv1.WorkspaceResourceSpec{
-			PerNode: workspacesv1.ResourceRequirements{
+			PerReplica: workspacesv1.ResourceRequirements{
 				CPU:      resourceQuantityPtr("4"),
 				GPUCount: int32Ptr(2),
 			},
@@ -45,47 +45,77 @@ var _ = Describe("mergeResources", func() {
 
 		result := mergeResources(defaults, overrides)
 		// Overridden fields
-		Expect(result.PerNode.CPU.String()).To(Equal("4"))
-		Expect(*result.PerNode.GPUCount).To(Equal(int32(2)))
+		Expect(result.PerReplica.CPU.String()).To(Equal("4"))
+		Expect(*result.PerReplica.GPUCount).To(Equal(int32(2)))
 		// Fallback to defaults
-		Expect(result.PerNode.Memory.String()).To(Equal("8Gi"))
-		Expect(result.PerNode.Storage.String()).To(Equal("20Gi"))
+		Expect(result.PerReplica.Memory.String()).To(Equal("8Gi"))
+		Expect(result.PerReplica.Storage.String()).To(Equal("20Gi"))
 	})
 
-	It("should override nodeCount for MultiNode", func() {
+	It("should override Replicas", func() {
 		defaults := workspacesv1.WorkspaceResourceSpec{
-			NodeCount: int32Ptr(3),
-			PerNode: workspacesv1.ResourceRequirements{
+			Replicas: int32Ptr(3),
+			PerReplica: workspacesv1.ResourceRequirements{
 				CPU: resourceQuantityPtr("8"),
 			},
 		}
 
 		overrides := &workspacesv1.WorkspaceResourceSpec{
-			NodeCount: int32Ptr(5),
+			Replicas: int32Ptr(5),
 		}
 
 		result := mergeResources(defaults, overrides)
-		Expect(*result.NodeCount).To(Equal(int32(5)))
-		Expect(result.PerNode.CPU.String()).To(Equal("8"))
+		Expect(*result.Replicas).To(Equal(int32(5)))
+		Expect(result.PerReplica.CPU.String()).To(Equal("8"))
 	})
 
 	It("should override GPU vendor", func() {
 		nvidia := workspacesv1.GPUVendorNVIDIA
 		amd := workspacesv1.GPUVendorAMD
 		defaults := workspacesv1.WorkspaceResourceSpec{
-			PerNode: workspacesv1.ResourceRequirements{
+			PerReplica: workspacesv1.ResourceRequirements{
 				GPUVendor: &nvidia,
 			},
 		}
 
 		overrides := &workspacesv1.WorkspaceResourceSpec{
-			PerNode: workspacesv1.ResourceRequirements{
+			PerReplica: workspacesv1.ResourceRequirements{
 				GPUVendor: &amd,
 			},
 		}
 
 		result := mergeResources(defaults, overrides)
-		Expect(*result.PerNode.GPUVendor).To(Equal(workspacesv1.GPUVendorAMD))
+		Expect(*result.PerReplica.GPUVendor).To(Equal(workspacesv1.GPUVendorAMD))
+	})
+
+	It("should NOT inherit gpuType from class — wildcard semantics", func() {
+		gpuType := "H100"
+		defaults := workspacesv1.WorkspaceResourceSpec{
+			PerReplica: workspacesv1.ResourceRequirements{
+				// Defensive: even if a class somehow had gpuType (CEL bypass),
+				// the merged result must drop it.
+				GPUType: &gpuType,
+			},
+		}
+		result := mergeResources(defaults, nil)
+		Expect(result.PerReplica.GPUType).To(BeNil())
+	})
+
+	It("should take gpuType from user overrides", func() {
+		userType := "A100"
+		defaults := workspacesv1.WorkspaceResourceSpec{
+			PerReplica: workspacesv1.ResourceRequirements{
+				CPU: resourceQuantityPtr("2"),
+			},
+		}
+		overrides := &workspacesv1.WorkspaceResourceSpec{
+			PerReplica: workspacesv1.ResourceRequirements{
+				GPUType: &userType,
+			},
+		}
+		result := mergeResources(defaults, overrides)
+		Expect(result.PerReplica.GPUType).NotTo(BeNil())
+		Expect(*result.PerReplica.GPUType).To(Equal("A100"))
 	})
 })
 

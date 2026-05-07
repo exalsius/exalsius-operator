@@ -9,31 +9,41 @@ import (
 )
 
 // mergeResources merges user-provided resource overrides with class defaults.
-// User overrides win; nil fields fall back to class defaults.
+//
+// Numeric fields (replicas, cpu, memory, storage, gpuCount) and the GPUVendor
+// constraint inherit from class defaults when not overridden. GPUType is
+// special: it never inherits from class — admins cannot pin a specific GPU
+// model on a class (that's a per-deployment cluster-dependent choice).
+// Nil GPUType means "any model" for feasibility matching.
 func mergeResources(classDefaults workspacesv1.WorkspaceResourceSpec, userOverrides *workspacesv1.WorkspaceResourceSpec) workspacesv1.WorkspaceResourceSpec {
-	if userOverrides == nil {
-		return *classDefaults.DeepCopy()
-	}
-
 	result := *classDefaults.DeepCopy()
+	// Defensive: even if a class somehow has gpuType set (CEL bypass), wipe it.
+	result.PerReplica.GPUType = nil
 
-	if userOverrides.NodeCount != nil {
-		result.NodeCount = userOverrides.NodeCount
+	if userOverrides == nil {
+		return result
 	}
-	if userOverrides.PerNode.CPU != nil {
-		result.PerNode.CPU = userOverrides.PerNode.CPU
+
+	if userOverrides.Replicas != nil {
+		result.Replicas = userOverrides.Replicas
 	}
-	if userOverrides.PerNode.Memory != nil {
-		result.PerNode.Memory = userOverrides.PerNode.Memory
+	if userOverrides.PerReplica.CPU != nil {
+		result.PerReplica.CPU = userOverrides.PerReplica.CPU
 	}
-	if userOverrides.PerNode.Storage != nil {
-		result.PerNode.Storage = userOverrides.PerNode.Storage
+	if userOverrides.PerReplica.Memory != nil {
+		result.PerReplica.Memory = userOverrides.PerReplica.Memory
 	}
-	if userOverrides.PerNode.GPUCount != nil {
-		result.PerNode.GPUCount = userOverrides.PerNode.GPUCount
+	if userOverrides.PerReplica.Storage != nil {
+		result.PerReplica.Storage = userOverrides.PerReplica.Storage
 	}
-	if userOverrides.PerNode.GPUVendor != nil {
-		result.PerNode.GPUVendor = userOverrides.PerNode.GPUVendor
+	if userOverrides.PerReplica.GPUCount != nil {
+		result.PerReplica.GPUCount = userOverrides.PerReplica.GPUCount
+	}
+	if userOverrides.PerReplica.GPUVendor != nil {
+		result.PerReplica.GPUVendor = userOverrides.PerReplica.GPUVendor
+	}
+	if userOverrides.PerReplica.GPUType != nil {
+		result.PerReplica.GPUType = userOverrides.PerReplica.GPUType
 	}
 
 	return result

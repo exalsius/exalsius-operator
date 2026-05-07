@@ -18,6 +18,7 @@ package v1
 
 import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -63,6 +64,52 @@ const (
 	PrerequisiteSourceColony PrerequisiteSource = "colony"
 )
 
+// FeasibilityStatus reports whether the cluster has enough free capacity
+// to satisfy this workspace's resource demand. Computed by the operator
+// during pre-deploy phases against live cluster state. Not updated once
+// the workspace is Running.
+type FeasibilityStatus struct {
+	// Fits is true when the demanded resources can be satisfied.
+	Fits bool `json:"fits"`
+	// EvaluatedAt is when this feasibility verdict was computed.
+	EvaluatedAt metav1.Time `json:"evaluatedAt"`
+	// Demanded is the total resource demand that was checked
+	// (Replicas × PerReplica from the merged class+deployment spec).
+	Demanded ResourceTotals `json:"demanded"`
+	// Available is the cluster-wide free capacity at evaluation time.
+	Available ResourceTotals `json:"available"`
+	// Missing describes what's lacking when Fits=false. Nil when Fits=true.
+	// +optional
+	Missing *ResourceTotals `json:"missing,omitempty"`
+	// Message is a human-readable summary.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// ResourceTotals summarises a cluster-total resource view used for
+// feasibility reporting.
+type ResourceTotals struct {
+	// CPU in cores (decimal-encoded resource.Quantity).
+	// +optional
+	CPU *resource.Quantity `json:"cpu,omitempty"`
+	// Memory in bytes.
+	// +optional
+	Memory *resource.Quantity `json:"memory,omitempty"`
+	// Storage in bytes.
+	// +optional
+	Storage *resource.Quantity `json:"storage,omitempty"`
+	// GPUCount is the total number of GPUs.
+	// +optional
+	GPUCount *int32 `json:"gpuCount,omitempty"`
+	// GPUVendor identifies the vendor that was matched (when feasibility
+	// considered vendor as a constraint). Empty when wildcard.
+	// +optional
+	GPUVendor *GPUVendor `json:"gpuVendor,omitempty"`
+	// GPUType identifies the GPU model that was matched. Empty when wildcard.
+	// +optional
+	GPUType *string `json:"gpuType,omitempty"`
+}
+
 // PrerequisiteStatus reports the per-prerequisite install state.
 type PrerequisiteStatus struct {
 	// Name is the ServiceTemplate name from WorkspaceClass.spec.prerequisites.
@@ -83,6 +130,10 @@ const (
 	ConditionClassResolved    = "ClassResolved"
 	ConditionPrerequisitesMet = "PrerequisitesMet"
 	ConditionHelmReleaseReady = "HelmReleaseReady"
+	// ConditionFeasible reports whether the cluster currently has enough
+	// capacity to deploy the workspace. Set during pre-deploy phases; not
+	// updated once the workspace is Running.
+	ConditionFeasible = "Feasible"
 )
 
 // Condition reasons for WorkspaceDeployment.
@@ -100,6 +151,9 @@ const (
 	ReasonInternalError           = "InternalError"
 	ReasonSuspended               = "Suspended"
 	ReasonInvalidPrerequisite     = "InvalidPrerequisite"
+	ReasonResourcesAvailable      = "ResourcesAvailable"
+	ReasonInsufficientResources   = "InsufficientResources"
+	ReasonFeasibilityUnknown      = "FeasibilityUnknown"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.
@@ -180,6 +234,12 @@ type WorkspaceDeploymentStatus struct {
 	// +listType=map
 	// +listMapKey=name
 	Prerequisites []PrerequisiteStatus `json:"prerequisites,omitempty"`
+
+	// Feasibility reports whether the cluster has enough free capacity to
+	// deploy this workspace. Refreshed on every reconcile while the
+	// workspace is being deployed; not updated once the workspace is Running.
+	// +optional
+	Feasibility *FeasibilityStatus `json:"feasibility,omitempty"`
 
 	// Message is a human-readable error or status detail.
 	// +optional

@@ -21,9 +21,8 @@ var _ = Describe("WorkspaceClass", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "jupyter-workspace-1.0.0",
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU:      resourceQuantityPtr("2"),
 						Memory:   resourceQuantityPtr("8Gi"),
 						GPUCount: int32Ptr(0),
@@ -46,26 +45,25 @@ var _ = Describe("WorkspaceClass", func() {
 		fetched := &workspacesv1.WorkspaceClass{}
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "jupyter-notebook"}, fetched)).To(Succeed())
 		Expect(fetched.Spec.DisplayName).To(Equal("Jupyter Notebook"))
-		Expect(fetched.Spec.ResourceShape).To(Equal(workspacesv1.ResourceShapeSingleNode))
 		Expect(fetched.Spec.AccessEndpoints).To(HaveLen(1))
 		Expect(fetched.Spec.AccessEndpoints[0].Name).To(Equal("web"))
 	})
 
-	It("should reject MultiNode WorkspaceClass without nodeCount", func() {
+	It("should reject WorkspaceClass that pins a specific gpuType", func() {
+		gpuType := "H100"
 		wsc := &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "bad-multinode",
+				Name: "bad-gpu-type",
 			},
 			Spec: workspacesv1.WorkspaceClassSpec{
-				DisplayName: "Bad MultiNode",
+				DisplayName: "Class with gpuType",
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "some-template",
 				},
-				ResourceShape: workspacesv1.ResourceShapeMultiNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					// Missing nodeCount — should fail CEL validation
-					PerNode: workspacesv1.ResourceRequirements{
-						CPU: resourceQuantityPtr("4"),
+					PerReplica: workspacesv1.ResourceRequirements{
+						CPU:     resourceQuantityPtr("4"),
+						GPUType: &gpuType,
 					},
 				},
 			},
@@ -73,10 +71,10 @@ var _ = Describe("WorkspaceClass", func() {
 
 		err := k8sClient.Create(ctx, wsc)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("nodeCount"))
+		Expect(err.Error()).To(ContainSubstring("gpuType"))
 	})
 
-	It("should accept MultiNode WorkspaceClass with nodeCount", func() {
+	It("should accept multi-replica WorkspaceClass", func() {
 		wsc := &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "slurm-cluster",
@@ -86,10 +84,9 @@ var _ = Describe("WorkspaceClass", func() {
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name: "slurm-workspace-1.0.0",
 				},
-				ResourceShape: workspacesv1.ResourceShapeMultiNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					NodeCount: int32Ptr(3),
-					PerNode: workspacesv1.ResourceRequirements{
+					Replicas: int32Ptr(3),
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU:      resourceQuantityPtr("8"),
 						Memory:   resourceQuantityPtr("32Gi"),
 						GPUCount: int32Ptr(1),
@@ -109,7 +106,7 @@ var _ = Describe("WorkspaceClass", func() {
 
 		fetched := &workspacesv1.WorkspaceClass{}
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "slurm-cluster"}, fetched)).To(Succeed())
-		Expect(*fetched.Spec.DefaultResources.NodeCount).To(Equal(int32(3)))
+		Expect(*fetched.Spec.DefaultResources.Replicas).To(Equal(int32(3)))
 		Expect(fetched.Spec.Prerequisites).To(HaveLen(1))
 		Expect(fetched.Spec.AccessEndpoints).To(HaveLen(2))
 	})

@@ -22,9 +22,8 @@ var _ = Describe("Prerequisite auto-install", func() {
 		spec := workspacesv1.WorkspaceClassSpec{
 			DisplayName:     "Prereq Test",
 			ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "ws-template"},
-			ResourceShape:   workspacesv1.ResourceShapeSingleNode,
 			DefaultResources: workspacesv1.WorkspaceResourceSpec{
-				PerNode: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("100m")},
+				PerReplica: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("100m")},
 			},
 		}
 		if prereqTemplate != "" {
@@ -187,9 +186,8 @@ var _ = Describe("Prerequisite auto-install", func() {
 			Spec: workspacesv1.WorkspaceClassSpec{
 				DisplayName:     "VC test",
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "ws-template"},
-				ResourceShape:   workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("100m")},
+					PerReplica: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("100m")},
 				},
 				Prerequisites: []workspacesv1.PrerequisiteSpec{{
 					ServiceTemplate: workspacesv1.ServiceTemplateRef{

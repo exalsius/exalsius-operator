@@ -58,9 +58,8 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 					Name:      stName,
 					Namespace: stNamespace,
 				},
-				ResourceShape: workspacesv1.ResourceShapeSingleNode,
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
-					PerNode: workspacesv1.ResourceRequirements{
+					PerReplica: workspacesv1.ResourceRequirements{
 						CPU:    resourceQuantityPtr("100m"),
 						Memory: resourceQuantityPtr("128Mi"),
 					},
