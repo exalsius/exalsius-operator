@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.3](https://github.com/exalsius/exalsius-operator/compare/v0.8.2...v0.8.3) (2026-05-28)
+
+
+### Bug Fixes
+
+* isolate per-cluster ensure failures in colony reconciliation ([e7f63bd](https://github.com/exalsius/exalsius-operator/commit/e7f63bd376ef798f8c7faef57073eeb422fa0838))
+* pre-allocate slice with known length of clusterErrs ([8881d05](https://github.com/exalsius/exalsius-operator/commit/8881d0553709d1b295223f0fbfb73d0d80e528c3))
+
 ## [0.8.2](https://github.com/exalsius/exalsius-operator/compare/v0.8.1...v0.8.2) (2026-04-02)
 
 
