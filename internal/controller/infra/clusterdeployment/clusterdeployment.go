@@ -134,12 +134,11 @@ func EnsureClusterDeployment(ctx context.Context, c client.Client, colony *infra
 		}
 	}
 	if !exists {
+		// Append the ref in memory only. The Colony status is persisted once at the end
+		// of reconcileColony (a single Status().Patch), so writing it here would be a
+		// redundant patch that races with that final write.
 		colony.Status.ClusterDeploymentRefs = append(colony.Status.ClusterDeploymentRefs, clusterDeploymentRef)
-		if err := updateColonyStatusWithRetry(ctx, c, colony); err != nil {
-			log.Error(err, "Failed to update colony status")
-			return err
-		}
-		log.Info("Updated colony ClusterDeploymentRefs", "name", colony.Name, "namespace", colony.Namespace)
+		log.Info("Added ClusterDeploymentRef to colony status (in-memory)", "name", colony.Name, "namespace", colony.Namespace)
 	}
 
 	return nil
@@ -235,45 +234,6 @@ func updateManagedFields(ctx context.Context, c client.Client,
 	}
 
 	return nil, fmt.Errorf("failed to update ClusterDeployment after %d attempts", maxRetries)
-}
-
-// updateColonyStatusWithRetry handles Colony status updates with conflict resolution
-func updateColonyStatusWithRetry(ctx context.Context, c client.Client, colony *infrav1.Colony) error {
-	log := log.FromContext(ctx)
-	maxRetries := 5
-	backoff := time.Millisecond * 100
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Get the latest version of the object
-		latest := &infrav1.Colony{}
-		if err := c.Get(ctx, client.ObjectKeyFromObject(colony), latest); err != nil {
-			if errors.IsNotFound(err) {
-				// Object no longer exists, nothing to update
-				return nil
-			}
-			return fmt.Errorf("failed to get latest version of Colony: %w", err)
-		}
-
-		// Update the status with the new ClusterDeploymentRefs
-		latest.Status.ClusterDeploymentRefs = colony.Status.ClusterDeploymentRefs
-
-		// Try to update
-		if err := c.Status().Update(ctx, latest); err != nil {
-			if errors.IsConflict(err) {
-				log.Info("Conflict detected, retrying status update", "attempt", attempt+1, "name", latest.Name)
-				time.Sleep(backoff)
-				backoff *= 2 // Exponential backoff
-				continue
-			}
-			return fmt.Errorf("failed to update Colony status: %w", err)
-		}
-
-		// Update successful, copy the updated object back to colony
-		*colony = *latest
-		return nil
-	}
-
-	return fmt.Errorf("failed to update Colony status after %d attempts due to conflicts", maxRetries)
 }
 
 // CleanupOrphanedClusterDeployments removes ClusterDeployment objects that are no longer

@@ -19,6 +19,7 @@ package infra
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -122,18 +123,23 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 		}
 	}
 
-	// Ensure all ClusterDeployments exist
-	for _, colonyCluster := range colony.Spec.ColonyClusters {
-		if colonyCluster.ClusterDeploymentSpec != nil {
-			if err := clusterdeployment.EnsureClusterDeployment(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
-				log.Error(err, "Failed to ensure cluster deployment")
-				return ctrl.Result{}, err
-			}
+	// Ensure all ClusterDeployments exist. A failure to ensure one cluster must not
+	// block the others, so collect per-cluster errors and keep going. The aggregated
+	// error is returned at the end, after status has been persisted.
+	var clusterErrs []error
+	for i := range colony.Spec.ColonyClusters {
+		colonyCluster := colony.Spec.ColonyClusters[i]
+		if colonyCluster.ClusterDeploymentSpec == nil {
+			continue
+		}
+		if err := clusterdeployment.EnsureClusterDeployment(ctx, r.Client, colony, &colonyCluster, r.Scheme); err != nil {
+			log.Error(err, "Failed to ensure cluster deployment", "cluster", colonyCluster.ClusterName)
+			clusterErrs = append(clusterErrs, fmt.Errorf("cluster %q: %w", colonyCluster.ClusterName, err))
 		}
 	}
 
-	// Update status from cluster states
-	if err := r.updateColonyStatusFromClusters(ctx, colony); err != nil {
+	// Update status from cluster states, surfacing any per-cluster ensure failures.
+	if err := r.updateColonyStatusFromClusters(ctx, colony, clusterErrs); err != nil {
 		log.Error(err, "Failed to update Colony status from clusters")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
@@ -151,6 +157,14 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 	// 2. The function handles gracefully when services/clusters aren't ready yet
 	// For NetBird-enabled colonies, this is handled by the NetBird reconciler instead
 	r.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+
+	// If any cluster failed to be ensured, return the aggregated error now that status
+	// has been persisted and healthy clusters have been serviced. This requeues with
+	// backoff and surfaces in reconcile_errors_total, and takes priority over the
+	// not-all-ready requeue below.
+	if len(clusterErrs) > 0 {
+		return ctrl.Result{}, stderrors.Join(clusterErrs...)
+	}
 
 	// Requeue sooner if not all clusters are ready
 	if colony.Status.ReadyClusters != colony.Status.TotalClusters {
@@ -462,9 +476,8 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 // updateColonyStatusFromClusters checks all clusters referenced in the Colony status
 // and updates the Colony status with a ClusterReady condition that is true only if
 // all referenced Clusters have a ready condition.
-func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, colony *infrav1.Colony) error {
+func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, colony *infrav1.Colony, clusterErrs []error) error {
 	log := log.FromContext(ctx)
-	allReady := true
 	var notReadyClusters []string
 
 	// Log to verify NetBird status is preserved
@@ -473,10 +486,17 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			"setupKeyID", colony.Status.NetBird.SetupKeyID)
 	}
 
-	// initialize status fields
-	colony.Status.TotalClusters = 0
-	colony.Status.ReadyClusters = 0
+	// Total reflects the intended cluster count from spec, so a cluster that failed to
+	// be ensured (and therefore has no ClusterDeploymentRef) still counts as not-ready
+	// rather than silently disappearing from the totals.
+	totalClusters := 0
+	for i := range colony.Spec.ColonyClusters {
+		if colony.Spec.ColonyClusters[i].ClusterDeploymentSpec != nil {
+			totalClusters++
+		}
+	}
 
+	readyClusters := 0
 	for _, ref := range colony.Status.ClusterDeploymentRefs {
 		clusterDeployment := &k0rdentv1beta1.ClusterDeployment{}
 		key := client.ObjectKey{
@@ -487,40 +507,62 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			if errors.IsNotFound(err) {
 				log.Info("ClusterDeployment not found", "clusterDeployment", fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s (not found)", ref.Namespace, ref.Name))
-				allReady = false
 				continue
 			}
 			return err
 		}
 
-		clusterDeploymentConditions := clusterDeployment.GetConditions()
-		for _, condition := range *clusterDeploymentConditions {
+		ready := true
+		for _, condition := range *clusterDeployment.GetConditions() {
 			if condition.Type == k0rdentv1beta1.ReadyCondition && condition.Status == metav1.ConditionFalse {
-				allReady = false
-				notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
+				ready = false
 			}
+		}
+		if ready {
+			readyClusters++
+		} else {
+			notReadyClusters = append(notReadyClusters, fmt.Sprintf("%s/%s", ref.Namespace, ref.Name))
 		}
 	}
 
-	colony.Status.TotalClusters = int32(len(colony.Status.ClusterDeploymentRefs))
-	colony.Status.ReadyClusters = int32(len(colony.Status.ClusterDeploymentRefs) - len(notReadyClusters))
+	// Clusters that could not be ensured at all are not-ready by definition.
+	var failedClusters []string
+	for _, err := range clusterErrs {
+		failedClusters = append(failedClusters, err.Error())
+	}
+
+	colony.Status.TotalClusters = int32(totalClusters)
+	colony.Status.ReadyClusters = int32(readyClusters)
 
 	var condition metav1.Condition
-	if allReady {
-		colony.Status.Phase = "Ready"
+	switch {
+	case len(clusterErrs) > 0:
+		colony.Status.Phase = "Degraded"
+		msg := fmt.Sprintf("%d/%d clusters ready. Failed to ensure: %v", readyClusters, totalClusters, failedClusters)
+		if len(notReadyClusters) > 0 {
+			msg += fmt.Sprintf(". Not ready: %v", notReadyClusters)
+		}
 		condition = metav1.Condition{
 			Type:    "ClustersReady",
-			Status:  metav1.ConditionTrue,
-			Reason:  "AllClustersReady",
-			Message: fmt.Sprintf("All %d clusters of the colony are ready", len(colony.Status.ClusterDeploymentRefs)),
+			Status:  metav1.ConditionFalse,
+			Reason:  "ClusterEnsureFailed",
+			Message: msg,
 		}
-	} else {
+	case readyClusters != totalClusters || len(notReadyClusters) > 0:
 		colony.Status.Phase = "Provisioning"
 		condition = metav1.Condition{
 			Type:    "ClustersReady",
 			Status:  metav1.ConditionFalse,
 			Reason:  "NotAllClustersReady",
-			Message: fmt.Sprintf("%d out of %d clusters are ready. Not ready clusters: %v", colony.Status.ReadyClusters, colony.Status.TotalClusters, notReadyClusters),
+			Message: fmt.Sprintf("%d out of %d clusters are ready. Not ready clusters: %v", readyClusters, totalClusters, notReadyClusters),
+		}
+	default:
+		colony.Status.Phase = "Ready"
+		condition = metav1.Condition{
+			Type:    "ClustersReady",
+			Status:  metav1.ConditionTrue,
+			Reason:  "AllClustersReady",
+			Message: fmt.Sprintf("All %d clusters of the colony are ready", totalClusters),
 		}
 	}
 
