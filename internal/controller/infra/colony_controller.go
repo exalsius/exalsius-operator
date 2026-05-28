@@ -526,7 +526,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	}
 
 	// Clusters that could not be ensured at all are not-ready by definition.
-	var failedClusters []string
+	failedClusters := make([]string, 0, len(clusterErrs))
 	for _, err := range clusterErrs {
 		failedClusters = append(failedClusters, err.Error())
 	}
