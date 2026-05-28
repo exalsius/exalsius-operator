@@ -25,8 +25,11 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -644,6 +647,86 @@ var _ = Describe("Colony Controller", func() {
 
 		It("getNotReadyReason should return appropriate reasons", func() {
 			Expect(getNotReadyReason(errors.NewNotFound(corev1.Resource("secret"), "test"))).To(Equal("kubeconfig not found"))
+		})
+	})
+
+	Context("Per-cluster failure isolation", func() {
+		// Uses a fake client with an interceptor to deny Create for exactly one cluster's
+		// ClusterDeployment. envtest has no k0rdent admission webhook, so this is the only
+		// way to deterministically reproduce a per-cluster ensure failure.
+		makeCluster := func(name string) infrav1.ColonyCluster {
+			cc := infrav1.ColonyCluster{ClusterName: name}
+			Expect(cc.SetClusterDeploymentSpec(&k0rdentv1beta1.ClusterDeploymentSpec{
+				Template:   "test-template",
+				Credential: "test-credential",
+			})).To(Succeed())
+			return cc
+		}
+
+		It("continues past a failing cluster, reports Degraded, and returns an aggregated error", func() {
+			By("Building a colony with one healthy and one failing cluster")
+			colony := &infrav1.Colony{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "iso-test",
+					Namespace:  "default",
+					UID:        "iso-test-uid",
+					Finalizers: []string{colonyFinalizer},
+				},
+				Spec: infrav1.ColonySpec{
+					ColonyClusters: []infrav1.ColonyCluster{
+						makeCluster("good"),
+						makeCluster("bad"),
+					},
+				},
+			}
+
+			By("Creating a fake client that denies Create for the bad cluster's ClusterDeployment")
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(k8sClient.Scheme()).
+				WithStatusSubresource(&infrav1.Colony{}).
+				WithObjects(colony).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						if cd, ok := obj.(*k0rdentv1beta1.ClusterDeployment); ok && cd.Name == "iso-test-bad" {
+							return errors.NewBadRequest("simulated admission denial: Credential test-credential not found")
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				}).
+				Build()
+
+			reconciler := &ColonyReconciler{Client: fakeClient, Scheme: fakeClient.Scheme()}
+
+			By("Reconciling once")
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "iso-test", Namespace: "default"},
+			})
+
+			By("Returning the aggregated per-cluster error")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`cluster "bad"`))
+
+			By("Still creating the healthy cluster's ClusterDeployment (sibling not starved)")
+			goodCD := &k0rdentv1beta1.ClusterDeployment{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "iso-test-good", Namespace: "default"}, goodCD)).To(Succeed())
+
+			By("Not creating the failing cluster's ClusterDeployment")
+			badCD := &k0rdentv1beta1.ClusterDeployment{}
+			Expect(errors.IsNotFound(fakeClient.Get(ctx, types.NamespacedName{Name: "iso-test-bad", Namespace: "default"}, badCD))).To(BeTrue())
+
+			By("Reporting Degraded status with honest counts")
+			updated := &infrav1.Colony{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "iso-test", Namespace: "default"}, updated)).To(Succeed())
+			Expect(updated.Status.Phase).To(Equal("Degraded"))
+			Expect(updated.Status.TotalClusters).To(Equal(int32(2)))
+			Expect(updated.Status.ReadyClusters).To(Equal(int32(1)))
+
+			By("Naming the failed cluster in the ClustersReady condition")
+			cond := meta.FindStatusCondition(updated.Status.Conditions, "ClustersReady")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("ClusterEnsureFailed"))
+			Expect(cond.Message).To(ContainSubstring(`cluster "bad"`))
 		})
 	})
 })
