@@ -89,7 +89,7 @@ var _ = Describe("mergeResources", func() {
 	})
 
 	It("should NOT inherit gpuType from class — wildcard semantics", func() {
-		gpuType := "H100"
+		gpuType := testGPUTypeH100
 		defaults := workspacesv1.WorkspaceResourceSpec{
 			PerReplica: workspacesv1.ResourceRequirements{
 				// Defensive: even if a class somehow had gpuType (CEL bypass),

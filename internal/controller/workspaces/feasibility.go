@@ -37,9 +37,6 @@ const (
 	resourceNvidiaGPU        = "nvidia.com/gpu"
 	resourceAMDGPU           = "amd.com/gpu"
 
-	// nodeLabelGPUVendor is a common convention surface for the GPU vendor;
-	// not all clusters set it. Used as a hint, not a hard filter.
-	nodeLabelGPUVendor = "nvidia.com/gpu.present"
 	// Common labels reflecting the GPU model on a node. Different cluster
 	// operators populate different labels — we accept any of them.
 	nodeLabelGPUProduct = "nvidia.com/gpu.product"
@@ -133,7 +130,7 @@ func computeFeasibility(
 		Demanded:    *totalDemand,
 		Available:   aggregateToTotals(available, demanded.PerReplica.GPUVendor, demanded.PerReplica.GPUType),
 		Missing:     missing,
-		Message:     formatFeasibilityMessage(fits, demanded, totalDemand, available, missing),
+		Message:     formatFeasibilityMessage(fits, demanded, missing),
 	}
 	return status, nil
 }
@@ -314,8 +311,6 @@ func podGPUMatchesNode(p *corev1.Pod, _ []corev1.Pod, nodes []corev1.Node, vendo
 func formatFeasibilityMessage(
 	fits bool,
 	demanded workspacesv1.WorkspaceResourceSpec,
-	totals *workspacesv1.ResourceTotals,
-	avail aggregate,
 	missing *workspacesv1.ResourceTotals,
 ) string {
 	replicas := int32(1)

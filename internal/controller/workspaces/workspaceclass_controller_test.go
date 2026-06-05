@@ -19,11 +19,11 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 		interval = 250 * time.Millisecond
 	)
 
-	makeServiceTemplate := func(name, namespace string) *k0rdentv1beta1.ServiceTemplate {
+	makeServiceTemplate := func(name string) *k0rdentv1beta1.ServiceTemplate {
 		return &k0rdentv1beta1.ServiceTemplate{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
-				Namespace: namespace,
+				Namespace: "default",
 			},
 			Spec: k0rdentv1beta1.ServiceTemplateSpec{
 				Helm: &k0rdentv1beta1.HelmSpec{
@@ -49,14 +49,14 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 		Expect(k8sClient.Status().Update(ctx, fresh)).To(Succeed())
 	}
 
-	makeClass := func(name, stName, stNamespace string) *workspacesv1.WorkspaceClass {
+	makeClass := func(name, stName string) *workspacesv1.WorkspaceClass {
 		return &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 			Spec: workspacesv1.WorkspaceClassSpec{
 				DisplayName: "Test",
 				ServiceTemplate: workspacesv1.ServiceTemplateRef{
 					Name:      stName,
-					Namespace: stNamespace,
+					Namespace: "default",
 				},
 				DefaultResources: workspacesv1.WorkspaceResourceSpec{
 					PerReplica: workspacesv1.ResourceRequirements{
@@ -69,7 +69,7 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 	}
 
 	It("should set valid=false when the ServiceTemplate is missing", func() {
-		wsc := makeClass("wsc-missing-st", "missing-template", "default")
+		wsc := makeClass("wsc-missing-st", "missing-template")
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 
 		Eventually(func(g Gomega) {
@@ -83,11 +83,11 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 	})
 
 	It("should set valid=true when the ServiceTemplate reports valid=true", func() {
-		st := makeServiceTemplate("st-valid-true", "default")
+		st := makeServiceTemplate("st-valid-true")
 		Expect(k8sClient.Create(ctx, st)).To(Succeed())
 		patchSTValid(st, true, "")
 
-		wsc := makeClass("wsc-st-valid", "st-valid-true", "default")
+		wsc := makeClass("wsc-st-valid", "st-valid-true")
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 
 		Eventually(func(g Gomega) {
@@ -99,11 +99,11 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 	})
 
 	It("should propagate the ServiceTemplate's validationError when valid=false", func() {
-		st := makeServiceTemplate("st-valid-false", "default")
+		st := makeServiceTemplate("st-valid-false")
 		Expect(k8sClient.Create(ctx, st)).To(Succeed())
 		patchSTValid(st, false, "chart pull failed")
 
-		wsc := makeClass("wsc-st-invalid", "st-valid-false", "default")
+		wsc := makeClass("wsc-st-invalid", "st-valid-false")
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 
 		Eventually(func(g Gomega) {
@@ -115,11 +115,11 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 	})
 
 	It("should fall back to a default error when ST is invalid with no message", func() {
-		st := makeServiceTemplate("st-invalid-no-msg", "default")
+		st := makeServiceTemplate("st-invalid-no-msg")
 		Expect(k8sClient.Create(ctx, st)).To(Succeed())
 		// status.valid defaults to false on creation; no ValidationError set
 
-		wsc := makeClass("wsc-invalid-no-msg", "st-invalid-no-msg", "default")
+		wsc := makeClass("wsc-invalid-no-msg", "st-invalid-no-msg")
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 
 		Eventually(func(g Gomega) {
@@ -131,11 +131,11 @@ var _ = Describe("WorkspaceClassReconciler", func() {
 	})
 
 	It("should re-reconcile the WorkspaceClass when the ServiceTemplate status flips", func() {
-		st := makeServiceTemplate("st-flipper", "default")
+		st := makeServiceTemplate("st-flipper")
 		Expect(k8sClient.Create(ctx, st)).To(Succeed())
 		patchSTValid(st, false, "not yet")
 
-		wsc := makeClass("wsc-flipper", "st-flipper", "default")
+		wsc := makeClass("wsc-flipper", "st-flipper")
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 
 		// Initially invalid

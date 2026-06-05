@@ -126,7 +126,7 @@ func TestFeasibility_GPUTypeStrictMatchOnlyCountsMatchingNodes(t *testing.T) {
 		nodeWithGPU("h100-node", "16", "64Gi", "NVIDIA", "NVIDIA-H100", 1),
 	)
 	nvidia := workspacesv1.GPUVendorNVIDIA
-	h100 := "H100"
+	h100 := testGPUTypeH100
 	demand := workspacesv1.WorkspaceResourceSpec{
 		Replicas: int32Ptr(1),
 		PerReplica: workspacesv1.ResourceRequirements{

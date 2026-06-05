@@ -59,23 +59,20 @@ func parsePath(s string) ([]string, error) {
 		emittedSinceDot = false
 	)
 
-	flushBare := func() error {
+	flushBare := func() {
 		if buf.Len() == 0 {
-			return nil
+			return
 		}
 		out = append(out, buf.String())
 		buf.Reset()
 		emittedSinceDot = true
-		return nil
 	}
 
 	for i < n {
 		c := s[i]
 		switch c {
 		case '.':
-			if err := flushBare(); err != nil {
-				return nil, err
-			}
+			flushBare()
 			if !emittedSinceDot {
 				return nil, fmt.Errorf("empty segment in path %q", s)
 			}
@@ -85,9 +82,7 @@ func parsePath(s string) ([]string, error) {
 				return nil, fmt.Errorf("path %q ends with a trailing dot", s)
 			}
 		case '[':
-			if err := flushBare(); err != nil {
-				return nil, err
-			}
+			flushBare()
 			i++
 			if i >= n {
 				return nil, fmt.Errorf("path %q has unclosed bracket", s)
@@ -126,9 +121,7 @@ func parsePath(s string) ([]string, error) {
 		}
 	}
 
-	if err := flushBare(); err != nil {
-		return nil, err
-	}
+	flushBare()
 	if !emittedSinceDot {
 		return nil, fmt.Errorf("path %q ends with a trailing dot", s)
 	}

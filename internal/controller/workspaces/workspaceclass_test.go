@@ -50,7 +50,7 @@ var _ = Describe("WorkspaceClass", func() {
 	})
 
 	It("should reject WorkspaceClass that pins a specific gpuType", func() {
-		gpuType := "H100"
+		gpuType := testGPUTypeH100
 		wsc := &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "bad-gpu-type",
