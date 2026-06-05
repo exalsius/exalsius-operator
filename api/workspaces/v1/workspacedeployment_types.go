@@ -191,6 +191,10 @@ const (
 	ReasonRoutesReady             = "RoutesReady"
 	ReasonRoutingInProgress       = "RoutingInProgress"
 	ReasonRoutingError            = "RoutingError"
+	// ReasonRoutingInfraNotReady signals that the tenant's routing
+	// infrastructure (regional cluster, gateway, listeners) is missing or
+	// unprogrammed — an admin-fixable condition (remediation: contact_admin).
+	ReasonRoutingInfraNotReady = "RoutingInfraNotReady"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.

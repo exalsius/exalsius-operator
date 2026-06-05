@@ -52,8 +52,10 @@ import (
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	workspacescontroller "github.com/exalsius/exalsius-operator/internal/controller/workspaces"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing/gatewayapi"
 	"github.com/exalsius/exalsius-operator/internal/preflight"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -67,6 +69,9 @@ func init() {
 
 	utilruntime.Must(infrav1.AddToScheme(scheme))
 	utilruntime.Must(workspacesv1.AddToScheme(scheme))
+	// Gateway API types are read/written on regional clusters via the
+	// workspace routing provider; the regional client shares this scheme.
+	utilruntime.Must(gatewayv1.Install(scheme))
 	// +kubebuilder:scaffold:scheme
 	if err := clusterv1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Cluster API to scheme")
@@ -104,6 +109,8 @@ func main() {
 	var enableHTTP2 bool
 	var webhookPort int
 	var webhookCertDir string
+	var workspaceGatewayName string
+	var workspaceGatewayNamespace string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -122,6 +129,10 @@ func main() {
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server binds to.")
 	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "",
 		"The directory that contains the webhook server certificate. If empty, webhook server is disabled.")
+	flag.StringVar(&workspaceGatewayName, "workspace-gateway-name", gatewayapi.DefaultGatewayName,
+		"Name of the tenant Gateway on regional clusters that workspace routes attach to.")
+	flag.StringVar(&workspaceGatewayNamespace, "workspace-gateway-namespace", gatewayapi.DefaultGatewayNamespace,
+		"Namespace of the tenant Gateway on regional clusters.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -278,6 +289,10 @@ func main() {
 	if err = (&workspacescontroller.WorkspaceDeploymentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		RouteProvider: gatewayapi.New(gatewayapi.Config{
+			GatewayName:      workspaceGatewayName,
+			GatewayNamespace: workspaceGatewayNamespace,
+		}),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
 		os.Exit(1)

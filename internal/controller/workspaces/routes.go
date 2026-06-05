@@ -57,11 +57,20 @@ func (r *WorkspaceDeploymentReconciler) reconcileRoutes(
 		Scheme:           r.Scheme,
 	})
 	if err != nil {
+		// Infra gaps (no gateway, no regional parent) are admin-fixable and
+		// get their own reason so the API can map them to contact_admin
+		// remediation; everything else is a transient provider error.
+		reason := workspacesv1.ReasonRoutingError
+		message := fmt.Sprintf("Failed to ensure routes: %v", err)
+		if routing.IsInfraNotReady(err) {
+			reason = workspacesv1.ReasonRoutingInfraNotReady
+			message = fmt.Sprintf("Routing infrastructure is not ready: %v", err)
+		}
 		setCondition(&wsd.Status, metav1.Condition{
 			Type:               workspacesv1.ConditionRoutesReady,
 			Status:             metav1.ConditionFalse,
-			Reason:             workspacesv1.ReasonRoutingError,
-			Message:            fmt.Sprintf("Failed to ensure routes: %v", err),
+			Reason:             reason,
+			Message:            message,
 			ObservedGeneration: wsd.Generation,
 		})
 		_ = r.Status().Update(ctx, wsd)

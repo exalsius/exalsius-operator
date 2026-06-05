@@ -7,6 +7,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,7 +29,7 @@ const (
 // This name is used both in the ServiceSet's services[] and for status tracking.
 // Includes the cluster name to ensure uniqueness.
 func serviceEntryName(wsd *workspacesv1.WorkspaceDeployment) string {
-	return fmt.Sprintf("wsd-%s-%s", wsd.Spec.ClusterDeploymentRef.Name, wsd.Name)
+	return routing.HelmReleaseName(wsd)
 }
 
 // serviceSetName returns the name of the ServiceSet for a workspace deployment.

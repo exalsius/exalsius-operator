@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,19 +31,12 @@ import (
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
 )
 
-const (
-	// LabelWorkspace marks a namespace as a workspace namespace and identifies
-	// the workspace it belongs to. Istio mesh discovery (discoverySelectors)
-	// keys off this label so that ONLY workspace namespaces participate in
-	// cross-cluster endpoint discovery — prerequisites and system services
-	// stay cluster-local (ADR-0001).
-	LabelWorkspace = "workspaces.exalsius.ai/workspace"
-
-	// workspaceNamespacePrefix prefixes the per-workspace namespace on the
-	// child cluster. Workspace names are capped at 60 chars via CEL so the
-	// prefixed name stays a valid DNS-1123 namespace name.
-	workspaceNamespacePrefix = "ws-"
-)
+// LabelWorkspace marks a namespace as a workspace namespace and identifies
+// the workspace it belongs to. Istio mesh discovery (discoverySelectors)
+// keys off this label so that ONLY workspace namespaces participate in
+// cross-cluster endpoint discovery — prerequisites and system services
+// stay cluster-local (ADR-0001). Shared with routing providers.
+const LabelWorkspace = routing.LabelWorkspace
 
 // workspaceNamespaceName returns the per-workspace namespace on the child
 // cluster. One namespace per workspace — the unit of isolation, mesh
@@ -50,7 +44,7 @@ const (
 // construction (workspace names are unique per org namespace, and a child
 // cluster belongs to exactly one tenant).
 func workspaceNamespaceName(wsd *workspacesv1.WorkspaceDeployment) string {
-	return workspaceNamespacePrefix + wsd.Name
+	return routing.WorkspaceNamespaceName(wsd)
 }
 
 // getChildClusterClient builds a client for the WSD's target child cluster
