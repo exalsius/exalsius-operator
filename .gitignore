@@ -33,4 +33,5 @@ go.work
 
 # local scratch / working notes
 /workspace-refactoring/
+/.scratch/
 
