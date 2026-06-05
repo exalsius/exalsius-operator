@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 var (
@@ -65,6 +66,7 @@ var _ = BeforeSuite(func() {
 	Expect(k0rdentv1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(workspacesv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(gatewayv1.Install(scheme.Scheme)).To(Succeed())
+	Expect(gatewayv1alpha2.Install(scheme.Scheme)).To(Succeed())
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{

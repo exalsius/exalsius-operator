@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
@@ -60,6 +61,10 @@ const (
 
 	// maxHostnameLabel is the DNS limit for a single hostname label.
 	maxHostnameLabel = 63
+
+	// msgAwaitingAcceptance is the not-ready message while the gateway
+	// controller has not (yet) accepted a freshly written route.
+	msgAwaitingAcceptance = "waiting for the gateway to accept the route"
 )
 
 // Config locates the tenant Gateway by convention. Operator-level defaults,
@@ -92,6 +97,9 @@ func New(cfg Config) *Provider {
 type gatewayContext struct {
 	regionalClient client.Client
 	domain         string
+	// gateway is the tenant Gateway — read-only; its TCP listeners form the
+	// port pool for SSH/TCP endpoints.
+	gateway *gatewayv1.Gateway
 }
 
 // EnsureRoutes implements routing.RouteProvider.
@@ -109,14 +117,34 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 	entries := make([]workspacesv1.AccessEntry, 0, len(req.Endpoints))
 	primaryAssigned := false
 	for _, ep := range req.Endpoints {
-		if ep.Protocol != workspacesv1.RouteProtocolHTTP {
-			// SSH/TCP ride the gateway port pool — a separate slice.
+		svcName := routing.EndpointServiceName(req.Workspace, ep)
+		if len(svcName) > maxHostnameLabel {
+			// The chart-convention Service name is a DNS label too. A name
+			// this long could not exist on the child cluster either —
+			// surface it instead of failing the whole provider call.
+			// (The per-endpoint serviceName override is the escape hatch.)
 			entries = append(entries, workspacesv1.AccessEntry{
 				Name:     ep.Name,
 				Protocol: ep.Protocol,
 				Ready:    false,
-				Message:  fmt.Sprintf("%s routing via the gateway port pool is not yet available", ep.Protocol),
+				Message: fmt.Sprintf(
+					"conventional Service name %q exceeds %d characters; shorten the workspace or endpoint name",
+					svcName, maxHostnameLabel),
 			})
+			continue
+		}
+
+		if ep.Protocol != workspacesv1.RouteProtocolHTTP {
+			// SSH/TCP: no hostname routing on raw TCP — these get a
+			// dedicated high port on the tenant domain from the Port Pool.
+			if err := p.ensureMirrorService(ctx, gwCtx.regionalClient, nsName, svcName, req.Workspace.Name, ep); err != nil {
+				return nil, err
+			}
+			entry, err := p.ensureTCPRoute(ctx, gwCtx, nsName, svcName, req.Workspace.Name, ep)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, entry)
 			continue
 		}
 
@@ -143,22 +171,6 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 		}
 		hostname := label + "." + gwCtx.domain
 
-		svcName := routing.EndpointServiceName(req.Workspace, ep)
-		if len(svcName) > maxHostnameLabel {
-			// The chart-convention Service name is a DNS label too. A name
-			// this long could not exist on the child cluster either —
-			// surface it instead of failing the whole provider call.
-			// (The per-endpoint serviceName override is the escape hatch.)
-			entries = append(entries, workspacesv1.AccessEntry{
-				Name:     ep.Name,
-				Protocol: ep.Protocol,
-				Ready:    false,
-				Message: fmt.Sprintf(
-					"conventional Service name %q exceeds %d characters; shorten the workspace or endpoint name",
-					svcName, maxHostnameLabel),
-			})
-			continue
-		}
 		if err := p.ensureMirrorService(ctx, gwCtx.regionalClient, nsName, svcName, req.Workspace.Name, ep); err != nil {
 			return nil, err
 		}
@@ -174,7 +186,7 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 			Ready:    ready,
 		}
 		if !ready {
-			entry.Message = "waiting for the gateway to accept the route"
+			entry.Message = msgAwaitingAcceptance
 		}
 		entries = append(entries, entry)
 	}
@@ -215,8 +227,20 @@ func (p *Provider) CleanupRoutes(ctx context.Context, req routing.RouteRequest) 
 		return fmt.Errorf("failed to reach regional cluster for route cleanup: %w", err)
 	}
 
+	nsName := routing.WorkspaceNamespaceName(req.Workspace)
+
+	// Delete TCPRoutes explicitly BEFORE the namespace: namespace
+	// termination can take a while, and the routes ARE the port-allocation
+	// table — removing them returns the pool ports immediately.
+	if err := regionalClient.DeleteAllOf(ctx, &gatewayv1alpha2.TCPRoute{},
+		client.InNamespace(nsName),
+		client.MatchingLabels{routing.LabelWorkspace: req.Workspace.Name},
+	); err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
+		return fmt.Errorf("failed to delete TCPRoutes on regional cluster: %w", err)
+	}
+
 	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: routing.WorkspaceNamespaceName(req.Workspace)},
+		ObjectMeta: metav1.ObjectMeta{Name: nsName},
 	}
 	if err := regionalClient.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete mirror namespace on regional cluster: %w", err)
@@ -278,7 +302,7 @@ func (p *Provider) resolveGatewayContext(ctx context.Context, req routing.RouteR
 			p.cfg.GatewayNamespace, p.cfg.GatewayName)}
 	}
 
-	return &gatewayContext{regionalClient: regionalClient, domain: domain}, nil
+	return &gatewayContext{regionalClient: regionalClient, domain: domain, gateway: gw}, nil
 }
 
 func (p *Provider) getClusterDeployment(ctx context.Context, req routing.RouteRequest) (*metav1.PartialObjectMetadata, error) {
@@ -450,13 +474,15 @@ func (p *Provider) ensureHTTPRoute(
 		}
 	}
 
-	return routeProgrammed(route, p.cfg.GatewayName, p.cfg.GatewayNamespace), nil
+	return parentsProgrammed(route.Status.Parents, p.cfg.GatewayName, p.cfg.GatewayNamespace), nil
 }
 
-// routeProgrammed checks the route's status for our parentRef reporting
-// Accepted=True and ResolvedRefs=True.
-func routeProgrammed(route *gatewayv1.HTTPRoute, gwName, gwNamespace string) bool {
-	for _, parent := range route.Status.Parents {
+// parentsProgrammed checks a route's parent statuses for our gateway
+// reporting Accepted=True and ResolvedRefs=True — the route-level
+// equivalents of the ADR's "Accepted + Programmed". Shared by HTTPRoute and
+// TCPRoute (identical status shape).
+func parentsProgrammed(parents []gatewayv1.RouteParentStatus, gwName, gwNamespace string) bool {
+	for _, parent := range parents {
 		ref := parent.ParentRef
 		if string(ref.Name) != gwName {
 			continue

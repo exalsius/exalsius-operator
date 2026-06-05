@@ -2,7 +2,6 @@ package workspaces
 
 import (
 	"strings"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -21,162 +20,176 @@ import (
 	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing/gatewayapi"
 )
 
-// The Gateway API provider is exercised directly (not through the suite's
-// reconciler, which runs the fake provider): envtest doubles as both the
-// management cluster (CDs, kubeconfig secrets) and the regional cluster
-// (Gateway, HTTPRoutes, mirror Services). Route status conditions are set
-// manually, the same way the suite flips ServiceSet status.
-var _ = Describe("Gateway API route provider", func() {
-	const (
-		timeout      = 30 * time.Second
-		interval     = 250 * time.Millisecond
-		tenantDomain = "test.ex.ls"
-	)
+// Shared fixtures for the Gateway API provider specs. The provider is
+// exercised directly (not through the suite's reconciler, which runs the
+// fake provider): envtest doubles as both the management cluster (CDs,
+// kubeconfig secrets) and the regional cluster (Gateway, routes, mirror
+// Services). Route status conditions are set manually, the same way the
+// suite flips ServiceSet status.
 
-	makeRequest := func(wsdName, cdName string, endpoints ...workspacesv1.AccessEndpoint) routing.RouteRequest {
-		return routing.RouteRequest{
-			Workspace: &workspacesv1.WorkspaceDeployment{
-				ObjectMeta: metav1.ObjectMeta{Name: wsdName, Namespace: "default"},
-				Spec: workspacesv1.WorkspaceDeploymentSpec{
-					WorkspaceClassRef: "irrelevant",
-					ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
-						Name: cdName, Namespace: "default",
-					},
-					Owner: workspacesv1.OwnerInfo{Username: "tester"},
+const gwTestDomain = "test.ex.ls"
+
+func gwMakeRequest(wsdName, cdName string, endpoints ...workspacesv1.AccessEndpoint) routing.RouteRequest {
+	return routing.RouteRequest{
+		Workspace: &workspacesv1.WorkspaceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: wsdName, Namespace: "default"},
+			Spec: workspacesv1.WorkspaceDeploymentSpec{
+				WorkspaceClassRef: "irrelevant",
+				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
+					Name: cdName, Namespace: "default",
 				},
+				Owner: workspacesv1.OwnerInfo{Username: "tester"},
 			},
-			Endpoints:        endpoints,
-			ManagementClient: k8sClient,
-			Scheme:           scheme.Scheme,
-		}
+		},
+		Endpoints:        endpoints,
+		ManagementClient: k8sClient,
+		Scheme:           scheme.Scheme,
+	}
+}
+
+// gwSetupTopology creates the child CD (with regional label), the regional
+// CD, and kubeconfig secrets pointing back at envtest.
+func gwSetupTopology(prefix string) (childCD string) {
+	GinkgoHelper()
+	childCD = prefix + "-cd"
+	regionalName := prefix + "-regional"
+	regionalCD := prefix + "-regional-cd"
+
+	Expect(k8sClient.Create(ctx, &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: childCD, Namespace: "default",
+			Labels: map[string]string{common.LabelKOFRegionalClusterName: regionalName},
+		},
+		Spec: k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
+	})).To(Succeed())
+	Expect(k8sClient.Create(ctx, &k0rdentv1beta1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: regionalCD, Namespace: "default",
+			Labels: map[string]string{common.LabelKOFClusterName: regionalName},
+		},
+		Spec: k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
+	})).To(Succeed())
+	ensureChildKubeconfigSecret(childCD, "default")
+	ensureChildKubeconfigSecret(regionalCD, "default")
+	return childCD
+}
+
+func gwHTTPSListener() gatewayv1.Listener {
+	tlsMode := gatewayv1.TLSModeTerminate
+	return gatewayv1.Listener{
+		Name:     "https",
+		Port:     443,
+		Protocol: gatewayv1.HTTPSProtocolType,
+		Hostname: hostnamePtr("*." + gwTestDomain),
+		TLS: &gatewayv1.ListenerTLSConfig{
+			Mode: &tlsMode,
+			CertificateRefs: []gatewayv1.SecretObjectReference{
+				{Name: "wildcard-cert"},
+			},
+		},
+	}
+}
+
+func gwTCPListener(name string, port int32) gatewayv1.Listener {
+	return gatewayv1.Listener{
+		Name:     gatewayv1.SectionName(name),
+		Port:     port,
+		Protocol: gatewayv1.TCPProtocolType,
+	}
+}
+
+// gwSetupGateway creates the tenant Gateway in its own namespace and
+// (optionally) marks it Programmed. Default listeners: one HTTPS wildcard.
+func gwSetupGateway(gwNamespace string, programmed bool, listeners ...gatewayv1.Listener) {
+	GinkgoHelper()
+	Expect(k8sClient.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: gwNamespace},
+	})).To(Succeed())
+
+	if listeners == nil {
+		listeners = []gatewayv1.Listener{gwHTTPSListener()}
 	}
 
-	// setupTopology creates the child CD (with regional label), the regional
-	// CD, and kubeconfig secrets pointing back at envtest.
-	setupTopology := func(prefix string) (childCD string) {
-		GinkgoHelper()
-		childCD = prefix + "-cd"
-		regionalName := prefix + "-regional"
-		regionalCD := prefix + "-regional-cd"
-
-		Expect(k8sClient.Create(ctx, &k0rdentv1beta1.ClusterDeployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: childCD, Namespace: "default",
-				Labels: map[string]string{common.LabelKOFRegionalClusterName: regionalName},
-			},
-			Spec: k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
-		})).To(Succeed())
-		Expect(k8sClient.Create(ctx, &k0rdentv1beta1.ClusterDeployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: regionalCD, Namespace: "default",
-				Labels: map[string]string{common.LabelKOFClusterName: regionalName},
-			},
-			Spec: k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
-		})).To(Succeed())
-		ensureChildKubeconfigSecret(childCD, "default")
-		ensureChildKubeconfigSecret(regionalCD, "default")
-		return childCD
+	gw := &gatewayv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Name: "exalsius-workspaces", Namespace: gwNamespace},
+		Spec: gatewayv1.GatewaySpec{
+			GatewayClassName: "istio",
+			Listeners:        listeners,
+		},
 	}
+	Expect(k8sClient.Create(ctx, gw)).To(Succeed())
 
-	// setupGateway creates the tenant Gateway in its own namespace with an
-	// HTTPS wildcard listener and (optionally) a Programmed condition.
-	setupGateway := func(gwNamespace string, programmed bool, listeners ...gatewayv1.Listener) {
-		GinkgoHelper()
-		Expect(k8sClient.Create(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: gwNamespace},
-		})).To(Succeed())
-
-		if listeners == nil {
-			tlsMode := gatewayv1.TLSModeTerminate
-			listeners = []gatewayv1.Listener{{
-				Name:     "https",
-				Port:     443,
-				Protocol: gatewayv1.HTTPSProtocolType,
-				Hostname: hostnamePtr("*." + tenantDomain),
-				TLS: &gatewayv1.ListenerTLSConfig{
-					Mode: &tlsMode,
-					CertificateRefs: []gatewayv1.SecretObjectReference{
-						{Name: "wildcard-cert"},
-					},
-				},
-			}}
-		}
-
-		gw := &gatewayv1.Gateway{
-			ObjectMeta: metav1.ObjectMeta{Name: "exalsius-workspaces", Namespace: gwNamespace},
-			Spec: gatewayv1.GatewaySpec{
-				GatewayClassName: "istio",
-				Listeners:        listeners,
-			},
-		}
-		Expect(k8sClient.Create(ctx, gw)).To(Succeed())
-
-		if programmed {
-			gw.Status.Conditions = []metav1.Condition{{
-				Type:               string(gatewayv1.GatewayConditionProgrammed),
-				Status:             metav1.ConditionTrue,
-				Reason:             "Programmed",
-				LastTransitionTime: metav1.Now(),
-			}}
-			Expect(k8sClient.Status().Update(ctx, gw)).To(Succeed())
-		}
-	}
-
-	newProvider := func(gwNamespace string) *gatewayapi.Provider {
-		return gatewayapi.New(gatewayapi.Config{
-			GatewayName:      "exalsius-workspaces",
-			GatewayNamespace: gwNamespace,
-		})
-	}
-
-	markRouteAccepted := func(routeName, routeNamespace, gwNamespace string) {
-		GinkgoHelper()
-		route := &gatewayv1.HTTPRoute{}
-		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: routeName, Namespace: routeNamespace}, route)).To(Succeed())
-		gwNs := gatewayv1.Namespace(gwNamespace)
-		now := metav1.Now()
-		route.Status.Parents = []gatewayv1.RouteParentStatus{{
-			ParentRef: gatewayv1.ParentReference{
-				Name:      "exalsius-workspaces",
-				Namespace: &gwNs,
-			},
-			ControllerName: "istio.io/gateway-controller",
-			Conditions: []metav1.Condition{
-				{
-					Type: string(gatewayv1.RouteConditionAccepted), Status: metav1.ConditionTrue,
-					Reason: "Accepted", LastTransitionTime: now,
-				},
-				{
-					Type: string(gatewayv1.RouteConditionResolvedRefs), Status: metav1.ConditionTrue,
-					Reason: "ResolvedRefs", LastTransitionTime: now,
-				},
-			},
+	if programmed {
+		gw.Status.Conditions = []metav1.Condition{{
+			Type:               string(gatewayv1.GatewayConditionProgrammed),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Programmed",
+			LastTransitionTime: metav1.Now(),
 		}}
-		Expect(k8sClient.Status().Update(ctx, route)).To(Succeed())
+		Expect(k8sClient.Status().Update(ctx, gw)).To(Succeed())
 	}
+}
 
+func gwNewProvider(gwNamespace string) *gatewayapi.Provider {
+	return gatewayapi.New(gatewayapi.Config{
+		GatewayName:      "exalsius-workspaces",
+		GatewayNamespace: gwNamespace,
+	})
+}
+
+func gwAcceptedParentStatus(gwNamespace string) []gatewayv1.RouteParentStatus {
+	gwNs := gatewayv1.Namespace(gwNamespace)
+	now := metav1.Now()
+	return []gatewayv1.RouteParentStatus{{
+		ParentRef: gatewayv1.ParentReference{
+			Name:      "exalsius-workspaces",
+			Namespace: &gwNs,
+		},
+		ControllerName: "istio.io/gateway-controller",
+		Conditions: []metav1.Condition{
+			{
+				Type: string(gatewayv1.RouteConditionAccepted), Status: metav1.ConditionTrue,
+				Reason: "Accepted", LastTransitionTime: now,
+			},
+			{
+				Type: string(gatewayv1.RouteConditionResolvedRefs), Status: metav1.ConditionTrue,
+				Reason: "ResolvedRefs", LastTransitionTime: now,
+			},
+		},
+	}}
+}
+
+func gwMarkHTTPRouteAccepted(routeName, routeNamespace, gwNamespace string) {
+	GinkgoHelper()
+	route := &gatewayv1.HTTPRoute{}
+	Expect(k8sClient.Get(ctx, client.ObjectKey{Name: routeName, Namespace: routeNamespace}, route)).To(Succeed())
+	route.Status.Parents = gwAcceptedParentStatus(gwNamespace)
+	Expect(k8sClient.Status().Update(ctx, route)).To(Succeed())
+}
+
+func hostnamePtr(s string) *gatewayv1.Hostname {
+	h := gatewayv1.Hostname(s)
+	return &h
+}
+
+var _ = Describe("Gateway API route provider", func() {
 	It("creates mirror namespace, Services, and HTTPRoutes with the hostname scheme", func() {
-		cd := setupTopology("gwhttp")
-		setupGateway("gwhttp-gwns", true)
-		provider := newProvider("gwhttp-gwns")
+		cd := gwSetupTopology("gwhttp")
+		gwSetupGateway("gwhttp-gwns", true)
+		provider := gwNewProvider("gwhttp-gwns")
 
-		req := makeRequest("gwhttp-wsd", cd,
+		req := gwMakeRequest("gwhttp-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888},
 			workspacesv1.AccessEndpoint{Name: "api", Protocol: workspacesv1.RouteProtocolHTTP, Port: 6006},
-			workspacesv1.AccessEndpoint{Name: "shell", Protocol: workspacesv1.RouteProtocolSSH, Port: 22},
 		)
 		entries, err := provider.EnsureRoutes(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(entries).To(HaveLen(3))
+		Expect(entries).To(HaveLen(2))
 
 		// Primary endpoint gets the bare hostname; the second gets the suffix.
-		Expect(entries[0].URL).To(Equal("https://gwhttp-wsd." + tenantDomain))
+		Expect(entries[0].URL).To(Equal("https://gwhttp-wsd." + gwTestDomain))
 		Expect(entries[0].Ready).To(BeFalse(), "fresh route is not accepted yet")
-		Expect(entries[1].URL).To(Equal("https://gwhttp-wsd-api." + tenantDomain))
-		// SSH is honestly reported as not yet routable.
-		Expect(entries[2].Ready).To(BeFalse())
-		Expect(entries[2].Message).To(ContainSubstring("not yet available"))
-		Expect(entries[2].URL).To(BeEmpty())
+		Expect(entries[1].URL).To(Equal("https://gwhttp-wsd-api." + gwTestDomain))
 
 		// Mirror namespace with the workspace label.
 		ns := &corev1.Namespace{}
@@ -199,28 +212,24 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(route.Spec.ParentRefs).To(HaveLen(1))
 		Expect(string(route.Spec.ParentRefs[0].Name)).To(Equal("exalsius-workspaces"))
 		Expect(string(*route.Spec.ParentRefs[0].Namespace)).To(Equal("gwhttp-gwns"))
-		Expect(route.Spec.Hostnames).To(ConsistOf(gatewayv1.Hostname("gwhttp-wsd." + tenantDomain)))
+		Expect(route.Spec.Hostnames).To(ConsistOf(gatewayv1.Hostname("gwhttp-wsd." + gwTestDomain)))
 		Expect(route.Spec.Rules).To(HaveLen(1))
 		Expect(string(route.Spec.Rules[0].BackendRefs[0].Name)).To(Equal("wsd-gwhttp-cd-gwhttp-wsd-ide"))
-
-		// No SSH route object — non-HTTP endpoints are port-pool territory.
-		err = k8sClient.Get(ctx, client.ObjectKey{Name: "shell", Namespace: "ws-gwhttp-wsd"}, &gatewayv1.HTTPRoute{})
-		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 
 	It("reports ready and is idempotent once the gateway accepts the routes", func() {
-		cd := setupTopology("gwrdy")
-		setupGateway("gwrdy-gwns", true)
-		provider := newProvider("gwrdy-gwns")
+		cd := gwSetupTopology("gwrdy")
+		gwSetupGateway("gwrdy-gwns", true)
+		provider := gwNewProvider("gwrdy-gwns")
 
-		req := makeRequest("gwrdy-wsd", cd,
+		req := gwMakeRequest("gwrdy-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888},
 		)
 		entries, err := provider.EnsureRoutes(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(entries[0].Ready).To(BeFalse())
 
-		markRouteAccepted("ide", "ws-gwrdy-wsd", "gwrdy-gwns")
+		gwMarkHTTPRouteAccepted("ide", "ws-gwrdy-wsd", "gwrdy-gwns")
 
 		entries, err = provider.EnsureRoutes(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
@@ -239,11 +248,11 @@ var _ = Describe("Gateway API route provider", func() {
 	})
 
 	It("returns InfraNotReady when the tenant Gateway is missing", func() {
-		cd := setupTopology("gwmiss")
+		cd := gwSetupTopology("gwmiss")
 		// No gateway installed.
-		provider := newProvider("gwmiss-gwns")
+		provider := gwNewProvider("gwmiss-gwns")
 
-		_, err := provider.EnsureRoutes(ctx, makeRequest("gwmiss-wsd", cd,
+		_, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwmiss-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
 		Expect(err).To(HaveOccurred())
 		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
@@ -251,11 +260,11 @@ var _ = Describe("Gateway API route provider", func() {
 	})
 
 	It("returns InfraNotReady when the Gateway is not programmed", func() {
-		cd := setupTopology("gwunprog")
-		setupGateway("gwunprog-gwns", false)
-		provider := newProvider("gwunprog-gwns")
+		cd := gwSetupTopology("gwunprog")
+		gwSetupGateway("gwunprog-gwns", false)
+		provider := gwNewProvider("gwunprog-gwns")
 
-		_, err := provider.EnsureRoutes(ctx, makeRequest("gwunprog-wsd", cd,
+		_, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwunprog-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
 		Expect(err).To(HaveOccurred())
 		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
@@ -263,15 +272,15 @@ var _ = Describe("Gateway API route provider", func() {
 	})
 
 	It("returns InfraNotReady when no HTTPS wildcard listener exists", func() {
-		cd := setupTopology("gwnotls")
-		setupGateway("gwnotls-gwns", true, gatewayv1.Listener{
+		cd := gwSetupTopology("gwnotls")
+		gwSetupGateway("gwnotls-gwns", true, gatewayv1.Listener{
 			Name:     "http",
 			Port:     80,
 			Protocol: gatewayv1.HTTPProtocolType,
 		})
-		provider := newProvider("gwnotls-gwns")
+		provider := gwNewProvider("gwnotls-gwns")
 
-		_, err := provider.EnsureRoutes(ctx, makeRequest("gwnotls-wsd", cd,
+		_, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwnotls-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
 		Expect(err).To(HaveOccurred())
 		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
@@ -284,9 +293,9 @@ var _ = Describe("Gateway API route provider", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: "gwnoreg-cd", Namespace: "default"},
 			Spec:       k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
 		})).To(Succeed())
-		provider := newProvider("gwnoreg-gwns")
+		provider := gwNewProvider("gwnoreg-gwns")
 
-		_, err := provider.EnsureRoutes(ctx, makeRequest("gwnoreg-wsd", "gwnoreg-cd",
+		_, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwnoreg-wsd", "gwnoreg-cd",
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
 		Expect(err).To(HaveOccurred())
 		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
@@ -294,20 +303,20 @@ var _ = Describe("Gateway API route provider", func() {
 	})
 
 	It("marks endpoints whose hostname label would exceed 63 characters as not ready", func() {
-		cd := setupTopology("gwlong")
-		setupGateway("gwlong-gwns", true)
-		provider := newProvider("gwlong-gwns")
+		cd := gwSetupTopology("gwlong")
+		gwSetupGateway("gwlong-gwns", true)
+		provider := gwNewProvider("gwlong-gwns")
 
 		// The suffixed hostname label of the second endpoint
 		// (<workspace>-<endpoint>) exceeds 63 chars; the primary stays valid.
 		longEndpoint := strings.Repeat("e", 56)
-		entries, err := provider.EnsureRoutes(ctx, makeRequest("gwlong-wsd", cd,
+		entries, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwlong-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888},
 			workspacesv1.AccessEndpoint{Name: longEndpoint, Protocol: workspacesv1.RouteProtocolHTTP, Port: 6006},
 		))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(entries).To(HaveLen(2))
-		Expect(entries[0].URL).To(Equal("https://gwlong-wsd." + tenantDomain))
+		Expect(entries[0].URL).To(Equal("https://gwlong-wsd." + gwTestDomain))
 		Expect(entries[0].Ready).To(BeFalse()) // fresh route, not accepted yet
 		Expect(entries[1].Ready).To(BeFalse())
 		Expect(entries[1].Message).To(ContainSubstring("exceeds 63 characters"))
@@ -315,11 +324,11 @@ var _ = Describe("Gateway API route provider", func() {
 	})
 
 	It("cleans up the mirror namespace and tolerates repeat and CD-gone calls", func() {
-		cd := setupTopology("gwclean")
-		setupGateway("gwclean-gwns", true)
-		provider := newProvider("gwclean-gwns")
+		cd := gwSetupTopology("gwclean")
+		gwSetupGateway("gwclean-gwns", true)
+		provider := gwNewProvider("gwclean-gwns")
 
-		req := makeRequest("gwclean-wsd", cd,
+		req := gwMakeRequest("gwclean-wsd", cd,
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888})
 		_, err := provider.EnsureRoutes(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
@@ -346,8 +355,3 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(provider.CleanupRoutes(ctx, req)).To(Succeed())
 	})
 })
-
-func hostnamePtr(s string) *gatewayv1.Hostname {
-	h := gatewayv1.Hostname(s)
-	return &h
-}

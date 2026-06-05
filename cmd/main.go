@@ -56,6 +56,7 @@ import (
 	"github.com/exalsius/exalsius-operator/internal/preflight"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -71,7 +72,10 @@ func init() {
 	utilruntime.Must(workspacesv1.AddToScheme(scheme))
 	// Gateway API types are read/written on regional clusters via the
 	// workspace routing provider; the regional client shares this scheme.
+	// v1alpha2 carries TCPRoute (experimental channel) for the SSH/TCP
+	// port pool.
 	utilruntime.Must(gatewayv1.Install(scheme))
+	utilruntime.Must(gatewayv1alpha2.Install(scheme))
 	// +kubebuilder:scaffold:scheme
 	if err := clusterv1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Cluster API to scheme")
