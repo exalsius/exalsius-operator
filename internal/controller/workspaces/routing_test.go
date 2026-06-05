@@ -30,6 +30,8 @@ type fakeRouteProvider struct {
 	cleanupCalls map[string]int
 	// failEnsure makes EnsureRoutes return an error for a workspace.
 	failEnsure map[string]string
+	// failCleanup makes CleanupRoutes return an error for a workspace.
+	failCleanup map[string]string
 	// ssExistedAtCleanup records whether the workspace's ServiceSet still
 	// existed when CleanupRoutes first ran — the reconciler contract is
 	// routes-before-ServiceSet.
@@ -41,6 +43,7 @@ func newFakeRouteProvider() *fakeRouteProvider {
 		ensureCalls:        map[string]int{},
 		cleanupCalls:       map[string]int{},
 		failEnsure:         map[string]string{},
+		failCleanup:        map[string]string{},
 		ssExistedAtCleanup: map[string]bool{},
 	}
 }
@@ -84,7 +87,22 @@ func (f *fakeRouteProvider) CleanupRoutes(ctx context.Context, req routing.Route
 		}, ss)
 		f.ssExistedAtCleanup[name] = err == nil && ss.DeletionTimestamp.IsZero()
 	}
+	if msg, ok := f.failCleanup[name]; ok {
+		return errors.New(msg)
+	}
 	return nil
+}
+
+func (f *fakeRouteProvider) setFailCleanup(workspaceName, msg string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failCleanup[workspaceName] = msg
+}
+
+func (f *fakeRouteProvider) clearFailCleanup(workspaceName string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.failCleanup, workspaceName)
 }
 
 func (f *fakeRouteProvider) setFailEnsure(workspaceName, msg string) {

@@ -65,7 +65,10 @@ func gwSetupTopology(prefix string) (childCD string) {
 	Expect(k8sClient.Create(ctx, &k0rdentv1beta1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: regionalCD, Namespace: "default",
-			Labels: map[string]string{common.LabelKOFClusterName: regionalName},
+			Labels: map[string]string{
+				common.LabelKOFClusterName: regionalName,
+				common.LabelKOFClusterRole: "regional",
+			},
 		},
 		Spec: k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
 	})).To(Succeed())

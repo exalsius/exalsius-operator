@@ -725,6 +725,20 @@ func (r *WorkspaceDeploymentReconciler) workspaceDeploymentForServiceSet(
 }
 
 func (r *WorkspaceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Providers that support it get a periodic orphan sweep — the
+	// label-based backstop for cross-cluster cleanup that finalizers
+	// cannot guarantee (e.g. workspaces deleted after their child
+	// cluster was already torn down).
+	if sweeper, ok := r.RouteProvider.(routing.OrphanSweeper); ok {
+		if err := mgr.Add(&orphanRouteSweeper{
+			client:  mgr.GetClient(),
+			scheme:  mgr.GetScheme(),
+			sweeper: sweeper,
+		}); err != nil {
+			return err
+		}
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&workspacesv1.WorkspaceDeployment{}).
 		Watches(

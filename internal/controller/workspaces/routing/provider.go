@@ -73,3 +73,27 @@ type RouteProvider interface {
 	// that never existed.
 	CleanupRoutes(ctx context.Context, req RouteRequest) error
 }
+
+// SweepRequest carries the context for an orphan sweep.
+type SweepRequest struct {
+	// ManagementClient reads cluster topology and kubeconfig secrets on the
+	// management cluster.
+	ManagementClient client.Client
+	// Scheme for building per-cluster clients.
+	Scheme *runtime.Scheme
+	// IsActiveWorkspace reports whether a WorkspaceDeployment with the given
+	// name currently exists (in any namespace — conservative on purpose:
+	// the sweep must never remove live routes).
+	IsActiveWorkspace func(name string) bool
+}
+
+// OrphanSweeper is an optional RouteProvider extension. Owner references
+// don't cross clusters, so finalizer-driven cleanup is the primary
+// mechanism — the sweep is the label-based backstop that reclaims
+// provider-created objects whose workspace no longer exists. The main
+// orphan source by construction: a child ClusterDeployment deleted BEFORE
+// its workspaces makes CleanupRoutes skip ("teardown owns it") while the
+// mirror objects live on the regional cluster, which outlives the child.
+type OrphanSweeper interface {
+	SweepOrphans(ctx context.Context, req SweepRequest) error
+}
