@@ -76,6 +76,7 @@ var _ = Describe("Prerequisite auto-install", func() {
 	It("should skip prereq logic entirely when class has no prereqs", func() {
 		Expect(k8sClient.Create(ctx, makeClass("noprereq-class", ""))).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeCD("noprereq-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("noprereq-cd", "default")
 		wsd := makeWSD("noprereq-wsd", "noprereq-class", "noprereq-cd")
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
 
@@ -91,6 +92,7 @@ var _ = Describe("Prerequisite auto-install", func() {
 	It("should transition to Deploying when a prereq SS reports Deployed", func() {
 		Expect(k8sClient.Create(ctx, makeClass("flip-class", "flip-prereq"))).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeCD("flip-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("flip-cd", "default")
 		wsd := makeWSD("flip-wsd", "flip-class", "flip-cd")
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
 
@@ -121,6 +123,7 @@ var _ = Describe("Prerequisite auto-install", func() {
 	It("should fail-fast when a prereq SS reports Failed", func() {
 		Expect(k8sClient.Create(ctx, makeClass("failfast-class", "failfast-prereq"))).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeCD("failfast-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("failfast-cd", "default")
 		wsd := makeWSD("failfast-wsd", "failfast-class", "failfast-cd")
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
 
@@ -145,6 +148,7 @@ var _ = Describe("Prerequisite auto-install", func() {
 		Expect(k8sClient.Create(ctx, makeClass("colony-class", "colony-prereq"))).To(Succeed())
 		cd := makeCD("colony-cd")
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Colony has already deployed the prereq — reflected in cd.status.services[].
 		Eventually(func(g Gomega) {
@@ -199,6 +203,7 @@ var _ = Describe("Prerequisite auto-install", func() {
 		}
 		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeCD("vc-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("vc-cd", "default")
 
 		wsd := makeWSD("vc-wsd", "vc-class", "vc-cd")
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -217,6 +222,7 @@ var _ = Describe("Prerequisite auto-install", func() {
 	It("should share a single prereq SS between two WSDs and reconcile both on flip", func() {
 		Expect(k8sClient.Create(ctx, makeClass("share-class", "share-prereq"))).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeCD("share-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("share-cd", "default")
 
 		wsdA := makeWSD("share-a", "share-class", "share-cd")
 		wsdB := makeWSD("share-b", "share-class", "share-cd")

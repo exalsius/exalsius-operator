@@ -85,6 +85,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create WorkspaceDeployment
 		wsd := &workspacesv1.WorkspaceDeployment{
@@ -187,6 +188,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create WorkspaceDeployment
 		wsd := &workspacesv1.WorkspaceDeployment{
@@ -336,6 +338,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create WSD
 		wsd := &workspacesv1.WorkspaceDeployment{
@@ -410,6 +413,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create two WSDs on the same cluster
 		wsdAlice := &workspacesv1.WorkspaceDeployment{
@@ -496,6 +500,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		wsd := &workspacesv1.WorkspaceDeployment{
 			ObjectMeta: metav1.ObjectMeta{
@@ -576,6 +581,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			Spec:       k0rdentv1beta1.ClusterDeploymentSpec{Template: "some-template"},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		wsd := &workspacesv1.WorkspaceDeployment{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-prereq-wsd", Namespace: "default"},
@@ -639,6 +645,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create both WSDs at the same time
 		wsd1 := &workspacesv1.WorkspaceDeployment{
@@ -727,6 +734,7 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create two WSDs
 		wsdA := &workspacesv1.WorkspaceDeployment{

@@ -70,6 +70,7 @@ var _ = Describe("Resource injection (integration)", func() {
 			Spec:       k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		wsd := &workspacesv1.WorkspaceDeployment{
 			ObjectMeta: metav1.ObjectMeta{Name: "inject-wsd-1", Namespace: "default"},
@@ -144,6 +145,7 @@ var _ = Describe("Resource injection (integration)", func() {
 			Spec:       k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		wsd := &workspacesv1.WorkspaceDeployment{
 			ObjectMeta: metav1.ObjectMeta{Name: "inject-wsd-2", Namespace: "default"},
@@ -199,6 +201,7 @@ var _ = Describe("Resource injection (integration)", func() {
 			Spec:       k0rdentv1beta1.ClusterDeploymentSpec{Template: "tpl"},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// User submits spec.values at the same path the class will inject into.
 		userValues := apiextensionsv1.JSON{Raw: []byte(`{"jupyterhub":{"singleuser":{"cpu":{"guarantee":"99"}}}}`)}

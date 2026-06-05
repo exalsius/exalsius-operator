@@ -124,12 +124,37 @@ type PrerequisiteStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
+// AccessEntry describes one externally reachable endpoint of a workspace,
+// resolved by the routing provider. The exalsius API projects these entries
+// into Workspace.access[] unchanged (ADR-0001).
+type AccessEntry struct {
+	// Name is the access endpoint name from the WorkspaceClass.
+	Name string `json:"name"`
+	// Protocol is the endpoint's wire protocol.
+	Protocol RouteProtocol `json:"protocol"`
+	// URL is where the endpoint is reachable, e.g.
+	// https://thorsten-nb.dos-lab.ex.ls or ssh://dos-lab.ex.ls:2207.
+	// Empty while the route is not yet resolvable.
+	// +optional
+	URL string `json:"url,omitempty"`
+	// Ready reports whether the platform side of routing is programmed.
+	// Application-level health remains the chart's readiness probes.
+	Ready bool `json:"ready"`
+	// Message explains why an entry is not ready (e.g. port pool exhausted).
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // Condition types for WorkspaceDeployment.
 const (
 	ConditionReady            = "Ready"
 	ConditionClassResolved    = "ClassResolved"
 	ConditionPrerequisitesMet = "PrerequisitesMet"
 	ConditionHelmReleaseReady = "HelmReleaseReady"
+	// ConditionRoutesReady reports whether all declared access endpoints
+	// have programmed routes. Only set when the WorkspaceClass declares
+	// access endpoints and a routing provider is configured.
+	ConditionRoutesReady = "RoutesReady"
 	// ConditionFeasible reports whether the cluster currently has enough
 	// capacity to deploy the workspace. Set during pre-deploy phases; not
 	// updated once the workspace is Running.
@@ -163,6 +188,9 @@ const (
 	ReasonResourcesInjected       = "ResourcesInjected"
 	ReasonUserPathsOverwritten    = "UserPathsOverwritten"
 	ReasonInvalidWorkspaceClass   = "InvalidWorkspaceClass"
+	ReasonRoutesReady             = "RoutesReady"
+	ReasonRoutingInProgress       = "RoutingInProgress"
+	ReasonRoutingError            = "RoutingError"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.
@@ -250,6 +278,13 @@ type WorkspaceDeploymentStatus struct {
 	// +optional
 	Feasibility *FeasibilityStatus `json:"feasibility,omitempty"`
 
+	// Access lists the externally reachable endpoints of this workspace,
+	// resolved by the routing provider once the workspace is Running.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Access []AccessEntry `json:"access,omitempty"`
+
 	// Message is a human-readable error or status detail.
 	// +optional
 	Message string `json:"message,omitempty"`
@@ -258,10 +293,13 @@ type WorkspaceDeploymentStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=wsd
+// +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 60",message="workspace name must be at most 60 characters so the ws-<name> workspace namespace fits the 63-character namespace name limit"
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')",message="workspace name must be a lowercase DNS-1123 label: it becomes the ws-<name> workspace namespace and the workspace hostname"
 // +kubebuilder:printcolumn:name="Class",type=string,JSONPath=`.spec.workspaceClassRef`
 // +kubebuilder:printcolumn:name="Cluster",type=string,JSONPath=`.spec.clusterDeploymentRef.name`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.status.access[0].url`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // WorkspaceDeployment represents user intent to deploy a workspace instance

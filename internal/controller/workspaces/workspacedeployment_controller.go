@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 )
 
 const (
@@ -45,6 +46,10 @@ const (
 type WorkspaceDeploymentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// RouteProvider materializes external access for workspace endpoints
+	// (ADR-0001). Nil disables routing entirely — workspaces still deploy,
+	// status.access[] stays empty.
+	RouteProvider routing.RouteProvider
 }
 
 // +kubebuilder:rbac:groups=workspaces.exalsius.ai,resources=workspacedeployments,verbs=get;list;watch;create;update;patch;delete
@@ -127,8 +132,11 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	if wsd.Status.Phase == workspacesv1.WorkspaceDeploymentPhaseDeploying {
 		return r.checkServiceReadiness(ctx, wsd)
 	}
-	// If running, requeue periodically for health checks
+	// If running, ensure access routes and requeue periodically for health checks
 	if wsd.Status.Phase == workspacesv1.WorkspaceDeploymentPhaseRunning {
+		if res, retry, err := r.reconcileRoutes(ctx, wsd, wsc); err != nil || retry {
+			return res, err
+		}
 		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 	}
 	// If failed, don't retry — user must fix the issue and recreate
@@ -164,6 +172,31 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{}, err
 	}
+
+	// Pre-create the labeled workspace namespace on the child cluster BEFORE
+	// the ServiceSet exists: Sveltos creates namespaces unlabeled, and the
+	// mesh-discovery label must be present before any workspace Service does
+	// (ADR-0001). Child-cluster unreachability is treated as transient — the
+	// kubeconfig secret appears once the cluster is ready.
+	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
+	if err != nil {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = fmt.Sprintf("Waiting for child cluster access: %v", err)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+	nsReady, err := ensureWorkspaceNamespace(ctx, childClient, wsd)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !nsReady {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = fmt.Sprintf(
+			"Waiting for workspace namespace %q on the child cluster", workspaceNamespaceName(wsd))
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
 	if err := ensureWorkspaceServiceSet(ctx, r.Client, r.Scheme, wsd, wsc, mergedValues); err != nil {
 		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
 		wsd.Status.Message = fmt.Sprintf("Failed to create ServiceSet: %v", err)
@@ -508,7 +541,12 @@ func (r *WorkspaceDeploymentReconciler) checkServiceReadiness(ctx context.Contex
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
-// reconcileDelete handles finalizer cleanup during deletion.
+// reconcileDelete handles finalizer cleanup during deletion, in order:
+// routes (provider cleanup) → ServiceSet (Helm uninstall via k0rdent/
+// Sveltos) → workspace namespace on the child cluster → finalizer removal.
+// The namespace step is skipped when
+// the target ClusterDeployment is gone or being torn down — the cluster's
+// destruction is the cleanup (ADR-0001).
 func (r *WorkspaceDeploymentReconciler) reconcileDelete(ctx context.Context, wsd *workspacesv1.WorkspaceDeployment) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -518,20 +556,88 @@ func (r *WorkspaceDeploymentReconciler) reconcileDelete(ctx context.Context, wsd
 
 	log.Info("Cleaning up WorkspaceDeployment", "name", wsd.Name)
 
-	// Delete the workspace's ServiceSet. K0rdent will garbage-collect the
-	// Sveltos Profile, and Sveltos will uninstall the Helm release.
-	if err := deleteWorkspaceServiceSet(ctx, r.Client, wsd); err != nil {
-		log.Error(err, "Failed to delete workspace ServiceSet")
-		// Continue with finalizer removal — the ServiceSet may already be gone
+	if wsd.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseDeleting {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseDeleting
+		// Best-effort: deletion proceeds even if the status write conflicts.
+		_ = r.Status().Update(ctx, wsd)
 	}
 
-	// Remove finalizer
+	// 1. Remove provider-materialized routes first — kill the front door
+	// before the backend disappears, and free provider-held resources
+	// (e.g. pool ports).
+	if !r.cleanupRoutes(ctx, wsd) {
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	// 2. Delete the workspace's ServiceSet and wait until it is fully gone.
+	// K0rdent garbage-collects the Sveltos Profile and Sveltos uninstalls the
+	// Helm release; touching the namespace earlier would race the uninstall.
+	ssGone, err := ensureWorkspaceServiceSetDeleted(ctx, r.Client, wsd)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !ssGone {
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	// 3. Delete the workspace namespace on the child cluster — Sveltos never
+	// removes it, and stale PVCs would resurrect state into a recreated
+	// same-name workspace.
+	if res, done, err := r.cleanupWorkspaceNamespace(ctx, wsd); err != nil || !done {
+		return res, err
+	}
+
+	// 4. Remove finalizer
 	controllerutil.RemoveFinalizer(wsd, workspacesv1.WorkspaceDeploymentFinalizer)
 	if err := r.Update(ctx, wsd); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// cleanupWorkspaceNamespace removes the per-workspace namespace from the
+// child cluster. Returns done=true when cleanup is complete or rightly
+// skipped. Unreachable child clusters are retried for as long as the
+// ClusterDeployment exists — giving up early would silently leak the
+// namespace; once the CD is gone or deleting, teardown owns the cleanup.
+func (r *WorkspaceDeploymentReconciler) cleanupWorkspaceNamespace(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+) (ctrl.Result, bool, error) {
+	log := log.FromContext(ctx)
+	cdRef := wsd.Spec.ClusterDeploymentRef
+
+	cd := &k0rdentv1beta1.ClusterDeployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: cdRef.Name, Namespace: cdRef.Namespace}, cd); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Target ClusterDeployment gone, skipping workspace namespace cleanup",
+				"clusterDeployment", cdRef.Name)
+			return ctrl.Result{}, true, nil
+		}
+		return ctrl.Result{}, false, err
+	}
+	if !cd.DeletionTimestamp.IsZero() {
+		log.Info("Target ClusterDeployment is being torn down, skipping workspace namespace cleanup",
+			"clusterDeployment", cdRef.Name)
+		return ctrl.Result{}, true, nil
+	}
+
+	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
+	if err != nil {
+		log.Info("Child cluster unreachable, retrying workspace namespace cleanup",
+			"clusterDeployment", cdRef.Name, "error", err.Error())
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+
+	done, err := deleteWorkspaceNamespace(ctx, childClient, wsd)
+	if err != nil {
+		return ctrl.Result{}, false, err
+	}
+	if !done {
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+	return ctrl.Result{}, true, nil
 }
 
 // setCondition adds or updates a condition on the WorkspaceDeployment status.

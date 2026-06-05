@@ -44,6 +44,10 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
+	// testRouteProvider is the fake RouteProvider wired into the suite's
+	// reconciler — lifecycle specs assert against it without any Gateway
+	// API fixtures.
+	testRouteProvider = newFakeRouteProvider()
 )
 
 func TestWorkspaces(t *testing.T) {
@@ -92,8 +96,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&WorkspaceDeploymentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		RouteProvider: testRouteProvider,
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 

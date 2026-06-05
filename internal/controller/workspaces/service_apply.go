@@ -67,10 +67,13 @@ func ensureWorkspaceServiceSet(
 		Timeout: &metav1.Duration{Duration: dur},
 	}
 
-	// Build the service entry
+	// Build the service entry. The Helm release installs into the dedicated
+	// workspace namespace (pre-created with the mesh-discovery label by the
+	// reconciler) — never a shared namespace, so same-name chart Services on
+	// different child clusters can never merge in the mesh (ADR-0001).
 	svc := k0rdentv1beta1.ServiceWithValues{
 		Name:        entryName,
-		Namespace:   "default",
+		Namespace:   workspaceNamespaceName(wsd),
 		Template:    wsc.Spec.ServiceTemplate.Name,
 		Values:      mergedValues,
 		HelmOptions: helmOptions,
@@ -128,34 +131,47 @@ func ensureWorkspaceServiceSet(
 	return nil
 }
 
-// deleteWorkspaceServiceSet deletes the ServiceSet for a workspace.
-func deleteWorkspaceServiceSet(
+// ensureWorkspaceServiceSetDeleted requests deletion of the workspace's
+// ServiceSet and reports whether it is fully gone. Idempotent — callers
+// requeue until gone=true before proceeding to namespace cleanup, so the
+// Helm uninstall never races namespace termination on the child cluster.
+func ensureWorkspaceServiceSetDeleted(
 	ctx context.Context,
 	c client.Client,
 	wsd *workspacesv1.WorkspaceDeployment,
-) error {
+) (bool, error) {
 	log := log.FromContext(ctx)
 
 	ssName := serviceSetName(wsd)
 	cdRef := wsd.Spec.ClusterDeploymentRef
 
-	ss := &k0rdentv1beta1.ServiceSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ssName,
-			Namespace: cdRef.Namespace,
-		},
+	ss := &k0rdentv1beta1.ServiceSet{}
+	err := c.Get(ctx, client.ObjectKey{Name: ssName, Namespace: cdRef.Namespace}, ss)
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to get ServiceSet: %w", err)
 	}
 
-	if err := c.Delete(ctx, ss); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("ServiceSet already deleted", "serviceSet", ssName)
-			return nil
+	if ss.DeletionTimestamp.IsZero() {
+		if err := c.Delete(ctx, ss); err != nil && !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("failed to delete ServiceSet: %w", err)
 		}
-		return fmt.Errorf("failed to delete ServiceSet: %w", err)
+		log.Info("Deleted workspace ServiceSet", "serviceSet", ssName)
 	}
 
-	log.Info("Deleted workspace ServiceSet", "serviceSet", ssName)
-	return nil
+	// Re-check: without finalizers the ServiceSet vanishes immediately; with
+	// k0rdent finalizers it lingers while the release uninstalls, and the
+	// caller requeues until it is gone.
+	err = c.Get(ctx, client.ObjectKey{Name: ssName, Namespace: cdRef.Namespace}, ss)
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to re-check ServiceSet: %w", err)
+	}
+	return false, nil
 }
 
 func ptrBool(b bool) *bool {

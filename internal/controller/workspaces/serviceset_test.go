@@ -49,6 +49,7 @@ var _ = Describe("ServiceSet-based workspace deployment", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
 
 		// Create WorkspaceDeployment
 		wsd := &workspacesv1.WorkspaceDeployment{
