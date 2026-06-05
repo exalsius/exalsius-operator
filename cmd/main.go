@@ -297,6 +297,8 @@ func main() {
 			GatewayName:      workspaceGatewayName,
 			GatewayNamespace: workspaceGatewayNamespace,
 		}),
+		Recorder:  mgr.GetEventRecorder("workspace-deployment"),
+		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
 		os.Exit(1)

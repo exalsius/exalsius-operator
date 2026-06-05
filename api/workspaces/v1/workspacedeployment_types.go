@@ -124,6 +124,69 @@ type PrerequisiteStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
+// FailureContext bundles operator-side context captured when the workspace
+// transitioned to Failed. The exalsius API projects it into the error
+// envelope's `details` so agents can pattern-match common failures without
+// querying operator internals. Pod status from the child cluster is a
+// planned (v1.1) addition; the shape accommodates new fields non-breaking.
+type FailureContext struct {
+	// PhaseWhenFailed is the phase the workspace was in when it failed
+	// (e.g. Deploying, InstallingPrerequisites).
+	// +optional
+	PhaseWhenFailed WorkspaceDeploymentPhase `json:"phaseWhenFailed,omitempty"`
+	// Reason is the machine-readable failure reason, mirroring the failing
+	// condition's reason (e.g. HelmReleaseFailed, PrerequisitesNotReady,
+	// RoutingInfraNotReady).
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// ServiceSetStatus snapshots the workspace ServiceSet's reported
+	// service states at failure time.
+	// +optional
+	ServiceSetStatus *ServiceSetStatusSummary `json:"serviceSetStatus,omitempty"`
+	// RecentEvents lists the most recent Kubernetes events recorded for
+	// this WorkspaceDeployment, newest first.
+	// +optional
+	RecentEvents []EventSummary `json:"recentEvents,omitempty"`
+}
+
+// ServiceSetStatusSummary is a compact snapshot of a k0rdent ServiceSet
+// status for failure forensics.
+type ServiceSetStatusSummary struct {
+	// Name of the ServiceSet.
+	Name string `json:"name"`
+	// Deployed mirrors ServiceSet.status.deployed.
+	// +optional
+	Deployed bool `json:"deployed,omitempty"`
+	// Services lists the per-service states.
+	// +optional
+	Services []ServiceStateSummary `json:"services,omitempty"`
+}
+
+// ServiceStateSummary is one service entry's state inside a ServiceSet.
+type ServiceStateSummary struct {
+	Name string `json:"name"`
+	// State is the k0rdent service state (e.g. Deployed, Failed).
+	// +optional
+	State string `json:"state,omitempty"`
+	// FailureMessage carries the underlying failure detail (e.g. the Helm
+	// error).
+	// +optional
+	FailureMessage string `json:"failureMessage,omitempty"`
+}
+
+// EventSummary is a compact view of a Kubernetes event.
+type EventSummary struct {
+	// LastSeen is when the event last occurred.
+	// +optional
+	LastSeen metav1.Time `json:"lastSeen,omitempty"`
+	// Type is Normal or Warning.
+	// +optional
+	Type   string `json:"type,omitempty"`
+	Reason string `json:"reason"`
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // AccessEntry describes one externally reachable endpoint of a workspace,
 // resolved by the routing provider. The exalsius API projects these entries
 // into Workspace.access[] unchanged (ADR-0001).
@@ -288,6 +351,11 @@ type WorkspaceDeploymentStatus struct {
 	// +listType=map
 	// +listMapKey=name
 	Access []AccessEntry `json:"access,omitempty"`
+
+	// FailureContext bundles operator-side failure forensics, populated on
+	// every transition into Failed and cleared when the workspace recovers.
+	// +optional
+	FailureContext *FailureContext `json:"failureContext,omitempty"`
 
 	// Message is a human-readable error or status detail.
 	// +optional

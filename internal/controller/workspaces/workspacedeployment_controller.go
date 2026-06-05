@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,6 +51,12 @@ type WorkspaceDeploymentReconciler struct {
 	// (ADR-0001). Nil disables routing entirely — workspaces still deploy,
 	// status.access[] stays empty.
 	RouteProvider routing.RouteProvider
+	// Recorder emits Kubernetes events on phase transitions; they feed
+	// status.failureContext.recentEvents.
+	Recorder events.EventRecorder
+	// APIReader reads events uncached so the manager cache never has to
+	// hold all cluster events. Nil disables event capture.
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=workspaces.exalsius.ai,resources=workspacedeployments,verbs=get;list;watch;create;update;patch;delete
@@ -59,6 +66,7 @@ type WorkspaceDeploymentReconciler struct {
 // +kubebuilder:rbac:groups=k0rdent.mirantis.com,resources=servicesets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=k0rdent.mirantis.com,resources=clusterdeployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=k0rdent.mirantis.com,resources=clusterdeployments/status,verbs=get
+// +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
 
 func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -158,8 +166,7 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	// resources at _exalsius.resources and any class.resourceInjection paths.
 	mergedMap, err := mergeValuesMap(wsc.Spec.DefaultValues, wsd.Spec.Values)
 	if err != nil {
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-		wsd.Status.Message = fmt.Sprintf("Failed to merge values: %v", err)
+		r.markFailed(ctx, wsd, workspacesv1.ReasonInternalError, fmt.Sprintf("Failed to merge values: %v", err))
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{}, err
 	}
@@ -167,8 +174,7 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	r.setResourcesInjectedCondition(wsd, warnings)
 	mergedValues, err := serializeValues(mergedMap)
 	if err != nil {
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-		wsd.Status.Message = fmt.Sprintf("Failed to serialize values: %v", err)
+		r.markFailed(ctx, wsd, workspacesv1.ReasonInternalError, fmt.Sprintf("Failed to serialize values: %v", err))
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{}, err
 	}
@@ -198,14 +204,14 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	if err := ensureWorkspaceServiceSet(ctx, r.Client, r.Scheme, wsd, wsc, mergedValues); err != nil {
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-		wsd.Status.Message = fmt.Sprintf("Failed to create ServiceSet: %v", err)
+		r.markFailed(ctx, wsd, workspacesv1.ReasonInternalError, fmt.Sprintf("Failed to create ServiceSet: %v", err))
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{}, err
 	}
 
 	// Set phase to Deploying
 	wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseDeploying
+	wsd.Status.FailureContext = nil
 	wsd.Status.ObservedGeneration = wsd.Generation
 	if err := r.Status().Update(ctx, wsd); err != nil {
 		return ctrl.Result{}, err
@@ -220,8 +226,8 @@ func (r *WorkspaceDeploymentReconciler) resolveWorkspaceClass(ctx context.Contex
 	wsc := &workspacesv1.WorkspaceClass{}
 	if err := r.Get(ctx, client.ObjectKey{Name: wsd.Spec.WorkspaceClassRef}, wsc); err != nil {
 		if apierrors.IsNotFound(err) {
-			wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-			wsd.Status.Message = fmt.Sprintf("WorkspaceClass %q not found", wsd.Spec.WorkspaceClassRef)
+			r.markFailed(ctx, wsd, workspacesv1.ReasonClassNotFound,
+				fmt.Sprintf("WorkspaceClass %q not found", wsd.Spec.WorkspaceClassRef))
 			setCondition(&wsd.Status, metav1.Condition{
 				Type:               workspacesv1.ConditionClassResolved,
 				Status:             metav1.ConditionFalse,
@@ -354,12 +360,11 @@ func (r *WorkspaceDeploymentReconciler) reconcilePrerequisites(
 
 	switch verdict {
 	case PrerequisitesVerdictInvalid:
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
 		var msg string
 		if len(statuses) > 0 {
 			msg = statuses[0].Message
 		}
-		wsd.Status.Message = msg
+		r.markFailed(ctx, wsd, workspacesv1.ReasonInvalidPrerequisite, msg)
 		setCondition(&wsd.Status, metav1.Condition{
 			Type:               workspacesv1.ConditionPrerequisitesMet,
 			Status:             metav1.ConditionFalse,
@@ -371,10 +376,9 @@ func (r *WorkspaceDeploymentReconciler) reconcilePrerequisites(
 		return ctrl.Result{}, true, nil
 
 	case PrerequisitesVerdictFailed:
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
 		failed := firstFailedPrerequisite(statuses)
 		msg := fmt.Sprintf("Prerequisite %q failed: %s", failed.Name, failed.Message)
-		wsd.Status.Message = msg
+		r.markFailed(ctx, wsd, workspacesv1.ReasonPrerequisitesNotReady, msg)
 		setCondition(&wsd.Status, metav1.Condition{
 			Type:               workspacesv1.ConditionPrerequisitesMet,
 			Status:             metav1.ConditionFalse,
@@ -499,6 +503,9 @@ func (r *WorkspaceDeploymentReconciler) checkServiceReadiness(ctx context.Contex
 		case k0rdentv1beta1.ServiceStateDeployed:
 			log.Info("Service deployed successfully", "service", entryName)
 			wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseRunning
+			// The workspace recovered/succeeded — stale failure forensics
+			// must not outlive the failure.
+			wsd.Status.FailureContext = nil
 			setCondition(&wsd.Status, metav1.Condition{
 				Type:               workspacesv1.ConditionHelmReleaseReady,
 				Status:             metav1.ConditionTrue,
@@ -520,8 +527,8 @@ func (r *WorkspaceDeploymentReconciler) checkServiceReadiness(ctx context.Contex
 
 		case k0rdentv1beta1.ServiceStateFailed:
 			log.Info("Service deployment failed", "service", entryName, "message", svc.FailureMessage)
-			wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-			wsd.Status.Message = fmt.Sprintf("Helm release failed: %s", svc.FailureMessage)
+			r.markFailed(ctx, wsd, workspacesv1.ReasonHelmReleaseFailed,
+				fmt.Sprintf("Helm release failed: %s", svc.FailureMessage))
 			setCondition(&wsd.Status, metav1.Condition{
 				Type:               workspacesv1.ConditionHelmReleaseReady,
 				Status:             metav1.ConditionFalse,

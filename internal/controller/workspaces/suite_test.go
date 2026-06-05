@@ -103,6 +103,8 @@ var _ = BeforeSuite(func() {
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		RouteProvider: testRouteProvider,
+		Recorder:      mgr.GetEventRecorder("workspace-deployment"),
+		APIReader:     mgr.GetAPIReader(),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
