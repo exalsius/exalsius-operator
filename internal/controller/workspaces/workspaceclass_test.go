@@ -74,6 +74,36 @@ var _ = Describe("WorkspaceClass", func() {
 		Expect(err.Error()).To(ContainSubstring("gpuType"))
 	})
 
+	It("should validate accessEndpoint serviceName as a DNS-1123 label", func() {
+		makeClassWithServiceName := func(name, serviceName string) *workspacesv1.WorkspaceClass {
+			return &workspacesv1.WorkspaceClass{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: workspacesv1.WorkspaceClassSpec{
+					DisplayName:     "ServiceName validation",
+					ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "some-template"},
+					DefaultResources: workspacesv1.WorkspaceResourceSpec{
+						PerReplica: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("1")},
+					},
+					AccessEndpoints: []workspacesv1.AccessEndpoint{{
+						Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 80,
+						ServiceName: serviceName,
+					}},
+				},
+			}
+		}
+
+		// Invalid: not a DNS-1123 label.
+		err := k8sClient.Create(ctx, makeClassWithServiceName("bad-svc-name", "Proxy_Public"))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("serviceName"))
+
+		// Valid override accepted; empty (conventional) accepted implicitly
+		// by every other spec.
+		wsc := makeClassWithServiceName("good-svc-name", "proxy-public")
+		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, wsc)).To(Succeed())
+	})
+
 	It("should accept multi-replica WorkspaceClass", func() {
 		wsc := &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{

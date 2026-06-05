@@ -302,6 +302,39 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(err.Error()).To(ContainSubstring("no regional parent"))
 	})
 
+	It("routes to an explicit serviceName instead of the convention when the class declares one", func() {
+		cd := gwSetupTopology("gwsvc")
+		gwSetupGateway("gwsvc-gwns", true)
+		provider := gwNewProvider("gwsvc-gwns")
+
+		entries, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwsvc-wsd", cd,
+			workspacesv1.AccessEndpoint{
+				Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 80,
+				ServiceName: "proxy-public",
+			}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entries[0].URL).To(Equal("https://gwsvc-wsd." + gwTestDomain))
+
+		// Mirror Service carries the fixed name — safe because the workspace
+		// namespace disambiguates.
+		svc := &corev1.Service{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{
+			Name: "proxy-public", Namespace: "ws-gwsvc-wsd",
+		}, svc)).To(Succeed())
+		Expect(svc.Spec.Ports[0].Port).To(Equal(int32(80)))
+
+		// And the HTTPRoute backend references it.
+		route := &gatewayv1.HTTPRoute{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ide", Namespace: "ws-gwsvc-wsd"}, route)).To(Succeed())
+		Expect(string(route.Spec.Rules[0].BackendRefs[0].Name)).To(Equal("proxy-public"))
+
+		// The conventional name must NOT have been created.
+		err = k8sClient.Get(ctx, client.ObjectKey{
+			Name: "wsd-gwsvc-cd-gwsvc-wsd-ide", Namespace: "ws-gwsvc-wsd",
+		}, &corev1.Service{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
 	It("marks endpoints whose hostname label would exceed 63 characters as not ready", func() {
 		cd := gwSetupTopology("gwlong")
 		gwSetupGateway("gwlong-gwns", true)

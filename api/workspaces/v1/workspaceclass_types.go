@@ -108,10 +108,23 @@ type AccessEndpoint struct {
 	Name string `json:"name"`
 	// Protocol is the wire protocol for this endpoint.
 	Protocol RouteProtocol `json:"protocol"`
-	// Port is the container port the workspace listens on.
+	// Port is the Service port of the endpoint's Service — the routable
+	// truth for the routing provider's mirror Service and route backends.
+	// Usually identical to the container port; where they differ, the
+	// Service port wins.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port"`
+	// ServiceName overrides the conventional `<release-name>-<endpoint-name>`
+	// name of the endpoint's child-cluster Service. For charts whose Service
+	// names don't derive from the release name (fullnameOverride, third-party
+	// umbrella subcharts like jupyterhub's `proxy-public`). Unambiguous even
+	// for fixed names because each workspace runs in its own namespace.
+	// Same convention-plus-override pattern as resourceInjection.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	ServiceName string `json:"serviceName,omitempty"`
 	// Description is a human-readable summary shown to users.
 	// +optional
 	Description string `json:"description,omitempty"`

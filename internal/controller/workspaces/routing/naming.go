@@ -52,8 +52,13 @@ func HelmReleaseName(wsd *workspacesv1.WorkspaceDeployment) string {
 }
 
 // EndpointServiceName returns the child-cluster Service name for an access
-// endpoint, following the `<release-name>-<endpoint-name>` convention.
+// endpoint: the explicit per-endpoint serviceName when the class declares
+// one (fixed-name/umbrella charts), otherwise the
+// `<release-name>-<endpoint-name>` convention.
 func EndpointServiceName(wsd *workspacesv1.WorkspaceDeployment, ep workspacesv1.AccessEndpoint) string {
+	if ep.ServiceName != "" {
+		return ep.ServiceName
+	}
 	return HelmReleaseName(wsd) + "-" + ep.Name
 }
 
