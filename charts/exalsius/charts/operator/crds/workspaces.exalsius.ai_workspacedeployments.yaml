@@ -29,6 +29,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
+    - jsonPath: .status.access[0].url
+      name: URL
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -176,6 +179,50 @@ spec:
           status:
             description: WorkspaceDeploymentStatus defines the observed state of WorkspaceDeployment.
             properties:
+              access:
+                description: |-
+                  Access lists the externally reachable endpoints of this workspace,
+                  resolved by the routing provider once the workspace is Running.
+                items:
+                  description: |-
+                    AccessEntry describes one externally reachable endpoint of a workspace,
+                    resolved by the routing provider. The exalsius API projects these entries
+                    into Workspace.access[] unchanged (ADR-0001).
+                  properties:
+                    message:
+                      description: Message explains why an entry is not ready (e.g.
+                        port pool exhausted).
+                      type: string
+                    name:
+                      description: Name is the access endpoint name from the WorkspaceClass.
+                      type: string
+                    protocol:
+                      description: Protocol is the endpoint's wire protocol.
+                      enum:
+                      - HTTP
+                      - TCP
+                      - SSH
+                      type: string
+                    ready:
+                      description: |-
+                        Ready reports whether the platform side of routing is programmed.
+                        Application-level health remains the chart's readiness probes.
+                      type: boolean
+                    url:
+                      description: |-
+                        URL is where the endpoint is reachable, e.g.
+                        https://thorsten-nb.dos-lab.ex.ls or ssh://dos-lab.ex.ls:2207.
+                        Empty while the route is not yet resolvable.
+                      type: string
+                  required:
+                  - name
+                  - protocol
+                  - ready
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
                 description: Conditions represent the latest observations.
                 items:
@@ -236,6 +283,88 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              failureContext:
+                description: |-
+                  FailureContext bundles operator-side failure forensics, populated on
+                  every transition into Failed and cleared when the workspace recovers.
+                properties:
+                  phaseWhenFailed:
+                    description: |-
+                      PhaseWhenFailed is the phase the workspace was in when it failed
+                      (e.g. Deploying, InstallingPrerequisites).
+                    enum:
+                    - Pending
+                    - InstallingPrerequisites
+                    - Deploying
+                    - Running
+                    - Failed
+                    - Deleting
+                    type: string
+                  reason:
+                    description: |-
+                      Reason is the machine-readable failure reason, mirroring the failing
+                      condition's reason (e.g. HelmReleaseFailed, PrerequisitesNotReady,
+                      RoutingInfraNotReady).
+                    type: string
+                  recentEvents:
+                    description: |-
+                      RecentEvents lists the most recent Kubernetes events recorded for
+                      this WorkspaceDeployment, newest first.
+                    items:
+                      description: EventSummary is a compact view of a Kubernetes
+                        event.
+                      properties:
+                        lastSeen:
+                          description: LastSeen is when the event last occurred.
+                          format: date-time
+                          type: string
+                        message:
+                          type: string
+                        reason:
+                          type: string
+                        type:
+                          description: Type is Normal or Warning.
+                          type: string
+                      required:
+                      - reason
+                      type: object
+                    type: array
+                  serviceSetStatus:
+                    description: |-
+                      ServiceSetStatus snapshots the workspace ServiceSet's reported
+                      service states at failure time.
+                    properties:
+                      deployed:
+                        description: Deployed mirrors ServiceSet.status.deployed.
+                        type: boolean
+                      name:
+                        description: Name of the ServiceSet.
+                        type: string
+                      services:
+                        description: Services lists the per-service states.
+                        items:
+                          description: ServiceStateSummary is one service entry's
+                            state inside a ServiceSet.
+                          properties:
+                            failureMessage:
+                              description: |-
+                                FailureMessage carries the underlying failure detail (e.g. the Helm
+                                error).
+                              type: string
+                            name:
+                              type: string
+                            state:
+                              description: State is the k0rdent service state (e.g.
+                                Deployed, Failed).
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                    required:
+                    - name
+                    type: object
+                type: object
               feasibility:
                 description: |-
                   Feasibility reports whether the cluster has enough free capacity to
@@ -514,6 +643,13 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - message: workspace name must be at most 60 characters so the ws-<name> workspace
+            namespace fits the 63-character namespace name limit
+          rule: size(self.metadata.name) <= 60
+        - message: 'workspace name must be a lowercase DNS-1123 label: it becomes
+            the ws-<name> workspace namespace and the workspace hostname'
+          rule: self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
     served: true
     storage: true
     subresources:

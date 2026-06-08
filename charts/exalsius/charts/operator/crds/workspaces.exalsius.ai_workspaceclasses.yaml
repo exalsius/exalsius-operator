@@ -83,8 +83,11 @@ spec:
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                     port:
-                      description: Port is the container port the workspace listens
-                        on.
+                      description: |-
+                        Port is the Service port of the endpoint's Service — the routable
+                        truth for the routing provider's mirror Service and route backends.
+                        Usually identical to the container port; where they differ, the
+                        Service port wins.
                       format: int32
                       maximum: 65535
                       minimum: 1
@@ -95,6 +98,17 @@ spec:
                       - HTTP
                       - TCP
                       - SSH
+                      type: string
+                    serviceName:
+                      description: |-
+                        ServiceName overrides the conventional `<release-name>-<endpoint-name>`
+                        name of the endpoint's child-cluster Service. For charts whose Service
+                        names don't derive from the release name (fullnameOverride, third-party
+                        umbrella subcharts like jupyterhub's `proxy-public`). Unambiguous even
+                        for fixed names because each workspace runs in its own namespace.
+                        Same convention-plus-override pattern as resourceInjection.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                   required:
                   - name
