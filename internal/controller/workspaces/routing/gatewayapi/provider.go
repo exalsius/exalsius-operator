@@ -97,6 +97,11 @@ func New(cfg Config) *Provider {
 type gatewayContext struct {
 	regionalClient client.Client
 	domain         string
+	// scheme is the URL scheme HTTP endpoints are reachable on — "https"
+	// when the tenant domain came from an HTTPS wildcard listener (the
+	// production default), "http" when only an HTTP wildcard listener exists
+	// (dev/test).
+	scheme string
 	// gateway is the tenant Gateway — read-only; its TCP listeners form the
 	// port pool for SSH/TCP endpoints.
 	gateway *gatewayv1.Gateway
@@ -182,7 +187,7 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 		entry := workspacesv1.AccessEntry{
 			Name:     ep.Name,
 			Protocol: ep.Protocol,
-			URL:      "https://" + hostname,
+			URL:      gwCtx.scheme + "://" + hostname,
 			Ready:    ready,
 		}
 		if !ready {
@@ -295,14 +300,14 @@ func (p *Provider) resolveGatewayContext(ctx context.Context, req routing.RouteR
 			"tenant Gateway %s/%s is not programmed yet", p.cfg.GatewayNamespace, p.cfg.GatewayName)}
 	}
 
-	domain := tenantDomainFromGateway(gw)
+	domain, scheme := tenantDomainFromGateway(gw)
 	if domain == "" {
 		return nil, &routing.InfraNotReadyError{Reason: fmt.Sprintf(
-			"tenant Gateway %s/%s has no HTTPS listener with a wildcard hostname (*.<tenant-domain>)",
+			"tenant Gateway %s/%s has no HTTP(S) listener with a wildcard hostname (*.<tenant-domain>)",
 			p.cfg.GatewayNamespace, p.cfg.GatewayName)}
 	}
 
-	return &gatewayContext{regionalClient: regionalClient, domain: domain, gateway: gw}, nil
+	return &gatewayContext{regionalClient: regionalClient, domain: domain, scheme: scheme, gateway: gw}, nil
 }
 
 func (p *Provider) getClusterDeployment(ctx context.Context, req routing.RouteRequest) (*metav1.PartialObjectMetadata, error) {
@@ -317,20 +322,38 @@ func (p *Provider) getClusterDeployment(ctx context.Context, req routing.RouteRe
 	return cd, err
 }
 
-// tenantDomainFromGateway derives the tenant domain from the Gateway's HTTPS
-// wildcard listener — the single source of truth; no config field can drift
-// from what the certificate and DNS actually serve (ADR-0001).
-func tenantDomainFromGateway(gw *gatewayv1.Gateway) string {
+// tenantDomainFromGateway derives the tenant domain and URL scheme from the
+// Gateway's wildcard listener — the single source of truth; no config field
+// can drift from what the certificate and DNS actually serve (ADR-0001).
+//
+// An HTTPS wildcard listener is preferred (the production default → "https").
+// An HTTP wildcard listener is accepted as a fallback (dev/test → "http"),
+// so a local Gateway needs no TLS cert. Returns ("", "") when no wildcard
+// listener exists.
+func tenantDomainFromGateway(gw *gatewayv1.Gateway) (domain, scheme string) {
+	var httpDomain string
 	for _, l := range gw.Spec.Listeners {
-		if l.Protocol != gatewayv1.HTTPSProtocolType || l.Hostname == nil {
+		if l.Hostname == nil {
 			continue
 		}
 		host := string(*l.Hostname)
-		if strings.HasPrefix(host, "*.") {
-			return strings.TrimPrefix(host, "*.")
+		if !strings.HasPrefix(host, "*.") {
+			continue
+		}
+		switch l.Protocol {
+		case gatewayv1.HTTPSProtocolType:
+			// HTTPS wins immediately.
+			return strings.TrimPrefix(host, "*."), "https"
+		case gatewayv1.HTTPProtocolType:
+			if httpDomain == "" {
+				httpDomain = strings.TrimPrefix(host, "*.")
+			}
 		}
 	}
-	return ""
+	if httpDomain != "" {
+		return httpDomain, "http"
+	}
+	return "", ""
 }
 
 // ensureMirrorNamespace creates/labels the workspace namespace on the

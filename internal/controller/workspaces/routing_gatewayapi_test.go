@@ -93,6 +93,15 @@ func gwHTTPSListener() gatewayv1.Listener {
 	}
 }
 
+func gwHTTPWildcardListener() gatewayv1.Listener {
+	return gatewayv1.Listener{
+		Name:     "http",
+		Port:     80,
+		Protocol: gatewayv1.HTTPProtocolType,
+		Hostname: hostnamePtr("*." + gwTestDomain),
+	}
+}
+
 func gwTCPListener(name string, port int32) gatewayv1.Listener {
 	return gatewayv1.Listener{
 		Name:     gatewayv1.SectionName(name),
@@ -220,6 +229,30 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(string(route.Spec.Rules[0].BackendRefs[0].Name)).To(Equal("wsd-gwhttp-cd-gwhttp-wsd-ide"))
 	})
 
+	It("derives the domain from an HTTP wildcard listener and uses the http scheme", func() {
+		cd := gwSetupTopology("gwhttponly")
+		// Gateway with only an HTTP wildcard listener — no TLS at all.
+		gwSetupGateway("gwhttponly-gwns", true, gwHTTPWildcardListener())
+		provider := gwNewProvider("gwhttponly-gwns")
+
+		entries, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwhttponly-wsd", cd,
+			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entries).To(HaveLen(1))
+		Expect(entries[0].URL).To(Equal("http://gwhttponly-wsd." + gwTestDomain))
+	})
+
+	It("prefers the HTTPS listener scheme when both HTTP and HTTPS wildcards exist", func() {
+		cd := gwSetupTopology("gwboth")
+		gwSetupGateway("gwboth-gwns", true, gwHTTPWildcardListener(), gwHTTPSListener())
+		provider := gwNewProvider("gwboth-gwns")
+
+		entries, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwboth-wsd", cd,
+			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entries[0].URL).To(Equal("https://gwboth-wsd." + gwTestDomain))
+	})
+
 	It("reports ready and is idempotent once the gateway accepts the routes", func() {
 		cd := gwSetupTopology("gwrdy")
 		gwSetupGateway("gwrdy-gwns", true)
@@ -274,8 +307,9 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(err.Error()).To(ContainSubstring("not programmed"))
 	})
 
-	It("returns InfraNotReady when no HTTPS wildcard listener exists", func() {
+	It("returns InfraNotReady when no wildcard listener exists", func() {
 		cd := gwSetupTopology("gwnotls")
+		// An HTTP listener WITHOUT a wildcard hostname doesn't yield a domain.
 		gwSetupGateway("gwnotls-gwns", true, gatewayv1.Listener{
 			Name:     "http",
 			Port:     80,
@@ -287,7 +321,7 @@ var _ = Describe("Gateway API route provider", func() {
 			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
 		Expect(err).To(HaveOccurred())
 		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
-		Expect(err.Error()).To(ContainSubstring("no HTTPS listener"))
+		Expect(err.Error()).To(ContainSubstring("wildcard hostname"))
 	})
 
 	It("returns InfraNotReady when the child cluster has no regional parent", func() {

@@ -43,9 +43,11 @@ paying for the real thing immediately was cheaper than building the placeholder.
   stack is the documented follow-up. The operator never mutates the Gateway (which is also why
   the SSH port pool is pre-provisioned rather than dynamic; `ListenerSet` may relax this later).
 - **Single source of truth for the domain**: the operator derives the tenant domain from the
-  Gateway's HTTPS listener hostname (`*.dos-lab.ex.ls`), locating the Gateway by well-known
+  Gateway's wildcard listener hostname (`*.dos-lab.ex.ls`), locating the Gateway by well-known
   name/namespace (operator-level default, overridable). No config field can drift from what the
-  cert and DNS actually serve.
+  cert and DNS actually serve. An HTTPS wildcard listener is preferred (production → `https://`
+  URLs); an HTTP wildcard listener is accepted as a fallback (dev/test without TLS → `http://`
+  URLs), so the access scheme follows the listener rather than being hard-coded.
 - **Chart contract**: an endpoint's child-cluster Service is found by convention
   (`<release-name>-<endpoint-name>`) or by an explicit `serviceName` on the `AccessEndpoint`
   (for fixed-name/umbrella charts) — same convention-plus-override pattern as resource
