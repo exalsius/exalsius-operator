@@ -71,22 +71,25 @@ func getChildClusterClient(
 // terminating: a same-name predecessor is still cleaning up, and installing
 // into it would resurrect stale state (PVCs). The caller requeues until
 // termination completes.
+// meshLabels are the Istio mesh-enrollment labels (from --workspace-mesh-mode)
+// stamped on the workspace namespace alongside LabelWorkspace, so ztunnel
+// captures the workspace's pods (ambient) or they get sidecars (sidecar).
 func ensureWorkspaceNamespace(
 	ctx context.Context,
 	childClient client.Client,
 	wsd *workspacesv1.WorkspaceDeployment,
+	meshLabels map[string]string,
 ) (bool, error) {
 	nsName := workspaceNamespaceName(wsd)
+	desired := workspaceNamespaceLabels(wsd.Name, meshLabels)
 
 	ns := &corev1.Namespace{}
 	err := childClient.Get(ctx, client.ObjectKey{Name: nsName}, ns)
 	if apierrors.IsNotFound(err) {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: nsName,
-				Labels: map[string]string{
-					LabelWorkspace: wsd.Name,
-				},
+				Name:   nsName,
+				Labels: desired,
 			},
 		}
 		if err := childClient.Create(ctx, ns); err != nil {
@@ -108,18 +111,41 @@ func ensureWorkspaceNamespace(
 		return false, nil
 	}
 
-	// Namespace exists — make sure the mesh-discovery label is present
-	// (heals manually created or label-stripped namespaces).
-	if ns.Labels[LabelWorkspace] != wsd.Name {
-		if ns.Labels == nil {
-			ns.Labels = map[string]string{}
-		}
-		ns.Labels[LabelWorkspace] = wsd.Name
+	// Namespace exists — heal the workspace + mesh-enrollment labels
+	// (manually created or label-stripped namespaces, or a mesh-mode change).
+	if applyMissingLabels(ns, desired) {
 		if err := childClient.Update(ctx, ns); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
+}
+
+// workspaceNamespaceLabels builds the full desired label set for a workspace
+// namespace: the workspace identity label plus the mesh-enrollment labels.
+func workspaceNamespaceLabels(workspaceName string, meshLabels map[string]string) map[string]string {
+	labels := map[string]string{LabelWorkspace: workspaceName}
+	for k, v := range meshLabels {
+		labels[k] = v
+	}
+	return labels
+}
+
+// applyMissingLabels sets any desired label that is absent or has a different
+// value on the object, leaving other labels untouched. Returns true if it
+// changed anything.
+func applyMissingLabels(obj *corev1.Namespace, desired map[string]string) bool {
+	changed := false
+	if obj.Labels == nil && len(desired) > 0 {
+		obj.Labels = map[string]string{}
+	}
+	for k, v := range desired {
+		if obj.Labels[k] != v {
+			obj.Labels[k] = v
+			changed = true
+		}
+	}
+	return changed
 }
 
 // deleteWorkspaceNamespace requests deletion of the workspace namespace on

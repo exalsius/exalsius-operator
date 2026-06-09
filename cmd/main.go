@@ -52,6 +52,7 @@ import (
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
 	workspacescontroller "github.com/exalsius/exalsius-operator/internal/controller/workspaces"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing/gatewayapi"
 	"github.com/exalsius/exalsius-operator/internal/preflight"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
@@ -115,6 +116,7 @@ func main() {
 	var webhookCertDir string
 	var workspaceGatewayName string
 	var workspaceGatewayNamespace string
+	var workspaceMeshMode string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -137,6 +139,9 @@ func main() {
 		"Name of the tenant Gateway on regional clusters that workspace routes attach to.")
 	flag.StringVar(&workspaceGatewayNamespace, "workspace-gateway-namespace", gatewayapi.DefaultGatewayNamespace,
 		"Namespace of the tenant Gateway on regional clusters.")
+	flag.StringVar(&workspaceMeshMode, "workspace-mesh-mode", string(routing.MeshModeAmbient),
+		"How workspace namespaces are enrolled into the Istio mesh: "+
+			"ambient (istio.io/dataplane-mode=ambient), sidecar (istio-injection=enabled), or none.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -289,16 +294,22 @@ func main() {
 		}
 	}
 
+	// Resolve mesh-enrollment labels once; shared by the child workspace
+	// namespace (reconciler) and the regional mirror namespace (provider).
+	meshLabels := routing.MeshNamespaceLabels(routing.MeshMode(workspaceMeshMode))
+
 	// Workspace controllers — always enabled since we own the CRDs
 	if err = (&workspacescontroller.WorkspaceDeploymentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		RouteProvider: gatewayapi.New(gatewayapi.Config{
-			GatewayName:      workspaceGatewayName,
-			GatewayNamespace: workspaceGatewayNamespace,
+			GatewayName:         workspaceGatewayName,
+			GatewayNamespace:    workspaceGatewayNamespace,
+			MeshNamespaceLabels: meshLabels,
 		}),
-		Recorder:  mgr.GetEventRecorder("workspace-deployment"),
-		APIReader: mgr.GetAPIReader(),
+		Recorder:            mgr.GetEventRecorder("workspace-deployment"),
+		APIReader:           mgr.GetAPIReader(),
+		MeshNamespaceLabels: meshLabels,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
 		os.Exit(1)

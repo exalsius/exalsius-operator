@@ -36,6 +36,40 @@ const (
 	workspaceNamespacePrefix = "ws-"
 )
 
+// MeshMode selects how workspace namespaces are enrolled into the Istio mesh.
+// The operator creates the workspace namespaces (child) and mirror namespaces
+// (regional), so it stamps the enrollment label; the value depends on which
+// data-plane mode the mesh runs (ADR-0001).
+type MeshMode string
+
+const (
+	// MeshModeAmbient enrolls namespaces into the Istio ambient data plane
+	// (ztunnel captures their pods — no sidecar). The default.
+	MeshModeAmbient MeshMode = "ambient"
+	// MeshModeSidecar enrolls namespaces for sidecar injection.
+	MeshModeSidecar MeshMode = "sidecar"
+	// MeshModeNone stamps no enrollment label — the mesh enrolls namespaces
+	// some other way (or routing is being tested without a mesh).
+	MeshModeNone MeshMode = "none"
+
+	labelIstioDataplaneMode = "istio.io/dataplane-mode"
+	labelIstioInjection     = "istio-injection"
+)
+
+// MeshNamespaceLabels returns the mesh-enrollment labels to stamp on
+// workspace namespaces for the given mode. Empty for MeshModeNone (or an
+// unknown mode, treated as none).
+func MeshNamespaceLabels(mode MeshMode) map[string]string {
+	switch mode {
+	case MeshModeAmbient:
+		return map[string]string{labelIstioDataplaneMode: "ambient"}
+	case MeshModeSidecar:
+		return map[string]string{labelIstioInjection: "enabled"}
+	default:
+		return nil
+	}
+}
+
 // WorkspaceNamespaceName returns the per-workspace namespace. It is the same
 // name on the child cluster (where the workload runs) and on the regional
 // cluster (where the mirror Service lives) — Istio multi-cluster endpoint

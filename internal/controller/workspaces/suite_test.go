@@ -28,6 +28,7 @@ import (
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -100,11 +101,12 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&WorkspaceDeploymentReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		RouteProvider: testRouteProvider,
-		Recorder:      mgr.GetEventRecorder("workspace-deployment"),
-		APIReader:     mgr.GetAPIReader(),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		RouteProvider:       testRouteProvider,
+		Recorder:            mgr.GetEventRecorder("workspace-deployment"),
+		APIReader:           mgr.GetAPIReader(),
+		MeshNamespaceLabels: routing.MeshNamespaceLabels(routing.MeshModeAmbient),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 

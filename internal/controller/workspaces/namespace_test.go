@@ -69,6 +69,8 @@ var _ = Describe("Workspace namespace lifecycle", func() {
 			ns := &corev1.Namespace{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ws-nslc-wsd"}, ns)).To(Succeed())
 			g.Expect(ns.Labels).To(HaveKeyWithValue(LabelWorkspace, "nslc-wsd"))
+			// Mesh enrollment (suite runs ambient mode).
+			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/dataplane-mode", "ambient"))
 
 			ss := &k0rdentv1beta1.ServiceSet{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{

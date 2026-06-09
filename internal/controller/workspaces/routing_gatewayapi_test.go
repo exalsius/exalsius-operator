@@ -144,8 +144,9 @@ func gwSetupGateway(gwNamespace string, programmed bool, listeners ...gatewayv1.
 
 func gwNewProvider(gwNamespace string) *gatewayapi.Provider {
 	return gatewayapi.New(gatewayapi.Config{
-		GatewayName:      "exalsius-workspaces",
-		GatewayNamespace: gwNamespace,
+		GatewayName:         "exalsius-workspaces",
+		GatewayNamespace:    gwNamespace,
+		MeshNamespaceLabels: routing.MeshNamespaceLabels(routing.MeshModeAmbient),
 	})
 }
 
@@ -207,6 +208,8 @@ var _ = Describe("Gateway API route provider", func() {
 		ns := &corev1.Namespace{}
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ws-gwhttp-wsd"}, ns)).To(Succeed())
 		Expect(ns.Labels).To(HaveKeyWithValue(LabelWorkspace, "gwhttp-wsd"))
+		// Mirror namespace gets the mesh-enrollment label too (provider runs ambient).
+		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/dataplane-mode", "ambient"))
 
 		// Selector-less mirror Service named by the chart convention.
 		svc := &corev1.Service{}

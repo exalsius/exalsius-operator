@@ -57,6 +57,10 @@ type WorkspaceDeploymentReconciler struct {
 	// APIReader reads events uncached so the manager cache never has to
 	// hold all cluster events. Nil disables event capture.
 	APIReader client.Reader
+	// MeshNamespaceLabels are the Istio mesh-enrollment labels stamped on the
+	// child workspace namespace (from --workspace-mesh-mode). Nil/empty = no
+	// enrollment label (mesh-mode none).
+	MeshNamespaceLabels map[string]string
 }
 
 // +kubebuilder:rbac:groups=workspaces.exalsius.ai,resources=workspacedeployments,verbs=get;list;watch;create;update;patch;delete
@@ -191,7 +195,7 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
-	nsReady, err := ensureWorkspaceNamespace(ctx, childClient, wsd)
+	nsReady, err := ensureWorkspaceNamespace(ctx, childClient, wsd, r.MeshNamespaceLabels)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

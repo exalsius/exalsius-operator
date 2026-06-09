@@ -74,6 +74,11 @@ const (
 type Config struct {
 	GatewayName      string
 	GatewayNamespace string
+	// MeshNamespaceLabels are the Istio mesh-enrollment labels stamped on the
+	// regional mirror namespace (from --workspace-mesh-mode). The mirror
+	// namespace holds no pods, so this is typically a no-op; applied for
+	// parity with the child namespace.
+	MeshNamespaceLabels map[string]string
 }
 
 // Provider implements routing.RouteProvider via Gateway API resources.
@@ -361,12 +366,17 @@ func tenantDomainFromGateway(gw *gatewayv1.Gateway) (domain, scheme string) {
 // discovery requires namespace sameness for the mirror Service to resolve
 // child-cluster endpoints.
 func (p *Provider) ensureMirrorNamespace(ctx context.Context, c client.Client, nsName, workspaceName string) error {
+	desired := map[string]string{routing.LabelWorkspace: workspaceName}
+	for k, v := range p.cfg.MeshNamespaceLabels {
+		desired[k] = v
+	}
+
 	ns := &corev1.Namespace{}
 	err := c.Get(ctx, client.ObjectKey{Name: nsName}, ns)
 	if apierrors.IsNotFound(err) {
 		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 			Name:   nsName,
-			Labels: map[string]string{routing.LabelWorkspace: workspaceName},
+			Labels: desired,
 		}}
 		if err := c.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create mirror namespace: %w", err)
@@ -379,11 +389,18 @@ func (p *Provider) ensureMirrorNamespace(ctx context.Context, c client.Client, n
 	if !ns.DeletionTimestamp.IsZero() {
 		return fmt.Errorf("mirror namespace %q is terminating", nsName)
 	}
-	if ns.Labels[routing.LabelWorkspace] != workspaceName {
-		if ns.Labels == nil {
-			ns.Labels = map[string]string{}
+	// Heal workspace + mesh-enrollment labels, leaving others untouched.
+	changed := false
+	if ns.Labels == nil {
+		ns.Labels = map[string]string{}
+	}
+	for k, v := range desired {
+		if ns.Labels[k] != v {
+			ns.Labels[k] = v
+			changed = true
 		}
-		ns.Labels[routing.LabelWorkspace] = workspaceName
+	}
+	if changed {
 		if err := c.Update(ctx, ns); err != nil {
 			return fmt.Errorf("failed to label mirror namespace: %w", err)
 		}
