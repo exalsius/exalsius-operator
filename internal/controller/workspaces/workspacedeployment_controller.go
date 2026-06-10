@@ -122,6 +122,20 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		ObservedGeneration: wsd.Generation,
 	})
 
+	// Verify the referenced ClusterDeployment exists before anything that
+	// depends on it (feasibility, child-cluster client, ServiceSet). A
+	// missing CD is non-terminal: keep the workspace Pending and requeue so
+	// it self-heals if the cluster is still provisioning or applied out of
+	// order. Short-circuit here so the dependent steps don't emit misleading
+	// "could not reach regional cluster" / "waiting for child cluster access"
+	// errors. Skipped once Running (already validated; teardown handles a CD
+	// that disappears later).
+	if wsd.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseRunning {
+		if res, ok, err := r.resolveClusterDeployment(ctx, wsd); err != nil || !ok {
+			return res, err
+		}
+	}
+
 	// Refresh feasibility status while the workspace hasn't yet reached Running.
 	// This is observability only — no gating; the API gates user-facing
 	// admission. We swallow regional-cluster failures and requeue, the same
@@ -247,6 +261,47 @@ func (r *WorkspaceDeploymentReconciler) resolveWorkspaceClass(ctx context.Contex
 		return nil, err
 	}
 	return wsc, nil
+}
+
+// resolveClusterDeployment verifies the referenced ClusterDeployment exists.
+// Returns (result, ok, err): ok=false means the caller should return the
+// result without proceeding. A missing CD is non-terminal — it sets
+// ClusterDeploymentResolved=False, keeps the workspace Pending, and requeues
+// so it self-heals when the cluster appears.
+func (r *WorkspaceDeploymentReconciler) resolveClusterDeployment(
+	ctx context.Context, wsd *workspacesv1.WorkspaceDeployment,
+) (ctrl.Result, bool, error) {
+	cdRef := wsd.Spec.ClusterDeploymentRef
+	cd := &k0rdentv1beta1.ClusterDeployment{}
+	err := r.Get(ctx, client.ObjectKey{Name: cdRef.Name, Namespace: cdRef.Namespace}, cd)
+	if apierrors.IsNotFound(err) {
+		msg := fmt.Sprintf("ClusterDeployment %q not found in namespace %q", cdRef.Name, cdRef.Namespace)
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = msg
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionClusterDeploymentResolved,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonClusterDeploymentNotFound,
+			Message:            msg,
+			ObservedGeneration: wsd.Generation,
+		})
+		if updateErr := r.Status().Update(ctx, wsd); updateErr != nil {
+			return ctrl.Result{}, false, updateErr
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+	if err != nil {
+		return ctrl.Result{}, false, err
+	}
+
+	setCondition(&wsd.Status, metav1.Condition{
+		Type:               workspacesv1.ConditionClusterDeploymentResolved,
+		Status:             metav1.ConditionTrue,
+		Reason:             workspacesv1.ReasonClusterDeploymentResolved,
+		Message:            fmt.Sprintf("ClusterDeployment %q resolved", cdRef.Name),
+		ObservedGeneration: wsd.Generation,
+	})
+	return ctrl.Result{}, true, nil
 }
 
 // refreshFeasibility computes feasibility against the live regional cluster

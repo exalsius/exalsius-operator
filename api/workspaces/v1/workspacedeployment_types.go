@@ -214,6 +214,11 @@ const (
 	ConditionClassResolved    = "ClassResolved"
 	ConditionPrerequisitesMet = "PrerequisitesMet"
 	ConditionHelmReleaseReady = "HelmReleaseReady"
+	// ConditionClusterDeploymentResolved reports whether the referenced
+	// ClusterDeployment exists. Non-terminal: a missing CD keeps the
+	// workspace Pending and requeues, so it self-heals if the cluster is
+	// still provisioning or applied out of order.
+	ConditionClusterDeploymentResolved = "ClusterDeploymentResolved"
 	// ConditionRoutesReady reports whether all declared access endpoints
 	// have programmed routes. Only set when the WorkspaceClass declares
 	// access endpoints and a routing provider is configured.
@@ -232,28 +237,30 @@ const (
 
 // Condition reasons for WorkspaceDeployment.
 const (
-	ReasonClassNotFound           = "ClassNotFound"
-	ReasonClassResolved           = "ClassResolved"
-	ReasonPrerequisitesNotReady   = "PrerequisitesNotReady"
-	ReasonPrerequisitesMet        = "PrerequisitesMet"
-	ReasonInstallingPrerequisites = "InstallingPrerequisites"
-	ReasonHelmReleaseNotReady     = "HelmReleaseNotReady"
-	ReasonHelmReleaseDeployed     = "HelmReleaseDeployed"
-	ReasonHelmReleaseFailed       = "HelmReleaseFailed"
-	ReasonDeploymentReady         = "DeploymentReady"
-	ReasonDeletionInProgress      = "DeletionInProgress"
-	ReasonInternalError           = "InternalError"
-	ReasonSuspended               = "Suspended"
-	ReasonInvalidPrerequisite     = "InvalidPrerequisite"
-	ReasonResourcesAvailable      = "ResourcesAvailable"
-	ReasonInsufficientResources   = "InsufficientResources"
-	ReasonFeasibilityUnknown      = "FeasibilityUnknown"
-	ReasonResourcesInjected       = "ResourcesInjected"
-	ReasonUserPathsOverwritten    = "UserPathsOverwritten"
-	ReasonInvalidWorkspaceClass   = "InvalidWorkspaceClass"
-	ReasonRoutesReady             = "RoutesReady"
-	ReasonRoutingInProgress       = "RoutingInProgress"
-	ReasonRoutingError            = "RoutingError"
+	ReasonClassNotFound             = "ClassNotFound"
+	ReasonClassResolved             = "ClassResolved"
+	ReasonClusterDeploymentResolved = "ClusterDeploymentResolved"
+	ReasonClusterDeploymentNotFound = "ClusterDeploymentNotFound"
+	ReasonPrerequisitesNotReady     = "PrerequisitesNotReady"
+	ReasonPrerequisitesMet          = "PrerequisitesMet"
+	ReasonInstallingPrerequisites   = "InstallingPrerequisites"
+	ReasonHelmReleaseNotReady       = "HelmReleaseNotReady"
+	ReasonHelmReleaseDeployed       = "HelmReleaseDeployed"
+	ReasonHelmReleaseFailed         = "HelmReleaseFailed"
+	ReasonDeploymentReady           = "DeploymentReady"
+	ReasonDeletionInProgress        = "DeletionInProgress"
+	ReasonInternalError             = "InternalError"
+	ReasonSuspended                 = "Suspended"
+	ReasonInvalidPrerequisite       = "InvalidPrerequisite"
+	ReasonResourcesAvailable        = "ResourcesAvailable"
+	ReasonInsufficientResources     = "InsufficientResources"
+	ReasonFeasibilityUnknown        = "FeasibilityUnknown"
+	ReasonResourcesInjected         = "ResourcesInjected"
+	ReasonUserPathsOverwritten      = "UserPathsOverwritten"
+	ReasonInvalidWorkspaceClass     = "InvalidWorkspaceClass"
+	ReasonRoutesReady               = "RoutesReady"
+	ReasonRoutingInProgress         = "RoutingInProgress"
+	ReasonRoutingError              = "RoutingError"
 	// ReasonRoutingInfraNotReady signals that the tenant's routing
 	// infrastructure (regional cluster, gateway, listeners) is missing or
 	// unprogrammed — an admin-fixable condition (remediation: contact_admin).
