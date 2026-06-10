@@ -22,20 +22,38 @@ import (
 )
 
 func TestMeshNamespaceLabels(t *testing.T) {
+	wp := WaypointConfig{Name: "istio-waypoint", Namespace: "istio-system"}
 	cases := []struct {
+		name string
 		mode MeshMode
+		wp   WaypointConfig
 		want map[string]string
 	}{
-		{MeshModeAmbient, map[string]string{"istio.io/dataplane-mode": "ambient"}},
-		{MeshModeSidecar, map[string]string{"istio-injection": "enabled"}},
-		{MeshModeNone, nil},
-		{MeshMode("bogus"), nil},
-		{MeshMode(""), nil},
+		{
+			name: "ambient with waypoint",
+			mode: MeshModeAmbient,
+			wp:   wp,
+			want: map[string]string{
+				"istio.io/dataplane-mode":         "ambient",
+				"istio.io/use-waypoint":           "istio-waypoint",
+				"istio.io/use-waypoint-namespace": "istio-system",
+				"istio.io/ingress-use-waypoint":   "true",
+			},
+		},
+		{
+			name: "ambient without waypoint",
+			mode: MeshModeAmbient,
+			wp:   WaypointConfig{},
+			want: map[string]string{"istio.io/dataplane-mode": "ambient"},
+		},
+		{name: "sidecar", mode: MeshModeSidecar, wp: wp, want: map[string]string{"istio-injection": "enabled"}},
+		{name: "none", mode: MeshModeNone, wp: wp, want: nil},
+		{name: "unknown", mode: MeshMode("bogus"), wp: wp, want: nil},
 	}
 	for _, c := range cases {
-		got := MeshNamespaceLabels(c.mode)
+		got := MeshNamespaceLabels(c.mode, c.wp)
 		if !reflect.DeepEqual(got, c.want) {
-			t.Errorf("MeshNamespaceLabels(%q) = %v, want %v", c.mode, got, c.want)
+			t.Errorf("%s: MeshNamespaceLabels(%q) = %v, want %v", c.name, c.mode, got, c.want)
 		}
 	}
 }

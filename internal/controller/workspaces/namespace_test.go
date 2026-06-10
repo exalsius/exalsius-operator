@@ -69,8 +69,11 @@ var _ = Describe("Workspace namespace lifecycle", func() {
 			ns := &corev1.Namespace{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ws-nslc-wsd"}, ns)).To(Succeed())
 			g.Expect(ns.Labels).To(HaveKeyWithValue(LabelWorkspace, "nslc-wsd"))
-			// Mesh enrollment (suite runs ambient mode).
+			// Mesh enrollment (suite runs ambient mode) + waypoint routing.
 			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/dataplane-mode", "ambient"))
+			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint", "istio-waypoint"))
+			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint-namespace", "istio-system"))
+			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/ingress-use-waypoint", "true"))
 
 			ss := &k0rdentv1beta1.ServiceSet{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{

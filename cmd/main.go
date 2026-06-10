@@ -117,6 +117,8 @@ func main() {
 	var workspaceGatewayName string
 	var workspaceGatewayNamespace string
 	var workspaceMeshMode string
+	var workspaceWaypointName string
+	var workspaceWaypointNamespace string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -142,6 +144,11 @@ func main() {
 	flag.StringVar(&workspaceMeshMode, "workspace-mesh-mode", string(routing.MeshModeAmbient),
 		"How workspace namespaces are enrolled into the Istio mesh: "+
 			"ambient (istio.io/dataplane-mode=ambient), sidecar (istio-injection=enabled), or none.")
+	flag.StringVar(&workspaceWaypointName, "workspace-waypoint-name", "istio-waypoint",
+		"Name of the shared Istio ambient waypoint workspace namespaces route through "+
+			"(so the ingress gateway can reach cross-cluster global services). Empty disables waypoint enrollment.")
+	flag.StringVar(&workspaceWaypointNamespace, "workspace-waypoint-namespace", "istio-system",
+		"Namespace of the shared waypoint referenced by --workspace-waypoint-name.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -296,7 +303,10 @@ func main() {
 
 	// Resolve mesh-enrollment labels once; shared by the child workspace
 	// namespace (reconciler) and the regional mirror namespace (provider).
-	meshLabels := routing.MeshNamespaceLabels(routing.MeshMode(workspaceMeshMode))
+	meshLabels := routing.MeshNamespaceLabels(routing.MeshMode(workspaceMeshMode), routing.WaypointConfig{
+		Name:      workspaceWaypointName,
+		Namespace: workspaceWaypointNamespace,
+	})
 
 	// Workspace controllers — always enabled since we own the CRDs
 	if err = (&workspacescontroller.WorkspaceDeploymentReconciler{

@@ -54,15 +54,39 @@ const (
 
 	labelIstioDataplaneMode = "istio.io/dataplane-mode"
 	labelIstioInjection     = "istio-injection"
+
+	// Waypoint-routing labels (ambient). They route workspace traffic through
+	// a shared waypoint so the north-south ingress gateway can reach ambient
+	// "global" (cross-cluster) services — without them the gateway resolves
+	// zero endpoints for a global service and returns 503.
+	labelIstioUseWaypoint          = "istio.io/use-waypoint"
+	labelIstioUseWaypointNamespace = "istio.io/use-waypoint-namespace"
+	labelIstioIngressUseWaypoint   = "istio.io/ingress-use-waypoint"
 )
+
+// WaypointConfig points workspace namespaces at a shared Istio ambient
+// waypoint. An empty Name disables waypoint enrollment (the labels are
+// omitted).
+type WaypointConfig struct {
+	Name      string
+	Namespace string
+}
 
 // MeshNamespaceLabels returns the mesh-enrollment labels to stamp on
 // workspace namespaces for the given mode. Empty for MeshModeNone (or an
-// unknown mode, treated as none).
-func MeshNamespaceLabels(mode MeshMode) map[string]string {
+// unknown mode, treated as none). In ambient mode, when a waypoint is
+// configured, the waypoint-routing labels are included so the ingress gateway
+// routes through the waypoint to ambient/global services.
+func MeshNamespaceLabels(mode MeshMode, wp WaypointConfig) map[string]string {
 	switch mode {
 	case MeshModeAmbient:
-		return map[string]string{labelIstioDataplaneMode: "ambient"}
+		labels := map[string]string{labelIstioDataplaneMode: "ambient"}
+		if wp.Name != "" {
+			labels[labelIstioUseWaypoint] = wp.Name
+			labels[labelIstioUseWaypointNamespace] = wp.Namespace
+			labels[labelIstioIngressUseWaypoint] = "true"
+		}
+		return labels
 	case MeshModeSidecar:
 		return map[string]string{labelIstioInjection: "enabled"}
 	default:

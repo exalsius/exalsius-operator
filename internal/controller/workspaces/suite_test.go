@@ -101,12 +101,13 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&WorkspaceDeploymentReconciler{
-		Client:              mgr.GetClient(),
-		Scheme:              mgr.GetScheme(),
-		RouteProvider:       testRouteProvider,
-		Recorder:            mgr.GetEventRecorder("workspace-deployment"),
-		APIReader:           mgr.GetAPIReader(),
-		MeshNamespaceLabels: routing.MeshNamespaceLabels(routing.MeshModeAmbient),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		RouteProvider: testRouteProvider,
+		Recorder:      mgr.GetEventRecorder("workspace-deployment"),
+		APIReader:     mgr.GetAPIReader(),
+		MeshNamespaceLabels: routing.MeshNamespaceLabels(routing.MeshModeAmbient,
+			routing.WaypointConfig{Name: "istio-waypoint", Namespace: "istio-system"}),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
