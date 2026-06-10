@@ -80,8 +80,9 @@ var _ = Describe("FailureContext", func() {
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
 
 		// A pre-existing event for this workspace must surface in the
-		// forensics (the controller's own failure event is recorded
-		// asynchronously and may land after capture — by design).
+		// forensics alongside the controller's own failure event (which is
+		// seeded directly, since it is recorded asynchronously and won't be
+		// readable from the API during the same reconcile).
 		Expect(k8sClient.Create(ctx, &corev1.Event{
 			ObjectMeta: metav1.ObjectMeta{Name: "fc-helm-wsd.prior", Namespace: "default"},
 			InvolvedObject: corev1.ObjectReference{
@@ -114,6 +115,11 @@ var _ = Describe("FailureContext", func() {
 			for _, ev := range fc.RecentEvents {
 				reasons = append(reasons, ev.Reason)
 			}
+			// The controller's own failure event is captured (newest first)...
+			g.Expect(fc.RecentEvents).NotTo(BeEmpty())
+			g.Expect(fc.RecentEvents[0].Reason).To(Equal(workspacesv1.ReasonHelmReleaseFailed))
+			g.Expect(fc.RecentEvents[0].Message).To(Equal("Helm release failed: context deadline exceeded"))
+			// ...alongside the pre-existing event.
 			g.Expect(reasons).To(ContainElement("PriorWarning"))
 		}, timeout, interval).Should(Succeed())
 	})

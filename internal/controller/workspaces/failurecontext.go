@@ -22,6 +22,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
@@ -48,18 +49,18 @@ func (r *WorkspaceDeploymentReconciler) markFailed(
 		wsd.Status.Message = message
 		return
 	}
-	wsd.Status.FailureContext = r.buildFailureContext(ctx, wsd, reason)
-	wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
-	wsd.Status.Message = message
 	if r.Recorder != nil {
 		r.Recorder.Eventf(wsd, nil, corev1.EventTypeWarning, reason, "Reconcile", "%s", message)
 	}
+	wsd.Status.FailureContext = r.buildFailureContext(ctx, wsd, reason, message)
+	wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseFailed
+	wsd.Status.Message = message
 }
 
 func (r *WorkspaceDeploymentReconciler) buildFailureContext(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,
-	reason string,
+	reason, message string,
 ) *workspacesv1.FailureContext {
 	phase := wsd.Status.Phase
 	if phase == "" {
@@ -91,7 +92,21 @@ func (r *WorkspaceDeploymentReconciler) buildFailureContext(
 		fc.ServiceSetStatus = summary
 	}
 
-	fc.RecentEvents = r.recentEvents(ctx, wsd)
+	// Seed RecentEvents with the failure event we just emitted. The event
+	// broadcaster records it asynchronously, so a read-back in this same
+	// reconcile can't see it; and since the operator is the only emitter of
+	// events on a WorkspaceDeployment, a plain read would leave RecentEvents
+	// empty in every real failure. Older events (if any) follow, newest first.
+	current := workspacesv1.EventSummary{
+		LastSeen: metav1.Now(),
+		Type:     corev1.EventTypeWarning,
+		Reason:   reason,
+		Message:  message,
+	}
+	fc.RecentEvents = append([]workspacesv1.EventSummary{current}, r.recentEvents(ctx, wsd)...)
+	if len(fc.RecentEvents) > maxRecentEvents {
+		fc.RecentEvents = fc.RecentEvents[:maxRecentEvents]
+	}
 	return fc
 }
 
