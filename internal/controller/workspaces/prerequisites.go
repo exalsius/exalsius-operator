@@ -53,7 +53,31 @@ var labelValueRE = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0
 // The name is shared across all WorkspaceDeployments needing the same
 // prerequisite, so multiple WSDs converge on a single SS.
 func prerequisiteServiceSetName(cdName, templateName string) string {
-	return fmt.Sprintf("%s%s-%s", prerequisiteServiceSetPrefix, cdName, templateName)
+	return boundedName(fmt.Sprintf("%s%s-%s", prerequisiteServiceSetPrefix, cdName, templateName))
+}
+
+// maxServiceSetNameLen is the longest a ServiceSet name may be. K0rdent names
+// the Sveltos Profile after the ServiceSet, and Sveltos stamps that name as a
+// label *value* on the ClusterSummary it creates. Kubernetes caps label values
+// at 63 characters, so a longer name makes Sveltos silently fail to create the
+// ClusterSummary — the chart never deploys and the ServiceSet hangs in
+// Provisioning. CD name + template/WSD name can exceed this (e.g. a 23-char CD
+// plus a versioned template name), so every ServiceSet name is bounded here.
+const maxServiceSetNameLen = 63
+
+// boundedName returns name unchanged when it already fits maxServiceSetNameLen
+// (so existing short names — and their already-created resources — are
+// untouched); otherwise it truncates and appends a short deterministic hash of
+// the full name. The result stays unique, stable across reconciles, and a valid
+// DNS-1123 / label value.
+func boundedName(name string) string {
+	if len(name) <= maxServiceSetNameLen {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	suffix := "-" + hex.EncodeToString(sum[:4]) // "-" + 8 hex chars
+	prefix := strings.TrimRight(name[:maxServiceSetNameLen-len(suffix)], "-.")
+	return prefix + suffix
 }
 
 // isPrerequisiteServiceSet returns true if the ServiceSet was created by the

@@ -34,8 +34,11 @@ func serviceEntryName(wsd *workspacesv1.WorkspaceDeployment) string {
 
 // serviceSetName returns the name of the ServiceSet for a workspace deployment.
 // Includes the cluster name to make the relationship clear and avoid collisions.
+// Bounded to the Sveltos label-value limit (see boundedName); long CD+WSD name
+// combinations would otherwise break ClusterSummary creation on the regional
+// cluster.
 func serviceSetName(wsd *workspacesv1.WorkspaceDeployment) string {
-	return fmt.Sprintf("wsd-%s-%s", wsd.Spec.ClusterDeploymentRef.Name, wsd.Name)
+	return boundedName(fmt.Sprintf("wsd-%s-%s", wsd.Spec.ClusterDeploymentRef.Name, wsd.Name))
 }
 
 // ensureWorkspaceServiceSet creates or updates a ServiceSet for the workspace.
