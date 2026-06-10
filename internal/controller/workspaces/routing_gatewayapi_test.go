@@ -219,6 +219,9 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(svc.Spec.Selector).To(BeEmpty())
 		Expect(svc.Spec.Ports).To(HaveLen(1))
 		Expect(svc.Spec.Ports[0].Port).To(Equal(int32(8888)))
+		// Marked as an Istio ambient global service so istiod federates the
+		// child cluster's endpoints into the mirror.
+		Expect(svc.Labels).To(HaveKeyWithValue("istio.io/global", "true"))
 
 		// HTTPRoute attached to the tenant Gateway with the right hostname
 		// and backend.

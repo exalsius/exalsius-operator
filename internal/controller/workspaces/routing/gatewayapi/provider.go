@@ -62,6 +62,13 @@ const (
 	// maxHostnameLabel is the DNS limit for a single hostname label.
 	maxHostnameLabel = 63
 
+	// labelIstioGlobal marks a Service as an Istio ambient multi-cluster
+	// "global service" — the explicit opt-in for istiod to federate its
+	// endpoints across clusters. Required on BOTH the regional mirror Service
+	// and the child workspace Service for the cross-cluster data path to form.
+	labelIstioGlobal      = "istio.io/global"
+	labelIstioGlobalValue = "true"
+
 	// msgAwaitingAcceptance is the not-ready message while the gateway
 	// controller has not (yet) accepted a freshly written route.
 	msgAwaitingAcceptance = "waiting for the gateway to accept the route"
@@ -124,6 +131,17 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 		return nil, err
 	}
 
+	// Client for the child cluster, where the chart's real Services live. The
+	// child Service needs the istio.io/global label too (the regional mirror
+	// alone is not enough — federation requires it on both sides). The
+	// workspace is Running by the time routes are reconciled, so the child is
+	// reachable; treat failure as retryable.
+	cdRef := req.Workspace.Spec.ClusterDeploymentRef
+	childClient, err := common.GetRegionalClusterClient(ctx, req.ManagementClient, cdRef.Namespace, cdRef.Name, req.Scheme)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reach child cluster to mark services global: %w", err)
+	}
+
 	entries := make([]workspacesv1.AccessEntry, 0, len(req.Endpoints))
 	primaryAssigned := false
 	for _, ep := range req.Endpoints {
@@ -148,6 +166,9 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 			// SSH/TCP: no hostname routing on raw TCP — these get a
 			// dedicated high port on the tenant domain from the Port Pool.
 			if err := p.ensureMirrorService(ctx, gwCtx.regionalClient, nsName, svcName, req.Workspace.Name, ep); err != nil {
+				return nil, err
+			}
+			if err := markServiceGlobal(ctx, childClient, nsName, svcName); err != nil {
 				return nil, err
 			}
 			entry, err := p.ensureTCPRoute(ctx, gwCtx, nsName, svcName, req.Workspace.Name, ep)
@@ -182,6 +203,9 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 		hostname := label + "." + gwCtx.domain
 
 		if err := p.ensureMirrorService(ctx, gwCtx.regionalClient, nsName, svcName, req.Workspace.Name, ep); err != nil {
+			return nil, err
+		}
+		if err := markServiceGlobal(ctx, childClient, nsName, svcName); err != nil {
 			return nil, err
 		}
 		ready, err := p.ensureHTTPRoute(ctx, gwCtx.regionalClient, nsName, hostname, svcName, req.Workspace.Name, ep)
@@ -422,6 +446,13 @@ func (p *Provider) ensureMirrorService(
 		Protocol: corev1.ProtocolTCP,
 	}}
 
+	desiredLabels := map[string]string{
+		routing.LabelWorkspace: workspaceName,
+		// Mark the mirror as an Istio ambient global service so istiod
+		// federates the child cluster's endpoints into it.
+		labelIstioGlobal: labelIstioGlobalValue,
+	}
+
 	svc := &corev1.Service{}
 	err := c.Get(ctx, client.ObjectKey{Name: svcName, Namespace: nsName}, svc)
 	if apierrors.IsNotFound(err) {
@@ -429,7 +460,7 @@ func (p *Provider) ensureMirrorService(
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      svcName,
 				Namespace: nsName,
-				Labels:    map[string]string{routing.LabelWorkspace: workspaceName},
+				Labels:    desiredLabels,
 			},
 			Spec: corev1.ServiceSpec{
 				// No selector: there are no local pods. Endpoints come from
@@ -446,11 +477,53 @@ func (p *Provider) ensureMirrorService(
 		return fmt.Errorf("failed to get mirror Service %q: %w", svcName, err)
 	}
 
+	changed := false
+	if svc.Labels == nil {
+		svc.Labels = map[string]string{}
+	}
+	for k, v := range desiredLabels {
+		if svc.Labels[k] != v {
+			svc.Labels[k] = v
+			changed = true
+		}
+	}
 	if !apiequality.Semantic.DeepDerivative(desiredPorts, svc.Spec.Ports) {
 		svc.Spec.Ports = desiredPorts
+		changed = true
+	}
+	if changed {
 		if err := c.Update(ctx, svc); err != nil {
 			return fmt.Errorf("failed to update mirror Service %q: %w", svcName, err)
 		}
+	}
+	return nil
+}
+
+// markServiceGlobal adds the Istio ambient "global service" label to the
+// child cluster's Service for an access endpoint, so istiod federates its
+// endpoints to the regional mirror. Idempotent. A missing Service (chart not
+// yet reconciled the Service) is tolerated — it'll be labeled on a later
+// reconcile.
+func markServiceGlobal(ctx context.Context, childClient client.Client, nsName, svcName string) error {
+	svc := &corev1.Service{}
+	err := childClient.Get(ctx, client.ObjectKey{Name: svcName, Namespace: nsName}, svc)
+	if apierrors.IsNotFound(err) {
+		log.FromContext(ctx).V(1).Info("child Service not present yet, will label on next reconcile",
+			"namespace", nsName, "service", svcName)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get child Service %q: %w", svcName, err)
+	}
+	if svc.Labels[labelIstioGlobal] == labelIstioGlobalValue {
+		return nil
+	}
+	if svc.Labels == nil {
+		svc.Labels = map[string]string{}
+	}
+	svc.Labels[labelIstioGlobal] = labelIstioGlobalValue
+	if err := childClient.Update(ctx, svc); err != nil {
+		return fmt.Errorf("failed to label child Service %q global: %w", svcName, err)
 	}
 	return nil
 }
