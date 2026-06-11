@@ -78,23 +78,6 @@ spec:
                 - name
                 - namespace
                 type: object
-              owner:
-                description: Owner identifies the user and organization.
-                properties:
-                  orgID:
-                    type: string
-                  orgName:
-                    type: string
-                  teams:
-                    items:
-                      type: string
-                    type: array
-                  username:
-                    minLength: 1
-                    type: string
-                required:
-                - username
-                type: object
               resources:
                 description: Resources overrides the default resources from the WorkspaceClass.
                 properties:
@@ -173,7 +156,6 @@ spec:
                 type: string
             required:
             - clusterDeploymentRef
-            - owner
             - workspaceClassRef
             type: object
           status:

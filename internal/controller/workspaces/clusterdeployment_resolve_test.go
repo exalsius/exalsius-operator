@@ -40,7 +40,6 @@ var _ = Describe("ClusterDeployment resolution", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: cdName, Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "tester"},
 			},
 		}
 	}

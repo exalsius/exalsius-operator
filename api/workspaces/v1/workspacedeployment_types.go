@@ -277,18 +277,6 @@ type ClusterDeploymentRef struct {
 	Namespace string `json:"namespace"`
 }
 
-// OwnerInfo identifies the user and organization that owns this workspace.
-type OwnerInfo struct {
-	// +kubebuilder:validation:MinLength=1
-	Username string `json:"username"`
-	// +optional
-	OrgID string `json:"orgID,omitempty"`
-	// +optional
-	OrgName string `json:"orgName,omitempty"`
-	// +optional
-	Teams []string `json:"teams,omitempty"`
-}
-
 // WorkspaceDeploymentSpec defines user intent to deploy a workspace instance.
 type WorkspaceDeploymentSpec struct {
 	// WorkspaceClassRef is the name of the cluster-scoped WorkspaceClass.
@@ -298,9 +286,6 @@ type WorkspaceDeploymentSpec struct {
 
 	// ClusterDeploymentRef identifies the target child cluster.
 	ClusterDeploymentRef ClusterDeploymentRef `json:"clusterDeploymentRef"`
-
-	// Owner identifies the user and organization.
-	Owner OwnerInfo `json:"owner"`
 
 	// Resources overrides the default resources from the WorkspaceClass.
 	// +optional

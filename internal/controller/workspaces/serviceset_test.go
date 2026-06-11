@@ -63,7 +63,6 @@ var _ = Describe("ServiceSet-based workspace deployment", func() {
 					Name:      "test-ss-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "testuser"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())

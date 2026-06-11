@@ -38,7 +38,6 @@ func gwMakeRequest(wsdName, cdName string, endpoints ...workspacesv1.AccessEndpo
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: cdName, Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "tester"},
 			},
 		},
 		Endpoints:        endpoints,

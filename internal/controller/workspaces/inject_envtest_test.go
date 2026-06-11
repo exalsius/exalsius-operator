@@ -79,7 +79,6 @@ var _ = Describe("Resource injection (integration)", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: "inject-cd-1", Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "tester"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -154,7 +153,6 @@ var _ = Describe("Resource injection (integration)", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: "inject-cd-2", Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "tester"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -213,7 +211,6 @@ var _ = Describe("Resource injection (integration)", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: "inject-cd-3", Namespace: "default",
 				},
-				Owner:  workspacesv1.OwnerInfo{Username: "tester"},
 				Values: &userValues,
 			},
 		}

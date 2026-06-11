@@ -52,7 +52,6 @@ var _ = Describe("Prerequisite auto-install", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: cdName, Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "tester"},
 			},
 		}
 	}

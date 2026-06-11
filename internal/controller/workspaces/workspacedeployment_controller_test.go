@@ -32,9 +32,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "some-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{
-					Username: "testuser",
-				},
 			},
 		}
 
@@ -99,9 +96,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-colony-cluster-1",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{
-					Username: "testuser",
-				},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -136,9 +130,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name:      "some-cluster",
 					Namespace: "default",
-				},
-				Owner: workspacesv1.OwnerInfo{
-					Username: "testuser",
 				},
 				Suspend: true,
 			},
@@ -201,9 +192,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name:      "test-colony-running-cluster",
 					Namespace: "default",
-				},
-				Owner: workspacesv1.OwnerInfo{
-					Username: "testuser",
 				},
 			},
 		}
@@ -287,9 +275,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "some-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{
-					Username: "testuser",
-				},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -352,7 +337,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-delete-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "testuser"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -427,7 +411,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-multi-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "alice"},
 			},
 		}
 		wsdBob := &workspacesv1.WorkspaceDeployment{
@@ -441,7 +424,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-multi-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "bob"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsdAlice)).To(Succeed())
@@ -513,7 +495,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-fail-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "testuser"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -590,7 +571,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{
 					Name: "test-prereq-cluster", Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "testuser"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
@@ -659,7 +639,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-parallel-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "user1"},
 			},
 		}
 		wsd2 := &workspacesv1.WorkspaceDeployment{
@@ -673,7 +652,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-parallel-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "user2"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd1)).To(Succeed())
@@ -748,7 +726,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-concurrent-del-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "userA"},
 			},
 		}
 		wsdB := &workspacesv1.WorkspaceDeployment{
@@ -762,7 +739,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "test-concurrent-del-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "userB"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsdA)).To(Succeed())
@@ -815,7 +791,6 @@ var _ = Describe("WorkspaceDeploymentReconciler", func() {
 					Name:      "some-cluster",
 					Namespace: "default",
 				},
-				Owner: workspacesv1.OwnerInfo{Username: "testuser"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
