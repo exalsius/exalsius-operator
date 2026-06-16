@@ -98,10 +98,8 @@ var _ = Describe("WorkspaceDeployment GPU offering gate", func() {
 			fetched := &workspacesv1.WorkspaceDeployment{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
 			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseFailed))
-			cond := findCondition(fetched.Status.Conditions, workspacesv1.ConditionFeasible)
-			g.Expect(cond).NotTo(BeNil())
-			g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			g.Expect(cond.Reason).To(Equal(workspacesv1.ReasonGpuOfferingUnavailable))
+			g.Expect(fetched.Status.FailureContext).NotTo(BeNil())
+			g.Expect(fetched.Status.FailureContext.Reason).To(Equal(workspacesv1.ReasonGpuOfferingUnavailable))
 			g.Expect(fetched.Status.Message).To(ContainSubstring("GATETEST-NOSUCHGPU"))
 		}, timeout, interval).Should(Succeed())
 
@@ -127,4 +125,75 @@ var _ = Describe("WorkspaceDeployment GPU offering gate", func() {
 			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
 		}, timeout, interval).Should(Succeed())
 	})
+
+	It("holds in Waiting when the model exists but is full, then proceeds once it frees", func() {
+		Expect(k8sClient.Create(ctx, gpuClass("gpugate-cap-class"))).To(Succeed())
+		mkCD("gpugate-cap-cd")
+		createGPUNode("gpugate-cap-node", "GATETEST-CAPGPU", 1)
+		// Occupy the single GPU so none are free.
+		occupant := occupyGPU("gpugate-cap-occupant", "gpugate-cap-node", 1)
+
+		// Request 1 GPU of the (now full) model.
+		one := int32(1)
+		model := "GATETEST-CAPGPU"
+		wsd := &workspacesv1.WorkspaceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "gpugate-cap", Namespace: "default"},
+			Spec: workspacesv1.WorkspaceDeploymentSpec{
+				WorkspaceClassRef:    "gpugate-cap-class",
+				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{Name: "gpugate-cap-cd", Namespace: "default"},
+				Resources: &workspacesv1.WorkspaceResourceSpec{
+					PerReplica: workspacesv1.ResourceRequirements{GPUType: &model, GPUCount: &one},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		// Held in Waiting (no ServiceSet) while the GPU is occupied.
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseWaiting))
+			g.Expect(fetched.Status.Message).To(ContainSubstring("GATETEST-CAPGPU"))
+		}, timeout, interval).Should(Succeed())
+		Consistently(func(g Gomega) {
+			ss := &k0rdentv1beta1.ServiceSet{}
+			err := k8sClient.Get(ctx, client.ObjectKey{Name: "wsd-gpugate-cap-cd-gpugate-cap", Namespace: "default"}, ss)
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, 2*time.Second, interval).Should(Succeed())
+
+		// Free the GPU — the workspace should leave Waiting and deploy.
+		// Force-delete (grace 0): envtest has no kubelet, so a graceful delete
+		// would leave the pod Terminating and still counted as occupying.
+		Expect(k8sClient.Delete(ctx, occupant, client.GracePeriodSeconds(0))).To(Succeed())
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
+		}, timeout, interval).Should(Succeed())
+	})
 })
+
+// occupyGPU creates a pod bound to nodeName that requests `count` NVIDIA GPUs,
+// so AvailableForModel counts them as used. Returns the pod for explicit
+// deletion mid-spec; a DeferCleanup is registered as a safety net.
+func occupyGPU(name, nodeName string, count int64) *corev1.Pod {
+	GinkgoHelper()
+	q := *resource.NewQuantity(count, resource.DecimalSI)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: nodeName,
+			Containers: []corev1.Container{{
+				Name:  "c",
+				Image: "busybox",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceName(gpu.ResourceNvidiaGPU): q},
+					Limits:   corev1.ResourceList{corev1.ResourceName(gpu.ResourceNvidiaGPU): q},
+				},
+			}},
+		},
+	}
+	Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+	DeferCleanup(func() { _ = k8sClient.Delete(ctx, pod) })
+	return pod
+}

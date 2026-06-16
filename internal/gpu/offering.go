@@ -167,6 +167,71 @@ func FindByModel(offerings []Offering, model string) (Offering, bool) {
 	return Offering{}, false
 }
 
+// AvailableForModel returns how many GPUs of the given canonical model are
+// free to schedule right now (CONTEXT.md: Available Capacity): the allocatable
+// units of the model's GPU resource on its nodes, minus the units already
+// requested by pods running on those nodes. `found` is false when no
+// schedulable node carries the model at all (i.e. the offering is absent) —
+// callers distinguish "absent" (a gate failure) from "present but 0 free" (a
+// wait). Counting is discrete-unit, so it covers whole GPUs and MIG slices
+// alike; fractional/HAMi sharing is out of scope (ADR-0002).
+func AvailableForModel(nodes []corev1.Node, pods []corev1.Pod, model string, opts Options) (free int64, found bool) {
+	modelLabel := opts.modelLabel()
+
+	// matching node name -> the GPU resource it advertises for this model.
+	matched := map[string]string{}
+	var total int64
+	for i := range nodes {
+		n := &nodes[i]
+		if !nodeIsSchedulable(n) || n.Labels[modelLabel] != model {
+			continue
+		}
+		for _, vr := range vendorResources {
+			if c := gpuAllocatable(n, vr.resourceName); c > 0 {
+				matched[n.Name] = vr.resourceName
+				total += c
+				found = true
+			}
+		}
+	}
+	if !found {
+		return 0, false
+	}
+
+	var used int64
+	for i := range pods {
+		p := &pods[i]
+		resourceName, ok := matched[p.Spec.NodeName]
+		if !ok || !podConsumes(p) {
+			continue
+		}
+		for ci := range p.Spec.Containers {
+			if q, ok := p.Spec.Containers[ci].Resources.Requests[corev1.ResourceName(resourceName)]; ok {
+				used += q.Value()
+			}
+		}
+	}
+
+	free = total - used
+	if free < 0 {
+		free = 0
+	}
+	return free, true
+}
+
+// podConsumes reports whether a pod currently occupies node resources that
+// should be subtracted from availability.
+func podConsumes(p *corev1.Pod) bool {
+	if p.Spec.NodeName == "" {
+		return false
+	}
+	switch p.Status.Phase {
+	case corev1.PodSucceeded, corev1.PodFailed:
+		return false
+	}
+	return true
+}
+
 // NodeSelectorForModel returns the node-label requirements that pin a pod to
 // the given canonical model — the GPU Selector the chart applies and the gate
 // validates (one identical selector, ADR-0002).

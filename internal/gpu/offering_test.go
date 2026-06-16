@@ -180,3 +180,73 @@ func TestNodeSelectorForModel(t *testing.T) {
 		t.Errorf("expected custom-key selector, got %v", custom)
 	}
 }
+
+// gpuPod builds a pod scheduled on nodeName requesting `count` NVIDIA GPUs.
+func gpuPod(name, nodeName string, count int64) corev1.Pod {
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: nodeName,
+			Containers: []corev1.Container{{
+				Name: "c",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName(ResourceNvidiaGPU): *resource.NewQuantity(count, resource.DecimalSI),
+					},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+}
+
+func TestAvailableForModel_NoPodsAllFree(t *testing.T) {
+	free, found := AvailableForModel([]corev1.Node{
+		gpuNode("n1", "H100", 8, nil),
+		gpuNode("n2", "H100", 4, nil),
+	}, nil, "H100", Options{})
+	if !found {
+		t.Fatal("expected found")
+	}
+	if free != 12 {
+		t.Errorf("expected 12 free, got %d", free)
+	}
+}
+
+func TestAvailableForModel_SubtractsPodsOnMatchingNodes(t *testing.T) {
+	nodes := []corev1.Node{gpuNode("n1", "H100", 8, nil)}
+	pods := []corev1.Pod{
+		gpuPod("p1", "n1", 3),
+		gpuPod("p2", "other-node", 2), // not on a matching node -> ignored
+	}
+	free, found := AvailableForModel(nodes, pods, "H100", Options{})
+	if !found || free != 5 {
+		t.Errorf("expected found and 5 free, got found=%v free=%d", found, free)
+	}
+}
+
+func TestAvailableForModel_AbsentModel(t *testing.T) {
+	_, found := AvailableForModel([]corev1.Node{gpuNode("n1", "H100", 8, nil)}, nil, "A100-80GB", Options{})
+	if found {
+		t.Error("expected not found for absent model")
+	}
+}
+
+func TestAvailableForModel_FullClusterClampsToZero(t *testing.T) {
+	nodes := []corev1.Node{gpuNode("n1", "H100", 2, nil)}
+	pods := []corev1.Pod{gpuPod("p1", "n1", 2), gpuPod("p2", "n1", 1)} // over-subscribed
+	free, found := AvailableForModel(nodes, pods, "H100", Options{})
+	if !found || free != 0 {
+		t.Errorf("expected found and 0 free (clamped), got found=%v free=%d", found, free)
+	}
+}
+
+func TestAvailableForModel_IgnoresTerminatedPods(t *testing.T) {
+	nodes := []corev1.Node{gpuNode("n1", "H100", 8, nil)}
+	p := gpuPod("p1", "n1", 4)
+	p.Status.Phase = corev1.PodSucceeded // freed
+	free, _ := AvailableForModel(nodes, []corev1.Pod{p}, "H100", Options{})
+	if free != 8 {
+		t.Errorf("expected succeeded pod ignored (8 free), got %d", free)
+	}
+}

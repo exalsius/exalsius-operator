@@ -138,21 +138,33 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 	}
 
-	// Refresh feasibility status while the workspace hasn't yet reached Running.
+	// Refresh feasibility status while the workspace is still being set up.
 	// This is observability only — no gating; the API gates user-facing
-	// admission. We swallow regional-cluster failures and requeue, the same
-	// way other transient k8s errors are handled.
-	if wsd.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseRunning {
+	// admission. Skipped once Running, terminally Failed, or held Waiting for
+	// GPU capacity: in those states it would either be stale or fight the gate
+	// over status fields. We swallow regional-cluster failures and requeue.
+	switch wsd.Status.Phase {
+	case workspacesv1.WorkspaceDeploymentPhaseRunning,
+		workspacesv1.WorkspaceDeploymentPhaseFailed,
+		workspacesv1.WorkspaceDeploymentPhaseWaiting:
+		// skip
+	default:
 		if res, err := r.refreshFeasibility(ctx, wsd, wsc); err != nil {
 			return res, err
 		}
 	}
 
-	// Gate on GPU offering existence before deploying (ADR-0002): if the
-	// requested GPU model is not present on the target child cluster at all,
-	// fail fast with a clear message rather than letting a Helm release time
-	// out. Skipped once Running.
-	if wsd.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseRunning {
+	// Gate on GPU offering existence and capacity before deploying (ADR-0002):
+	// fail fast if the requested GPU model is absent, or hold in Waiting if it
+	// exists but none are free. Skipped once the workspace has progressed past
+	// the decision to deploy (Deploying/Running) or terminally Failed — a
+	// deployed workspace must never be re-gated against capacity it now holds.
+	switch wsd.Status.Phase {
+	case workspacesv1.WorkspaceDeploymentPhaseDeploying,
+		workspacesv1.WorkspaceDeploymentPhaseRunning,
+		workspacesv1.WorkspaceDeploymentPhaseFailed:
+		// skip
+	default:
 		if res, ok, err := r.gateGPUOffering(ctx, wsd, wsc); err != nil || !ok {
 			return res, err
 		}
@@ -426,22 +438,66 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 	}
 
 	offerings := gpu.DeriveOfferings(nodes.Items, gpu.Options{})
-	if _, ok := gpu.FindByModel(offerings, model); ok {
+	if _, ok := gpu.FindByModel(offerings, model); !ok {
+		// Static infeasibility: the model isn't on this cluster at all. Fail
+		// fast and terminally — the user fixes the request and recreates.
+		// markFailed owns the terminal signal (phase + message +
+		// failureContext.reason). We deliberately don't touch the Feasible
+		// condition here — refreshFeasibility owns it and would otherwise
+		// fight us over the reason.
+		msg := fmt.Sprintf("GPU model %q is not available on cluster %q; choose a different cluster or model",
+			model, wsd.Spec.ClusterDeploymentRef.Name)
+		r.markFailed(ctx, wsd, workspacesv1.ReasonGpuOfferingUnavailable, msg)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{}, false, nil
+	}
+
+	// Offering present — hold for capacity (ADR-0002). Demand is
+	// replicas × per-replica GPU count; with no GPU count there's nothing to
+	// reserve, so existence alone suffices.
+	demand := gpuDemand(resolved)
+	if demand <= 0 {
 		return ctrl.Result{}, true, nil
 	}
 
-	msg := fmt.Sprintf("GPU model %q is not available on cluster %q; choose a different cluster or model",
-		model, wsd.Spec.ClusterDeploymentRef.Name)
-	setCondition(&wsd.Status, metav1.Condition{
-		Type:               workspacesv1.ConditionFeasible,
-		Status:             metav1.ConditionFalse,
-		Reason:             workspacesv1.ReasonGpuOfferingUnavailable,
-		Message:            msg,
-		ObservedGeneration: wsd.Generation,
-	})
-	r.markFailed(ctx, wsd, workspacesv1.ReasonGpuOfferingUnavailable, msg)
-	_ = r.Status().Update(ctx, wsd)
-	return ctrl.Result{}, false, nil
+	pods := &corev1.PodList{}
+	if err := childClient.List(ctx, pods); err != nil {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = fmt.Sprintf("Could not list pods to check GPU capacity: %v", err)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+
+	free, _ := gpu.AvailableForModel(nodes.Items, pods.Items, model, gpu.Options{})
+	if free < demand {
+		// Transient contention: hold in Waiting (no Helm release) and retry.
+		msg := fmt.Sprintf("Waiting for %d %q GPU(s) on cluster %q; %d currently free",
+			demand, model, wsd.Spec.ClusterDeploymentRef.Name, free)
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseWaiting
+		wsd.Status.Message = msg
+		if r.Recorder != nil {
+			r.Recorder.Eventf(wsd, nil, corev1.EventTypeNormal,
+				workspacesv1.ReasonWaitingForGpuCapacity, "Reconcile", "%s", msg)
+		}
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+
+	return ctrl.Result{}, true, nil
+}
+
+// gpuDemand returns the total GPU count a workspace requests: replicas ×
+// per-replica GPU count (defaults: 1 replica, 0 GPUs).
+func gpuDemand(r workspacesv1.WorkspaceResourceSpec) int64 {
+	replicas := int64(1)
+	if r.Replicas != nil {
+		replicas = int64(*r.Replicas)
+	}
+	var perReplica int64
+	if r.PerReplica.GPUCount != nil {
+		perReplica = int64(*r.PerReplica.GPUCount)
+	}
+	return replicas * perReplica
 }
 
 // reconcilePrerequisites evaluates and (if needed) installs prerequisites for

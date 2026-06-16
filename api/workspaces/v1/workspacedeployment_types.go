@@ -28,16 +28,21 @@ const (
 )
 
 // WorkspaceDeploymentPhase represents the lifecycle state of a deployment.
-// +kubebuilder:validation:Enum=Pending;InstallingPrerequisites;Deploying;Running;Failed;Deleting
+// +kubebuilder:validation:Enum=Pending;InstallingPrerequisites;Waiting;Deploying;Running;Failed;Deleting
 type WorkspaceDeploymentPhase string
 
 const (
 	WorkspaceDeploymentPhasePending                 WorkspaceDeploymentPhase = "Pending"
 	WorkspaceDeploymentPhaseInstallingPrerequisites WorkspaceDeploymentPhase = "InstallingPrerequisites"
-	WorkspaceDeploymentPhaseDeploying               WorkspaceDeploymentPhase = "Deploying"
-	WorkspaceDeploymentPhaseRunning                 WorkspaceDeploymentPhase = "Running"
-	WorkspaceDeploymentPhaseFailed                  WorkspaceDeploymentPhase = "Failed"
-	WorkspaceDeploymentPhaseDeleting                WorkspaceDeploymentPhase = "Deleting"
+	// WorkspaceDeploymentPhaseWaiting means the requested GPU Offering exists
+	// on the target cluster but none are free right now; the workspace is held
+	// (no Helm release created) and retried until capacity frees (ADR-0002).
+	// Transient and self-resolving — distinct from the terminal Failed.
+	WorkspaceDeploymentPhaseWaiting   WorkspaceDeploymentPhase = "Waiting"
+	WorkspaceDeploymentPhaseDeploying WorkspaceDeploymentPhase = "Deploying"
+	WorkspaceDeploymentPhaseRunning   WorkspaceDeploymentPhase = "Running"
+	WorkspaceDeploymentPhaseFailed    WorkspaceDeploymentPhase = "Failed"
+	WorkspaceDeploymentPhaseDeleting  WorkspaceDeploymentPhase = "Deleting"
 )
 
 // PrerequisitePhase reports the install state of a single prerequisite.
@@ -269,6 +274,11 @@ const (
 	// present on the target ClusterDeployment at all (ADR-0002). Terminal: the
 	// user fixes the request (or has the GPU provisioned) and recreates.
 	ReasonGpuOfferingUnavailable = "GpuOfferingUnavailable"
+	// ReasonWaitingForGpuCapacity signals that the requested GPU model exists
+	// on the target cluster but none are free right now (ADR-0002). Transient:
+	// the workspace is held in the Waiting phase and proceeds once capacity
+	// frees.
+	ReasonWaitingForGpuCapacity = "WaitingForGpuCapacity"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.

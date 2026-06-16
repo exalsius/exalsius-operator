@@ -277,6 +277,7 @@ spec:
                     enum:
                     - Pending
                     - InstallingPrerequisites
+                    - Waiting
                     - Deploying
                     - Running
                     - Failed
@@ -510,6 +511,7 @@ spec:
                 enum:
                 - Pending
                 - InstallingPrerequisites
+                - Waiting
                 - Deploying
                 - Running
                 - Failed
