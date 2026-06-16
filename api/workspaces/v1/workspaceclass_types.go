@@ -57,6 +57,16 @@ type ResourceRequirements struct {
 	// WorkspaceClass — type is a per-deployment cluster-dependent choice.
 	// +optional
 	GPUType *string `json:"gpuType,omitempty"`
+	// GPUNodeSelector is a raw, exact-match node-label selector for targeting a
+	// GPU directly (e.g. a GFD/AMD label like {"nvidia.com/gpu.product":
+	// "NVIDIA-H100-80GB-HBM3"}). It is the power-user/exact escape hatch
+	// alongside gpuType: both compile to one GPU Selector that the operator
+	// gate validates and the chart applies, so a request that passes the gate
+	// is always placeable (ADR-0002). Usable even on clusters that lack the
+	// canonical exalsius.ai/gpu-model label. Like gpuType, it is a
+	// per-deployment cluster-dependent choice and cannot be set on a class.
+	// +optional
+	GPUNodeSelector map[string]string `json:"gpuNodeSelector,omitempty"`
 }
 
 // WorkspaceResourceSpec defines the compute resources for a workspace.
@@ -171,6 +181,7 @@ type UserFacingConfigField struct {
 // WorkspaceClassSpec defines the catalog entry for a workspace type.
 //
 // +kubebuilder:validation:XValidation:rule="!has(self.defaultResources.perReplica.gpuType)",message="gpuType cannot be set on a WorkspaceClass — it is a per-deployment cluster-dependent choice"
+// +kubebuilder:validation:XValidation:rule="!has(self.defaultResources.perReplica.gpuNodeSelector)",message="gpuNodeSelector cannot be set on a WorkspaceClass — it is a per-deployment cluster-dependent choice"
 type WorkspaceClassSpec struct {
 	// DisplayName is the human-readable name shown in the workspace catalog.
 	// +kubebuilder:validation:MinLength=1

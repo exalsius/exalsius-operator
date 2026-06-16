@@ -19,6 +19,7 @@ package workspaces
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -235,11 +236,13 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Inject the GPU node selector so the chart pins the pod to the requested
 	// model (ADR-0002). The gate already validated this exact selector is
 	// placeable on the target cluster.
-	if resolved.PerReplica.GPUType != nil && *resolved.PerReplica.GPUType != "" {
-		injectNodeSelector(mergedMap, gpu.NodeSelectorForModel(*resolved.PerReplica.GPUType, gpu.Options{}))
+	// Inject the GPU Selector (gpuType convention and/or raw override) as the
+	// chart's nodeSelector — the exact selector the gate validated — and the
+	// extended GPU resource name so the chart requests the right vendor's GPU
+	// (nvidia.com/gpu vs amd.com/gpu) — ADR-0002.
+	if sel := gpuSelectorOf(resolved); len(sel) > 0 {
+		injectNodeSelector(mergedMap, sel)
 	}
-	// Inject the extended GPU resource name so the chart requests the right
-	// vendor's GPU (nvidia.com/gpu vs amd.com/gpu) — ADR-0002.
 	injectGPUResourceName(mergedMap, gpuResourceName)
 	mergedValues, err := serializeValues(mergedMap)
 	if err != nil {
@@ -412,27 +415,28 @@ func (r *WorkspaceDeploymentReconciler) refreshFeasibility(
 	return ctrl.Result{}, nil
 }
 
-// gateGPUOffering enforces that the requested GPU model actually exists on the
-// target child cluster before deploying (ADR-0002). It live-scans the child
-// cluster's nodes and derives the GPU Offerings present (the same derivation
-// the Colony inventory uses, so the vocabulary matches).
+// gateGPUOffering enforces the requested GPU Selector against the target child
+// cluster before deploying (ADR-0002). The selector is built from the gpuType
+// convention and/or a raw label override; the gate validates the *exact*
+// selector the chart will place on, so a request that passes is always
+// placeable — whichever label it targets.
 //
 // Returns (result, ok, err): ok=false means the caller should return the
-// result without proceeding. A model absent from the cluster is a terminal
+// result without proceeding. A selector matching no GPU node is a terminal
 // Failed (reason GpuOfferingUnavailable) — the user fixes the request and
-// recreates. A child cluster that can't be reached yet is transient: keep
-// Pending and requeue. A workspace requesting no specific GPU model passes
-// straight through.
+// recreates. A match with no free capacity holds the workspace in Waiting. A
+// child cluster that can't be reached yet is transient: keep Pending and
+// requeue. A workspace requesting no GPU passes straight through.
 func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,
 	wsc *workspacesv1.WorkspaceClass,
 ) (ctrl.Result, bool, error) {
 	resolved := mergeResources(wsc.Spec.DefaultResources, wsd.Spec.Resources)
-	if resolved.PerReplica.GPUType == nil || *resolved.PerReplica.GPUType == "" {
+	selector := gpuSelectorOf(resolved)
+	if len(selector) == 0 {
 		return ctrl.Result{}, true, nil
 	}
-	model := *resolved.PerReplica.GPUType
 
 	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
 	if err != nil {
@@ -449,30 +453,6 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
 	}
-
-	offerings := gpu.DeriveOfferings(nodes.Items, gpu.Options{})
-	if _, ok := gpu.FindByModel(offerings, model); !ok {
-		// Static infeasibility: the model isn't on this cluster at all. Fail
-		// fast and terminally — the user fixes the request and recreates.
-		// markFailed owns the terminal signal (phase + message +
-		// failureContext.reason). We deliberately don't touch the Feasible
-		// condition here — refreshFeasibility owns it and would otherwise
-		// fight us over the reason.
-		msg := fmt.Sprintf("GPU model %q is not available on cluster %q; choose a different cluster or model",
-			model, wsd.Spec.ClusterDeploymentRef.Name)
-		r.markFailed(ctx, wsd, workspacesv1.ReasonGpuOfferingUnavailable, msg)
-		_ = r.Status().Update(ctx, wsd)
-		return ctrl.Result{}, false, nil
-	}
-
-	// Offering present — hold for capacity (ADR-0002). Demand is
-	// replicas × per-replica GPU count; with no GPU count there's nothing to
-	// reserve, so existence alone suffices.
-	demand := gpuDemand(resolved)
-	if demand <= 0 {
-		return ctrl.Result{}, true, nil
-	}
-
 	pods := &corev1.PodList{}
 	if err := childClient.List(ctx, pods); err != nil {
 		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
@@ -481,30 +461,60 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
 	}
 
-	free, _ := gpu.AvailableForModel(nodes.Items, pods.Items, model, gpu.Options{})
-	if free < demand {
+	avail := gpu.AvailabilityForSelector(nodes.Items, pods.Items, selector)
+	if !avail.Found {
+		// Static infeasibility: nothing on this cluster matches the selector.
+		// markFailed owns the terminal signal; we don't touch the Feasible
+		// condition (refreshFeasibility owns it).
+		msg := fmt.Sprintf("No GPU matching %s is available on cluster %q; choose a different cluster or GPU",
+			describeGPUSelector(resolved), wsd.Spec.ClusterDeploymentRef.Name)
+		r.markFailed(ctx, wsd, workspacesv1.ReasonGpuOfferingUnavailable, msg)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{}, false, nil
+	}
+
+	// Selector matches — hold for capacity (ADR-0002). Demand is
+	// replicas × per-replica GPU count; with no GPU count there's nothing to
+	// reserve, so a match alone suffices.
+	demand := gpuDemand(resolved)
+	if demand > 0 && avail.Free < demand {
 		// Transient contention: hold in Waiting (no Helm release) and retry.
-		msg := fmt.Sprintf("Waiting for %d %q GPU(s) on cluster %q; %d currently free",
-			demand, model, wsd.Spec.ClusterDeploymentRef.Name, free)
+		msg := fmt.Sprintf("Waiting for %d GPU(s) matching %s on cluster %q; %d currently free",
+			demand, describeGPUSelector(resolved), wsd.Spec.ClusterDeploymentRef.Name, avail.Free)
 		return r.enterWaiting(ctx, wsd, resolved, msg), false, nil
 	}
 
 	// Capacity is available, but serve Waiting workspaces oldest-first
-	// (ADR-0002, best-effort FCFS — not a scheduler). If an older workspace is
-	// already Waiting for the same cluster+model, defer to it.
-	older, err := r.hasOlderWaitingSibling(ctx, wsd, model)
+	// (ADR-0002, best-effort FCFS — not a scheduler). Defer to an older
+	// workspace already Waiting for the same cluster and selector.
+	older, err := r.hasOlderWaitingSibling(ctx, wsd, selector)
 	if err != nil {
 		// Transient list error — re-check next reconcile rather than jumping
 		// the queue.
 		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
 	}
 	if older {
-		msg := fmt.Sprintf("Waiting behind older workspace(s) requesting %q GPU(s) on cluster %q",
-			model, wsd.Spec.ClusterDeploymentRef.Name)
+		msg := fmt.Sprintf("Waiting behind older workspace(s) requesting %s on cluster %q",
+			describeGPUSelector(resolved), wsd.Spec.ClusterDeploymentRef.Name)
 		return r.enterWaiting(ctx, wsd, resolved, msg), false, nil
 	}
 
 	return ctrl.Result{}, true, nil
+}
+
+// gpuSelectorOf builds the GPU Selector (node-label requirements) from a
+// workspace's resolved resources: the gpuType convention plus any raw override.
+func gpuSelectorOf(r workspacesv1.WorkspaceResourceSpec) map[string]string {
+	return gpu.BuildSelector(gpuModelOf(r), r.PerReplica.GPUNodeSelector, gpu.Options{})
+}
+
+// describeGPUSelector renders a human-readable description of the GPU request
+// for status messages.
+func describeGPUSelector(r workspacesv1.WorkspaceResourceSpec) string {
+	if m := gpuModelOf(r); m != "" {
+		return fmt.Sprintf("model %q", m)
+	}
+	return fmt.Sprintf("selector %v", r.PerReplica.GPUNodeSelector)
 }
 
 // enterWaiting holds the workspace in the Waiting phase. It stamps
@@ -529,14 +539,15 @@ func (r *WorkspaceDeploymentReconciler) enterWaiting(
 }
 
 // hasOlderWaitingSibling reports whether another WorkspaceDeployment is already
-// Waiting for the same cluster and GPU model and was created earlier (with UID
-// as a deterministic tiebreaker, since creationTimestamp is second-grained).
+// Waiting for the same cluster and GPU Selector and was created earlier (with
+// UID as a deterministic tiebreaker, since creationTimestamp is second-grained).
 // This is the FCFS ordering: the oldest waiter proceeds first; the rest defer.
 func (r *WorkspaceDeploymentReconciler) hasOlderWaitingSibling(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,
-	model string,
+	selector map[string]string,
 ) (bool, error) {
+	wantKey := selectorKey(selector)
 	list := &workspacesv1.WorkspaceDeploymentList{}
 	if err := r.List(ctx, list); err != nil {
 		return false, err
@@ -552,7 +563,7 @@ func (r *WorkspaceDeploymentReconciler) hasOlderWaitingSibling(
 		if s.Spec.ClusterDeploymentRef != wsd.Spec.ClusterDeploymentRef {
 			continue
 		}
-		if effectiveGPUModel(s) != model {
+		if selectorKey(effectiveGPUSelector(s)) != wantKey {
 			continue
 		}
 		if isOlderWorkspace(s, wsd) {
@@ -562,17 +573,34 @@ func (r *WorkspaceDeploymentReconciler) hasOlderWaitingSibling(
 	return false, nil
 }
 
-// effectiveGPUModel returns a workspace's resolved GPU model, preferring the
-// stamped status (set when it entered Waiting) and falling back to the spec
-// override.
-func effectiveGPUModel(wsd *workspacesv1.WorkspaceDeployment) string {
-	if rr := wsd.Status.ResolvedResources; rr != nil && rr.PerReplica.GPUType != nil {
-		return *rr.PerReplica.GPUType
+// effectiveGPUSelector returns a workspace's resolved GPU Selector, preferring
+// the stamped status (set when it entered Waiting) and falling back to the spec.
+func effectiveGPUSelector(wsd *workspacesv1.WorkspaceDeployment) map[string]string {
+	src := wsd.Spec.Resources
+	if wsd.Status.ResolvedResources != nil {
+		src = wsd.Status.ResolvedResources
 	}
-	if wsd.Spec.Resources != nil && wsd.Spec.Resources.PerReplica.GPUType != nil {
-		return *wsd.Spec.Resources.PerReplica.GPUType
+	if src == nil {
+		return nil
 	}
-	return ""
+	return gpuSelectorOf(*src)
+}
+
+// selectorKey serializes a node-label selector into a stable comparison key.
+func selectorKey(sel map[string]string) string {
+	keys := make([]string, 0, len(sel))
+	for k := range sel {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(sel[k])
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 // isOlderWorkspace reports whether a was created before b, breaking
@@ -596,18 +624,18 @@ func (r *WorkspaceDeploymentReconciler) resolveGPUResource(
 	childClient client.Client,
 	resolved *workspacesv1.WorkspaceResourceSpec,
 ) string {
-	if model := gpuModelOf(*resolved); model != "" {
+	if selector := gpuSelectorOf(*resolved); len(selector) > 0 {
 		nodes := &corev1.NodeList{}
 		if err := childClient.List(ctx, nodes); err == nil {
-			if off, ok := gpu.FindByModel(gpu.DeriveOfferings(nodes.Items, gpu.Options{}), model); ok {
+			if avail := gpu.AvailabilityForSelector(nodes.Items, nil, selector); avail.Found {
 				if resolved.PerReplica.GPUVendor == nil {
-					v := off.Vendor
+					v := avail.Vendor
 					resolved.PerReplica.GPUVendor = &v
 				}
-				return off.ResourceName
+				return avail.ResourceName
 			}
 		}
-		// Fall through: couldn't resolve the offering (transient list error /
+		// Fall through: couldn't resolve the selector (transient list error /
 		// race). Use the vendor mapping if a vendor is known.
 	}
 	if resolved.PerReplica.GPUVendor != nil {

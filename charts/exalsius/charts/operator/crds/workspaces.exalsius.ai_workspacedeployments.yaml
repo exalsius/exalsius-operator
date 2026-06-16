@@ -98,6 +98,19 @@ spec:
                         format: int32
                         minimum: 0
                         type: integer
+                      gpuNodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          GPUNodeSelector is a raw, exact-match node-label selector for targeting a
+                          GPU directly (e.g. a GFD/AMD label like {"nvidia.com/gpu.product":
+                          "NVIDIA-H100-80GB-HBM3"}). It is the power-user/exact escape hatch
+                          alongside gpuType: both compile to one GPU Selector that the operator
+                          gate validates and the chart applies, so a request that passes the gate
+                          is always placeable (ADR-0002). Usable even on clusters that lack the
+                          canonical exalsius.ai/gpu-model label. Like gpuType, it is a
+                          per-deployment cluster-dependent choice and cannot be set on a class.
+                        type: object
                       gpuType:
                         description: |-
                           GPUType is a deployment-time preference for a specific GPU model
@@ -575,6 +588,19 @@ spec:
                         format: int32
                         minimum: 0
                         type: integer
+                      gpuNodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          GPUNodeSelector is a raw, exact-match node-label selector for targeting a
+                          GPU directly (e.g. a GFD/AMD label like {"nvidia.com/gpu.product":
+                          "NVIDIA-H100-80GB-HBM3"}). It is the power-user/exact escape hatch
+                          alongside gpuType: both compile to one GPU Selector that the operator
+                          gate validates and the chart applies, so a request that passes the gate
+                          is always placeable (ADR-0002). Usable even on clusters that lack the
+                          canonical exalsius.ai/gpu-model label. Like gpuType, it is a
+                          per-deployment cluster-dependent choice and cannot be set on a class.
+                        type: object
                       gpuType:
                         description: |-
                           GPUType is a deployment-time preference for a specific GPU model

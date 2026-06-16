@@ -99,7 +99,7 @@ func TestHasOlderWaitingSibling(t *testing.T) {
 			cl := fake.NewClientBuilder().WithScheme(fcfsScheme(t)).WithRuntimeObjects(objs...).Build()
 			r := &WorkspaceDeploymentReconciler{Client: cl}
 
-			got, err := r.hasOlderWaitingSibling(context.Background(), tc.current, "H100")
+			got, err := r.hasOlderWaitingSibling(context.Background(), tc.current, gpuSelectorOf(*tc.current.Spec.Resources))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -110,10 +110,12 @@ func TestHasOlderWaitingSibling(t *testing.T) {
 	}
 }
 
-func TestEffectiveGPUModel(t *testing.T) {
+func TestEffectiveGPUSelector(t *testing.T) {
+	const modelLabel = "exalsius.ai/gpu-model"
 	statusModel := "H100"
 	specModel := "A100-80GB"
 
+	// Stamped status wins over spec.
 	withStatus := &workspacesv1.WorkspaceDeployment{
 		Status: workspacesv1.WorkspaceDeploymentStatus{
 			ResolvedResources: &workspacesv1.WorkspaceResourceSpec{PerReplica: workspacesv1.ResourceRequirements{GPUType: &statusModel}},
@@ -122,22 +124,27 @@ func TestEffectiveGPUModel(t *testing.T) {
 			Resources: &workspacesv1.WorkspaceResourceSpec{PerReplica: workspacesv1.ResourceRequirements{GPUType: &specModel}},
 		},
 	}
-	if got := effectiveGPUModel(withStatus); got != "H100" {
-		t.Errorf("expected status model to win, got %q", got)
+	if got := effectiveGPUSelector(withStatus); got[modelLabel] != "H100" {
+		t.Errorf("expected status model to win, got %v", got)
 	}
 
+	// Spec fallback when no status, with a raw override merged in.
 	specOnly := &workspacesv1.WorkspaceDeployment{
 		Spec: workspacesv1.WorkspaceDeploymentSpec{
-			Resources: &workspacesv1.WorkspaceResourceSpec{PerReplica: workspacesv1.ResourceRequirements{GPUType: &specModel}},
+			Resources: &workspacesv1.WorkspaceResourceSpec{PerReplica: workspacesv1.ResourceRequirements{
+				GPUType:         &specModel,
+				GPUNodeSelector: map[string]string{"nvidia.com/gpu.product": "NVIDIA-A100-SXM4-80GB"},
+			}},
 		},
 	}
-	if got := effectiveGPUModel(specOnly); got != "A100-80GB" {
-		t.Errorf("expected spec fallback, got %q", got)
+	got := effectiveGPUSelector(specOnly)
+	if got[modelLabel] != "A100-80GB" || got["nvidia.com/gpu.product"] != "NVIDIA-A100-SXM4-80GB" {
+		t.Errorf("expected merged spec selector, got %v", got)
 	}
 
 	none := &workspacesv1.WorkspaceDeployment{}
-	if got := effectiveGPUModel(none); got != "" {
-		t.Errorf("expected empty, got %q", got)
+	if got := effectiveGPUSelector(none); len(got) != 0 {
+		t.Errorf("expected empty selector, got %v", got)
 	}
 }
 

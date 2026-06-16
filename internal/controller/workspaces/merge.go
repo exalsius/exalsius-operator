@@ -17,8 +17,10 @@ import (
 // Nil GPUType means "any model" for feasibility matching.
 func mergeResources(classDefaults workspacesv1.WorkspaceResourceSpec, userOverrides *workspacesv1.WorkspaceResourceSpec) workspacesv1.WorkspaceResourceSpec {
 	result := *classDefaults.DeepCopy()
-	// Defensive: even if a class somehow has gpuType set (CEL bypass), wipe it.
+	// Defensive: even if a class somehow has these set (CEL bypass), wipe the
+	// per-deployment-only GPU targeting fields.
 	result.PerReplica.GPUType = nil
+	result.PerReplica.GPUNodeSelector = nil
 
 	if userOverrides == nil {
 		return result
@@ -44,6 +46,9 @@ func mergeResources(classDefaults workspacesv1.WorkspaceResourceSpec, userOverri
 	}
 	if userOverrides.PerReplica.GPUType != nil {
 		result.PerReplica.GPUType = userOverrides.PerReplica.GPUType
+	}
+	if userOverrides.PerReplica.GPUNodeSelector != nil {
+		result.PerReplica.GPUNodeSelector = userOverrides.PerReplica.GPUNodeSelector
 	}
 
 	return result

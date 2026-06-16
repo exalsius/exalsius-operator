@@ -313,3 +313,60 @@ func TestResourceForVendor(t *testing.T) {
 		t.Errorf("unknown vendor -> %q, want empty", got)
 	}
 }
+
+func TestBuildSelector(t *testing.T) {
+	// model only
+	if got := BuildSelector("H100", nil, Options{}); got[DefaultModelLabel] != "H100" || len(got) != 1 {
+		t.Errorf("model-only: %v", got)
+	}
+	// raw only
+	if got := BuildSelector("", map[string]string{"nvidia.com/gpu.product": "X"}, Options{}); got["nvidia.com/gpu.product"] != "X" || len(got) != 1 {
+		t.Errorf("raw-only: %v", got)
+	}
+	// both merged
+	got := BuildSelector("H100", map[string]string{"k": "v"}, Options{})
+	if got[DefaultModelLabel] != "H100" || got["k"] != "v" || len(got) != 2 {
+		t.Errorf("merged: %v", got)
+	}
+	// raw wins on collision
+	if got := BuildSelector("H100", map[string]string{DefaultModelLabel: "override"}, Options{}); got[DefaultModelLabel] != "override" {
+		t.Errorf("raw should win on collision: %v", got)
+	}
+	// empty
+	if got := BuildSelector("", nil, Options{}); len(got) != 0 {
+		t.Errorf("empty: %v", got)
+	}
+}
+
+func TestAvailabilityForSelector(t *testing.T) {
+	// A node lacking the canonical model label but carrying a raw GFD label.
+	rawNode := corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3"}},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{corev1.ResourceName(ResourceNvidiaGPU): *resource.NewQuantity(4, resource.DecimalSI)},
+			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+		},
+	}
+	sel := map[string]string{"nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3"}
+
+	avail := AvailabilityForSelector([]corev1.Node{rawNode}, nil, sel)
+	if !avail.Found || avail.Free != 4 || avail.ResourceName != ResourceNvidiaGPU || avail.Vendor != workspacesv1.GPUVendorNVIDIA {
+		t.Errorf("raw selector match: %+v", avail)
+	}
+
+	// Capacity subtracts pods on matching nodes.
+	withPod := AvailabilityForSelector([]corev1.Node{rawNode}, []corev1.Pod{gpuPod("p", "n1", 3)}, sel)
+	if withPod.Free != 1 {
+		t.Errorf("expected 1 free after pod, got %d", withPod.Free)
+	}
+
+	// A non-matching selector finds nothing.
+	if avail := AvailabilityForSelector([]corev1.Node{rawNode}, nil, map[string]string{"nvidia.com/gpu.product": "OTHER"}); avail.Found {
+		t.Errorf("non-matching selector should not be found: %+v", avail)
+	}
+
+	// Empty selector finds nothing.
+	if avail := AvailabilityForSelector([]corev1.Node{rawNode}, nil, nil); avail.Found {
+		t.Error("empty selector should not be found")
+	}
+}

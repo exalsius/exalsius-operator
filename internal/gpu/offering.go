@@ -254,6 +254,100 @@ func NodeSelectorForModel(model string, opts Options) map[string]string {
 	return map[string]string{opts.modelLabel(): model}
 }
 
+// BuildSelector composes the GPU Selector from the gpuType convention (which
+// maps to the model label) and a raw exact-match label override, both
+// optional (ADR-0002). Raw entries win on key collision. The result is the one
+// selector the gate validates and the chart applies.
+func BuildSelector(model string, raw map[string]string, opts Options) map[string]string {
+	sel := map[string]string{}
+	if model != "" {
+		sel[opts.modelLabel()] = model
+	}
+	for k, v := range raw {
+		sel[k] = v
+	}
+	return sel
+}
+
+// SelectorAvailability summarizes a GPU Selector against a cluster's nodes.
+type SelectorAvailability struct {
+	// Found is true when at least one schedulable node matches the selector and
+	// advertises a GPU resource.
+	Found bool
+	// Free is the number of GPUs free to schedule across matching nodes
+	// (allocatable minus pod requests).
+	Free int64
+	// ResourceName is the GPU extended resource on the matching nodes.
+	ResourceName string
+	// Vendor is the GPU vendor of the matching nodes.
+	Vendor workspacesv1.GPUVendor
+}
+
+// nodeMatchesSelector reports whether the node's labels satisfy every entry in
+// the selector (exact match, AND semantics).
+func nodeMatchesSelector(n *corev1.Node, selector map[string]string) bool {
+	for k, v := range selector {
+		if n.Labels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// AvailabilityForSelector evaluates a GPU Selector against the cluster: whether
+// any schedulable GPU node matches it, how many GPUs are free across those
+// nodes, and the GPU resource/vendor they carry. This is the generalization of
+// AvailableForModel to arbitrary node-label selectors (ADR-0002): a gpuType
+// request and a raw-label request are both just selectors.
+func AvailabilityForSelector(nodes []corev1.Node, pods []corev1.Pod, selector map[string]string) SelectorAvailability {
+	var sa SelectorAvailability
+	if len(selector) == 0 {
+		return sa
+	}
+
+	matched := map[string]string{} // matching node name -> its GPU resource
+	var total int64
+	for i := range nodes {
+		n := &nodes[i]
+		if !nodeIsSchedulable(n) || !nodeMatchesSelector(n, selector) {
+			continue
+		}
+		for _, vr := range vendorResources {
+			if c := gpuAllocatable(n, vr.resourceName); c > 0 {
+				matched[n.Name] = vr.resourceName
+				total += c
+				sa.Found = true
+				if sa.ResourceName == "" {
+					sa.ResourceName = vr.resourceName
+					sa.Vendor = vr.vendor
+				}
+			}
+		}
+	}
+	if !sa.Found {
+		return sa
+	}
+
+	var used int64
+	for i := range pods {
+		p := &pods[i]
+		resourceName, ok := matched[p.Spec.NodeName]
+		if !ok || !podConsumes(p) {
+			continue
+		}
+		for ci := range p.Spec.Containers {
+			if q, ok := p.Spec.Containers[ci].Resources.Requests[corev1.ResourceName(resourceName)]; ok {
+				used += q.Value()
+			}
+		}
+	}
+	sa.Free = total - used
+	if sa.Free < 0 {
+		sa.Free = 0
+	}
+	return sa
+}
+
 // nodeIsSchedulable filters out nodes that can't accept new workloads.
 func nodeIsSchedulable(n *corev1.Node) bool {
 	if n.Spec.Unschedulable {

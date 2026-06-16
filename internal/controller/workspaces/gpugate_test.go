@@ -220,6 +220,57 @@ var _ = Describe("WorkspaceDeployment GPU offering gate", func() {
 		}, timeout, interval).Should(Succeed())
 	})
 
+	It("gates and deploys via a raw label selector on a node lacking the model label", func() {
+		Expect(k8sClient.Create(ctx, gpuClass("gpugate-raw-class"))).To(Succeed())
+		mkCD("gpugate-raw-cd")
+
+		// A node with NO canonical exalsius.ai/gpu-model label, only a raw GFD label.
+		const rawKey = "nvidia.com/gpu.product"
+		const rawVal = "GATETEST-RAW-H100-80GB"
+		node := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "gpugate-raw-node", Labels: map[string]string{rawKey: rawVal}},
+		}
+		Expect(k8sClient.Create(ctx, node)).To(Succeed())
+		node.Status = corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{corev1.ResourceName(gpu.ResourceNvidiaGPU): *resource.NewQuantity(2, resource.DecimalSI)},
+			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+		}
+		Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+		one := int32(1)
+		wsd := &workspacesv1.WorkspaceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "gpugate-raw", Namespace: "default"},
+			Spec: workspacesv1.WorkspaceDeploymentSpec{
+				WorkspaceClassRef:    "gpugate-raw-class",
+				ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{Name: "gpugate-raw-cd", Namespace: "default"},
+				Resources: &workspacesv1.WorkspaceResourceSpec{
+					PerReplica: workspacesv1.ResourceRequirements{
+						GPUCount:        &one,
+						GPUNodeSelector: map[string]string{rawKey: rawVal},
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
+		}, timeout, interval).Should(Succeed())
+
+		// The chart's nodeSelector (in the ServiceSet values) is the exact raw
+		// selector the gate validated.
+		Eventually(func(g Gomega) {
+			ss := &k0rdentv1beta1.ServiceSet{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "wsd-gpugate-raw-cd-gpugate-raw", Namespace: "default"}, ss)).To(Succeed())
+			g.Expect(ss.Spec.Services).To(HaveLen(1))
+			g.Expect(ss.Spec.Services[0].Values).To(ContainSubstring(rawKey))
+			g.Expect(ss.Spec.Services[0].Values).To(ContainSubstring(rawVal))
+		}, timeout, interval).Should(Succeed())
+	})
+
 	It("serves Waiting workspaces oldest-first when capacity frees", func() {
 		Expect(k8sClient.Create(ctx, gpuClass("gpugate-fcfs-class"))).To(Succeed())
 		mkCD("gpugate-fcfs-cd")
