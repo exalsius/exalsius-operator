@@ -48,7 +48,7 @@ func (p *Provider) SweepOrphans(ctx context.Context, req routing.SweepRequest) e
 	}
 
 	for _, regionalCD := range regionals {
-		regionalClient, err := common.GetRegionalClusterClient(
+		regionalClient, err := common.GetClusterClientForCD(
 			ctx, req.ManagementClient, regionalCD.Namespace, regionalCD.Name, req.Scheme)
 		if err != nil {
 			logger.Info("Skipping unreachable regional cluster during orphan sweep",

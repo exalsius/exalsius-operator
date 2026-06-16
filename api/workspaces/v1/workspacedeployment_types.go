@@ -265,6 +265,10 @@ const (
 	// infrastructure (regional cluster, gateway, listeners) is missing or
 	// unprogrammed — an admin-fixable condition (remediation: contact_admin).
 	ReasonRoutingInfraNotReady = "RoutingInfraNotReady"
+	// ReasonGpuOfferingUnavailable signals that the requested GPU model is not
+	// present on the target ClusterDeployment at all (ADR-0002). Terminal: the
+	// user fixes the request (or has the GPU provisioned) and recreates.
+	ReasonGpuOfferingUnavailable = "GpuOfferingUnavailable"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.

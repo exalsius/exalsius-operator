@@ -29,6 +29,23 @@ import (
 // authors should treat it as read-only input.
 const exalsiusValuesKey = "_exalsius"
 
+// injectNodeSelector writes a GPU placement selector into the merged Helm
+// values at `_exalsius.scheduling.nodeSelector`, parallel to
+// `_exalsius.resources` (ADR-0002). The chart applies this map verbatim as its
+// pod `nodeSelector`, hardcoding no label key. The operator gate validates the
+// same selector is placeable before this is injected, so the two never drift.
+// A nil/empty selector is a no-op.
+func injectNodeSelector(values map[string]any, selector map[string]string) {
+	if values == nil || len(selector) == 0 {
+		return
+	}
+	sel := make(map[string]any, len(selector))
+	for k, v := range selector {
+		sel[k] = v
+	}
+	setNestedValue(values, []string{exalsiusValuesKey, "scheduling", "nodeSelector"}, sel)
+}
+
 // parsePath turns a JSONPath-lite string into the list of segment names
 // to walk. Dots separate normal segments; bracket-quoted segments preserve
 // keys with dots, slashes, or other special characters. Single or double

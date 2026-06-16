@@ -49,7 +49,7 @@ func workspaceNamespaceName(wsd *workspacesv1.WorkspaceDeployment) string {
 
 // getChildClusterClient builds a client for the WSD's target child cluster
 // from its `<cd-name>-kubeconfig` secret on the management cluster.
-// common.GetRegionalClusterClient is, despite its name, a generic
+// common.GetClusterClientForCD is, despite its name, a generic
 // "client from a ClusterDeployment's kubeconfig secret" helper.
 func getChildClusterClient(
 	ctx context.Context,
@@ -58,7 +58,7 @@ func getChildClusterClient(
 	scheme *runtime.Scheme,
 ) (client.Client, error) {
 	cdRef := wsd.Spec.ClusterDeploymentRef
-	return common.GetRegionalClusterClient(ctx, managementClient, cdRef.Namespace, cdRef.Name, scheme)
+	return common.GetClusterClientForCD(ctx, managementClient, cdRef.Namespace, cdRef.Name, scheme)
 }
 
 // ensureWorkspaceNamespace pre-creates the labeled workspace namespace on the

@@ -24,6 +24,8 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
+	"github.com/exalsius/exalsius-operator/internal/gpu"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -146,6 +148,16 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 	}
 
+	// Gate on GPU offering existence before deploying (ADR-0002): if the
+	// requested GPU model is not present on the target child cluster at all,
+	// fail fast with a clear message rather than letting a Helm release time
+	// out. Skipped once Running.
+	if wsd.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseRunning {
+		if res, ok, err := r.gateGPUOffering(ctx, wsd, wsc); err != nil || !ok {
+			return res, err
+		}
+	}
+
 	// Auto-install prerequisites declared on the WorkspaceClass. Skipped
 	// entirely when no prereqs are declared — the common case.
 	if len(wsc.Spec.Prerequisites) > 0 {
@@ -190,6 +202,12 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	warnings := injectResources(mergedMap, resolved, wsc.Spec.ResourceInjection)
 	r.setResourcesInjectedCondition(wsd, warnings)
+	// Inject the GPU node selector so the chart pins the pod to the requested
+	// model (ADR-0002). The gate already validated this exact selector is
+	// placeable on the target cluster.
+	if resolved.PerReplica.GPUType != nil && *resolved.PerReplica.GPUType != "" {
+		injectNodeSelector(mergedMap, gpu.NodeSelectorForModel(*resolved.PerReplica.GPUType, gpu.Options{}))
+	}
 	mergedValues, err := serializeValues(mergedMap)
 	if err != nil {
 		r.markFailed(ctx, wsd, workspacesv1.ReasonInternalError, fmt.Sprintf("Failed to serialize values: %v", err))
@@ -314,7 +332,7 @@ func (r *WorkspaceDeploymentReconciler) refreshFeasibility(
 ) (ctrl.Result, error) {
 	demanded := mergeResources(wsc.Spec.DefaultResources, wsd.Spec.Resources)
 
-	regionalClient, err := common.GetRegionalClusterClient(
+	regionalClient, err := common.GetClusterClientForCD(
 		ctx, r.Client, wsd.Spec.ClusterDeploymentRef.Namespace,
 		wsd.Spec.ClusterDeploymentRef.Name, r.Scheme,
 	)
@@ -367,6 +385,63 @@ func (r *WorkspaceDeploymentReconciler) refreshFeasibility(
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
+}
+
+// gateGPUOffering enforces that the requested GPU model actually exists on the
+// target child cluster before deploying (ADR-0002). It live-scans the child
+// cluster's nodes and derives the GPU Offerings present (the same derivation
+// the Colony inventory uses, so the vocabulary matches).
+//
+// Returns (result, ok, err): ok=false means the caller should return the
+// result without proceeding. A model absent from the cluster is a terminal
+// Failed (reason GpuOfferingUnavailable) — the user fixes the request and
+// recreates. A child cluster that can't be reached yet is transient: keep
+// Pending and requeue. A workspace requesting no specific GPU model passes
+// straight through.
+func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	wsc *workspacesv1.WorkspaceClass,
+) (ctrl.Result, bool, error) {
+	resolved := mergeResources(wsc.Spec.DefaultResources, wsd.Spec.Resources)
+	if resolved.PerReplica.GPUType == nil || *resolved.PerReplica.GPUType == "" {
+		return ctrl.Result{}, true, nil
+	}
+	model := *resolved.PerReplica.GPUType
+
+	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
+	if err != nil {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = fmt.Sprintf("Waiting for child cluster access to verify GPU availability: %v", err)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+
+	nodes := &corev1.NodeList{}
+	if err := childClient.List(ctx, nodes); err != nil {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = fmt.Sprintf("Could not list nodes to verify GPU availability: %v", err)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+
+	offerings := gpu.DeriveOfferings(nodes.Items, gpu.Options{})
+	if _, ok := gpu.FindByModel(offerings, model); ok {
+		return ctrl.Result{}, true, nil
+	}
+
+	msg := fmt.Sprintf("GPU model %q is not available on cluster %q; choose a different cluster or model",
+		model, wsd.Spec.ClusterDeploymentRef.Name)
+	setCondition(&wsd.Status, metav1.Condition{
+		Type:               workspacesv1.ConditionFeasible,
+		Status:             metav1.ConditionFalse,
+		Reason:             workspacesv1.ReasonGpuOfferingUnavailable,
+		Message:            msg,
+		ObservedGeneration: wsd.Generation,
+	})
+	r.markFailed(ctx, wsd, workspacesv1.ReasonGpuOfferingUnavailable, msg)
+	_ = r.Status().Update(ctx, wsd)
+	return ctrl.Result{}, false, nil
 }
 
 // reconcilePrerequisites evaluates and (if needed) installs prerequisites for

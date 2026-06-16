@@ -243,3 +243,35 @@ func TestValidateInjectionPaths_RejectsMalformed(t *testing.T) {
 		t.Errorf("expected error for malformed path")
 	}
 }
+
+func TestInjectNodeSelector_WritesUnderExalsiusScheduling(t *testing.T) {
+	values := map[string]any{}
+	injectNodeSelector(values, map[string]string{"exalsius.ai/gpu-model": "H100"})
+
+	ex, ok := values[exalsiusValuesKey].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %q map, got %T", exalsiusValuesKey, values[exalsiusValuesKey])
+	}
+	sched, ok := ex["scheduling"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected scheduling map, got %T", ex["scheduling"])
+	}
+	sel, ok := sched["nodeSelector"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nodeSelector map, got %T", sched["nodeSelector"])
+	}
+	if sel["exalsius.ai/gpu-model"] != "H100" {
+		t.Errorf("unexpected nodeSelector: %v", sel)
+	}
+}
+
+func TestInjectNodeSelector_NilOrEmptyIsNoOp(t *testing.T) {
+	// nil values map: must not panic.
+	injectNodeSelector(nil, map[string]string{"a": "b"})
+
+	values := map[string]any{}
+	injectNodeSelector(values, nil)
+	if _, ok := values[exalsiusValuesKey]; ok {
+		t.Errorf("empty selector should not create %q key: %v", exalsiusValuesKey, values)
+	}
+}

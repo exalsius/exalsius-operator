@@ -137,7 +137,7 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 	// workspace is Running by the time routes are reconciled, so the child is
 	// reachable; treat failure as retryable.
 	cdRef := req.Workspace.Spec.ClusterDeploymentRef
-	childClient, err := common.GetRegionalClusterClient(ctx, req.ManagementClient, cdRef.Namespace, cdRef.Name, req.Scheme)
+	childClient, err := common.GetClusterClientForCD(ctx, req.ManagementClient, cdRef.Namespace, cdRef.Name, req.Scheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach child cluster to mark services global: %w", err)
 	}
@@ -255,7 +255,7 @@ func (p *Provider) CleanupRoutes(ctx context.Context, req routing.RouteRequest) 
 			"regionalCluster", regionalName, "error", err.Error())
 		return nil
 	}
-	regionalClient, err := common.GetRegionalClusterClient(
+	regionalClient, err := common.GetClusterClientForCD(
 		ctx, req.ManagementClient, cdRef.Namespace, regionalCD.Name, req.Scheme)
 	if err != nil {
 		return fmt.Errorf("failed to reach regional cluster for route cleanup: %w", err)
@@ -306,7 +306,7 @@ func (p *Provider) resolveGatewayContext(ctx context.Context, req routing.RouteR
 			"regional cluster %q for cluster %q is not resolvable: %v", regionalName, cdRef.Name, err)}
 	}
 
-	regionalClient, err := common.GetRegionalClusterClient(
+	regionalClient, err := common.GetClusterClientForCD(
 		ctx, req.ManagementClient, cdRef.Namespace, regionalCD.Name, req.Scheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build regional cluster client: %w", err)
