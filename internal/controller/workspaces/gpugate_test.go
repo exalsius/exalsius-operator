@@ -171,6 +171,54 @@ var _ = Describe("WorkspaceDeployment GPU offering gate", func() {
 			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
 		}, timeout, interval).Should(Succeed())
 	})
+
+	It("serves Waiting workspaces oldest-first when capacity frees", func() {
+		Expect(k8sClient.Create(ctx, gpuClass("gpugate-fcfs-class"))).To(Succeed())
+		mkCD("gpugate-fcfs-cd")
+		createGPUNode("gpugate-fcfs-node", "GATETEST-FCFSGPU", 1)
+		occupant := occupyGPU("gpugate-fcfs-occupant", "gpugate-fcfs-node", 1) // 0 free
+
+		one := int32(1)
+		model := "GATETEST-FCFSGPU"
+		mkWSD := func(name string) *workspacesv1.WorkspaceDeployment {
+			return &workspacesv1.WorkspaceDeployment{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: workspacesv1.WorkspaceDeploymentSpec{
+					WorkspaceClassRef:    "gpugate-fcfs-class",
+					ClusterDeploymentRef: workspacesv1.ClusterDeploymentRef{Name: "gpugate-fcfs-cd", Namespace: "default"},
+					Resources: &workspacesv1.WorkspaceResourceSpec{
+						PerReplica: workspacesv1.ResourceRequirements{GPUType: &model, GPUCount: &one},
+					},
+				},
+			}
+		}
+
+		older := mkWSD("gpugate-fcfs-older")
+		Expect(k8sClient.Create(ctx, older)).To(Succeed())
+		Eventually(func(g Gomega) {
+			f := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(older), f)).To(Succeed())
+			g.Expect(f.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseWaiting))
+		}, timeout, interval).Should(Succeed())
+
+		// Guarantee a strictly later creation second for the younger one.
+		time.Sleep(1100 * time.Millisecond)
+		younger := mkWSD("gpugate-fcfs-younger")
+		Expect(k8sClient.Create(ctx, younger)).To(Succeed())
+		Eventually(func(g Gomega) {
+			f := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(younger), f)).To(Succeed())
+			g.Expect(f.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseWaiting))
+		}, timeout, interval).Should(Succeed())
+
+		// Free the single GPU — FCFS dictates the older workspace proceeds.
+		Expect(k8sClient.Delete(ctx, occupant, client.GracePeriodSeconds(0))).To(Succeed())
+		Eventually(func(g Gomega) {
+			f := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(older), f)).To(Succeed())
+			g.Expect(f.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
+		}, timeout, interval).Should(Succeed())
+	})
 })
 
 // occupyGPU creates a pod bound to nodeName that requests `count` NVIDIA GPUs,

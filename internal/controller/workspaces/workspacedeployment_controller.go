@@ -473,17 +473,103 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 		// Transient contention: hold in Waiting (no Helm release) and retry.
 		msg := fmt.Sprintf("Waiting for %d %q GPU(s) on cluster %q; %d currently free",
 			demand, model, wsd.Spec.ClusterDeploymentRef.Name, free)
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseWaiting
-		wsd.Status.Message = msg
-		if r.Recorder != nil {
-			r.Recorder.Eventf(wsd, nil, corev1.EventTypeNormal,
-				workspacesv1.ReasonWaitingForGpuCapacity, "Reconcile", "%s", msg)
-		}
-		_ = r.Status().Update(ctx, wsd)
+		return r.enterWaiting(ctx, wsd, resolved, msg), false, nil
+	}
+
+	// Capacity is available, but serve Waiting workspaces oldest-first
+	// (ADR-0002, best-effort FCFS — not a scheduler). If an older workspace is
+	// already Waiting for the same cluster+model, defer to it.
+	older, err := r.hasOlderWaitingSibling(ctx, wsd, model)
+	if err != nil {
+		// Transient list error — re-check next reconcile rather than jumping
+		// the queue.
 		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+	}
+	if older {
+		msg := fmt.Sprintf("Waiting behind older workspace(s) requesting %q GPU(s) on cluster %q",
+			model, wsd.Spec.ClusterDeploymentRef.Name)
+		return r.enterWaiting(ctx, wsd, resolved, msg), false, nil
 	}
 
 	return ctrl.Result{}, true, nil
+}
+
+// enterWaiting holds the workspace in the Waiting phase. It stamps
+// resolvedResources so sibling reconciles can read this workspace's effective
+// GPU model for FCFS grouping (the deploy block never ran for a Waiting
+// workspace, so nothing else sets it).
+func (r *WorkspaceDeploymentReconciler) enterWaiting(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	resolved workspacesv1.WorkspaceResourceSpec,
+	msg string,
+) ctrl.Result {
+	wsd.Status.ResolvedResources = &resolved
+	wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhaseWaiting
+	wsd.Status.Message = msg
+	if r.Recorder != nil {
+		r.Recorder.Eventf(wsd, nil, corev1.EventTypeNormal,
+			workspacesv1.ReasonWaitingForGpuCapacity, "Reconcile", "%s", msg)
+	}
+	_ = r.Status().Update(ctx, wsd)
+	return ctrl.Result{RequeueAfter: requeueInterval}
+}
+
+// hasOlderWaitingSibling reports whether another WorkspaceDeployment is already
+// Waiting for the same cluster and GPU model and was created earlier (with UID
+// as a deterministic tiebreaker, since creationTimestamp is second-grained).
+// This is the FCFS ordering: the oldest waiter proceeds first; the rest defer.
+func (r *WorkspaceDeploymentReconciler) hasOlderWaitingSibling(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	model string,
+) (bool, error) {
+	list := &workspacesv1.WorkspaceDeploymentList{}
+	if err := r.List(ctx, list); err != nil {
+		return false, err
+	}
+	for i := range list.Items {
+		s := &list.Items[i]
+		if s.UID == wsd.UID {
+			continue
+		}
+		if s.Status.Phase != workspacesv1.WorkspaceDeploymentPhaseWaiting {
+			continue
+		}
+		if s.Spec.ClusterDeploymentRef != wsd.Spec.ClusterDeploymentRef {
+			continue
+		}
+		if effectiveGPUModel(s) != model {
+			continue
+		}
+		if isOlderWorkspace(s, wsd) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// effectiveGPUModel returns a workspace's resolved GPU model, preferring the
+// stamped status (set when it entered Waiting) and falling back to the spec
+// override.
+func effectiveGPUModel(wsd *workspacesv1.WorkspaceDeployment) string {
+	if rr := wsd.Status.ResolvedResources; rr != nil && rr.PerReplica.GPUType != nil {
+		return *rr.PerReplica.GPUType
+	}
+	if wsd.Spec.Resources != nil && wsd.Spec.Resources.PerReplica.GPUType != nil {
+		return *wsd.Spec.Resources.PerReplica.GPUType
+	}
+	return ""
+}
+
+// isOlderWorkspace reports whether a was created before b, breaking
+// equal-second timestamps deterministically by UID.
+func isOlderWorkspace(a, b *workspacesv1.WorkspaceDeployment) bool {
+	at, bt := a.CreationTimestamp.Time, b.CreationTimestamp.Time
+	if at.Equal(bt) {
+		return a.UID < b.UID
+	}
+	return at.Before(bt)
 }
 
 // gpuDemand returns the total GPU count a workspace requests: replicas ×
