@@ -46,6 +46,17 @@ func injectNodeSelector(values map[string]any, selector map[string]string) {
 	setNestedValue(values, []string{exalsiusValuesKey, "scheduling", "nodeSelector"}, sel)
 }
 
+// injectGPUResourceName records the extended GPU resource a pod must request
+// at `_exalsius.resources.perReplica.gpuResourceName`, so the chart templates
+// its GPU limit against the right vendor resource (nvidia.com/gpu vs
+// amd.com/gpu) rather than a hardcoded name (ADR-0002). Empty is a no-op.
+func injectGPUResourceName(values map[string]any, resourceName string) {
+	if values == nil || resourceName == "" {
+		return
+	}
+	setNestedValue(values, []string{exalsiusValuesKey, "resources", "perReplica", "gpuResourceName"}, resourceName)
+}
+
 // parsePath turns a JSONPath-lite string into the list of segment names
 // to walk. Dots separate normal segments; bracket-quoted segments preserve
 // keys with dots, slashes, or other special characters. Single or double

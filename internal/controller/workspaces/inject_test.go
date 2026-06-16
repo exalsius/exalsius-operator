@@ -275,3 +275,22 @@ func TestInjectNodeSelector_NilOrEmptyIsNoOp(t *testing.T) {
 		t.Errorf("empty selector should not create %q key: %v", exalsiusValuesKey, values)
 	}
 }
+
+func TestInjectGPUResourceName(t *testing.T) {
+	values := map[string]any{}
+	injectGPUResourceName(values, "amd.com/gpu")
+
+	ex := values[exalsiusValuesKey].(map[string]any)
+	res := ex["resources"].(map[string]any)
+	per := res["perReplica"].(map[string]any)
+	if per["gpuResourceName"] != "amd.com/gpu" {
+		t.Errorf("expected gpuResourceName=amd.com/gpu, got %v", per["gpuResourceName"])
+	}
+
+	// Empty resource name is a no-op.
+	empty := map[string]any{}
+	injectGPUResourceName(empty, "")
+	if _, ok := empty[exalsiusValuesKey]; ok {
+		t.Errorf("empty resource name should not write %q: %v", exalsiusValuesKey, empty)
+	}
+}

@@ -43,6 +43,8 @@ const (
 
 	// ResourceNvidiaGPU is the whole-GPU extended resource for NVIDIA.
 	ResourceNvidiaGPU = "nvidia.com/gpu"
+	// ResourceAMDGPU is the whole-GPU extended resource for AMD.
+	ResourceAMDGPU = "amd.com/gpu"
 )
 
 // gpuLabelPrefixes are the node-label key prefixes captured verbatim onto an
@@ -51,12 +53,25 @@ const (
 var gpuLabelPrefixes = []string{"nvidia.com/", "amd.com/", "gpu.hami.io/", "exalsius.ai/gpu"}
 
 // vendorResources maps each supported whole-GPU extended resource to its
-// vendor. Slice 01 covers NVIDIA; AMD (amd.com/gpu) is added in slice 04.
+// vendor.
 var vendorResources = []struct {
 	vendor       workspacesv1.GPUVendor
 	resourceName string
 }{
 	{workspacesv1.GPUVendorNVIDIA, ResourceNvidiaGPU},
+	{workspacesv1.GPUVendorAMD, ResourceAMDGPU},
+}
+
+// ResourceForVendor returns the whole-GPU extended resource name a pod must
+// request for the given vendor, or "" if unknown. Used for coarse
+// "any GPU of this vendor" requests where no concrete offering is resolved.
+func ResourceForVendor(vendor workspacesv1.GPUVendor) string {
+	for _, vr := range vendorResources {
+		if vr.vendor == vendor {
+			return vr.resourceName
+		}
+	}
+	return ""
 }
 
 // Offering is a distinct kind of GPU available on a cluster (CONTEXT.md: GPU

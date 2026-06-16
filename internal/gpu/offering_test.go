@@ -250,3 +250,66 @@ func TestAvailableForModel_IgnoresTerminatedPods(t *testing.T) {
 		t.Errorf("expected succeeded pod ignored (8 free), got %d", free)
 	}
 }
+
+// amdNode builds a schedulable node advertising `count` AMD GPUs with the model label.
+func amdNode(name, model string, count int64) corev1.Node {
+	return corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{DefaultModelLabel: model}},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceName(ResourceAMDGPU): *resource.NewQuantity(count, resource.DecimalSI),
+			},
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+		},
+	}
+}
+
+func TestDeriveOfferings_AMD(t *testing.T) {
+	offerings := DeriveOfferings([]corev1.Node{amdNode("n1", "MI300X", 8)}, Options{})
+	if len(offerings) != 1 {
+		t.Fatalf("expected 1 offering, got %d", len(offerings))
+	}
+	o := offerings[0]
+	if o.Vendor != workspacesv1.GPUVendorAMD {
+		t.Errorf("expected AMD vendor, got %q", o.Vendor)
+	}
+	if o.ResourceName != ResourceAMDGPU {
+		t.Errorf("expected %q, got %q", ResourceAMDGPU, o.ResourceName)
+	}
+	if o.Total != 8 {
+		t.Errorf("expected total 8, got %d", o.Total)
+	}
+}
+
+func TestAvailableForModel_AMD(t *testing.T) {
+	nodes := []corev1.Node{amdNode("n1", "MI300X", 4)}
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "n1",
+			Containers: []corev1.Container{{
+				Name: "c",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceName(ResourceAMDGPU): *resource.NewQuantity(1, resource.DecimalSI)},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	free, found := AvailableForModel(nodes, []corev1.Pod{pod}, "MI300X", Options{})
+	if !found || free != 3 {
+		t.Errorf("expected found and 3 free, got found=%v free=%d", found, free)
+	}
+}
+
+func TestResourceForVendor(t *testing.T) {
+	if got := ResourceForVendor(workspacesv1.GPUVendorNVIDIA); got != ResourceNvidiaGPU {
+		t.Errorf("NVIDIA -> %q, want %q", got, ResourceNvidiaGPU)
+	}
+	if got := ResourceForVendor(workspacesv1.GPUVendorAMD); got != ResourceAMDGPU {
+		t.Errorf("AMD -> %q, want %q", got, ResourceAMDGPU)
+	}
+	if got := ResourceForVendor("Bogus"); got != "" {
+		t.Errorf("unknown vendor -> %q, want empty", got)
+	}
+}

@@ -204,6 +204,24 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	entryName := serviceEntryName(wsd)
 	wsd.Status.ServiceEntryName = entryName
 
+	// Child-cluster client: needed to resolve the GPU offering (vendor
+	// inference + the resource name the chart must request) and to pre-create
+	// the workspace namespace. Unreachability is transient — the kubeconfig
+	// secret appears once the cluster is ready.
+	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
+	if err != nil {
+		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
+		wsd.Status.Message = fmt.Sprintf("Waiting for child cluster access: %v", err)
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	// Resolve the requested GPU's vendor (inferring it from the cluster when the
+	// user didn't specify one) and the extended resource the chart must request
+	// (nvidia.com/gpu vs amd.com/gpu) — ADR-0002. Mutates resolved's vendor.
+	gpuResourceName := r.resolveGPUResource(ctx, childClient, &resolved)
+	wsd.Status.ResolvedResources = &resolved
+
 	// Merge values: class defaultValues + user values, then inject resolved
 	// resources at _exalsius.resources and any class.resourceInjection paths.
 	mergedMap, err := mergeValuesMap(wsc.Spec.DefaultValues, wsd.Spec.Values)
@@ -220,6 +238,9 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	if resolved.PerReplica.GPUType != nil && *resolved.PerReplica.GPUType != "" {
 		injectNodeSelector(mergedMap, gpu.NodeSelectorForModel(*resolved.PerReplica.GPUType, gpu.Options{}))
 	}
+	// Inject the extended GPU resource name so the chart requests the right
+	// vendor's GPU (nvidia.com/gpu vs amd.com/gpu) — ADR-0002.
+	injectGPUResourceName(mergedMap, gpuResourceName)
 	mergedValues, err := serializeValues(mergedMap)
 	if err != nil {
 		r.markFailed(ctx, wsd, workspacesv1.ReasonInternalError, fmt.Sprintf("Failed to serialize values: %v", err))
@@ -230,15 +251,7 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Pre-create the labeled workspace namespace on the child cluster BEFORE
 	// the ServiceSet exists: Sveltos creates namespaces unlabeled, and the
 	// mesh-discovery label must be present before any workspace Service does
-	// (ADR-0001). Child-cluster unreachability is treated as transient — the
-	// kubeconfig secret appears once the cluster is ready.
-	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
-	if err != nil {
-		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
-		wsd.Status.Message = fmt.Sprintf("Waiting for child cluster access: %v", err)
-		_ = r.Status().Update(ctx, wsd)
-		return ctrl.Result{RequeueAfter: requeueInterval}, nil
-	}
+	// (ADR-0001). Reuses the child client resolved above.
 	nsReady, err := ensureWorkspaceNamespace(ctx, childClient, wsd, r.MeshNamespaceLabels)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -570,6 +583,45 @@ func isOlderWorkspace(a, b *workspacesv1.WorkspaceDeployment) bool {
 		return a.UID < b.UID
 	}
 	return at.Before(bt)
+}
+
+// resolveGPUResource determines the extended GPU resource a workspace's chart
+// must request, and infers the GPU vendor onto `resolved` when the user left it
+// unset (ADR-0002). When a model is requested it derives the offering live from
+// the child cluster (authoritative vendor + resource name); for a coarse
+// vendor-only request it maps the vendor to its resource. Returns "" when no
+// GPU is requested.
+func (r *WorkspaceDeploymentReconciler) resolveGPUResource(
+	ctx context.Context,
+	childClient client.Client,
+	resolved *workspacesv1.WorkspaceResourceSpec,
+) string {
+	if model := gpuModelOf(*resolved); model != "" {
+		nodes := &corev1.NodeList{}
+		if err := childClient.List(ctx, nodes); err == nil {
+			if off, ok := gpu.FindByModel(gpu.DeriveOfferings(nodes.Items, gpu.Options{}), model); ok {
+				if resolved.PerReplica.GPUVendor == nil {
+					v := off.Vendor
+					resolved.PerReplica.GPUVendor = &v
+				}
+				return off.ResourceName
+			}
+		}
+		// Fall through: couldn't resolve the offering (transient list error /
+		// race). Use the vendor mapping if a vendor is known.
+	}
+	if resolved.PerReplica.GPUVendor != nil {
+		return gpu.ResourceForVendor(*resolved.PerReplica.GPUVendor)
+	}
+	return ""
+}
+
+// gpuModelOf returns the requested GPU model, or "" if none.
+func gpuModelOf(r workspacesv1.WorkspaceResourceSpec) string {
+	if r.PerReplica.GPUType != nil {
+		return *r.PerReplica.GPUType
+	}
+	return ""
 }
 
 // gpuDemand returns the total GPU count a workspace requests: replicas ×
