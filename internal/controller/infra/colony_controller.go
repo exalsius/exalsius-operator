@@ -42,6 +42,7 @@ import (
 	clusterdeployment "github.com/exalsius/exalsius-operator/internal/controller/infra/clusterdeployment"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
 	netbirdpkg "github.com/exalsius/exalsius-operator/internal/controller/infra/netbird"
+	"github.com/exalsius/exalsius-operator/internal/gpu"
 )
 
 const (
@@ -56,6 +57,10 @@ const (
 type ColonyReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// childClientForCD builds a client for a child cluster's ClusterDeployment.
+	// Defaults to common.GetClusterClientForCD when nil; overridable in tests.
+	childClientForCD func(ctx context.Context, mgmt client.Client, namespace, cdName string, scheme *runtime.Scheme) (client.Client, error)
 }
 
 // +kubebuilder:rbac:groups=infra.exalsius.ai,resources=colonies,verbs=get;list;watch;create;update;patch;delete
@@ -147,6 +152,12 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 		log.Error(err, "Failed to update Colony status from clusters")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
+
+	// Refresh the GPU inventory (ADR-0002): best-effort per-cluster node scan,
+	// published on status for API discovery. Slow-changing — capacity is
+	// computed live by the workspace gate, never cached here. Folded into the
+	// status patch below.
+	r.refreshGPUInventory(ctx, colony)
 
 	// Persist status
 	if err := r.Client.Status().Patch(ctx, colony, client.MergeFrom(origForStatusPatch)); err != nil {
@@ -725,6 +736,73 @@ func (r *ColonyReconciler) updateColonyStatusWithRetry(ctx context.Context, colo
 }
 
 // SetupWithManager sets up the controller with the Manager.
+// refreshGPUInventory scans each child cluster's nodes for GPU Offerings and
+// records them on colony.Status.GPUInventory (ADR-0002). Best-effort per
+// cluster: when a cluster is unreachable or a scan fails, its previous
+// inventory entry is kept (marked stale by its LastUpdated) rather than
+// dropped, and other clusters are unaffected.
+func (r *ColonyReconciler) refreshGPUInventory(ctx context.Context, colony *infrav1.Colony) {
+	log := log.FromContext(ctx)
+	clientFor := r.childClientForCD
+	if clientFor == nil {
+		clientFor = common.GetClusterClientForCD
+	}
+
+	inventory := map[string]infrav1.ClusterGPUInventory{}
+	for _, ref := range colony.Status.ClusterDeploymentRefs {
+		if ref == nil {
+			continue
+		}
+		keepPrevious := func(reason string, err error) {
+			if prev, ok := colony.Status.GPUInventory[ref.Name]; ok {
+				inventory[ref.Name] = prev
+			}
+			log.V(1).Info("GPU inventory: "+reason+", keeping previous entry",
+				"cluster", ref.Name, "error", err.Error())
+		}
+
+		childClient, err := clientFor(ctx, r.Client, ref.Namespace, ref.Name, r.Scheme)
+		if err != nil {
+			keepPrevious("child cluster unreachable", err)
+			continue
+		}
+		offerings, err := scanClusterGPUOfferings(ctx, childClient)
+		if err != nil {
+			keepPrevious("node scan failed", err)
+			continue
+		}
+		inventory[ref.Name] = infrav1.ClusterGPUInventory{
+			LastUpdated: metav1.Now(),
+			Offerings:   offerings,
+		}
+	}
+	colony.Status.GPUInventory = inventory
+}
+
+// scanClusterGPUOfferings lists the cluster's nodes via childClient and returns
+// its GPU Offerings as Colony status types. It reuses the shared derivation
+// (internal/gpu), so the inventory vocabulary is identical to the workspace
+// gate's by construction.
+func scanClusterGPUOfferings(ctx context.Context, childClient client.Client) ([]infrav1.GPUOffering, error) {
+	nodes := &corev1.NodeList{}
+	if err := childClient.List(ctx, nodes); err != nil {
+		return nil, err
+	}
+	offerings := gpu.DeriveOfferings(nodes.Items, gpu.Options{})
+	out := make([]infrav1.GPUOffering, 0, len(offerings))
+	for _, o := range offerings {
+		out = append(out, infrav1.GPUOffering{
+			Model:        o.Model,
+			Vendor:       string(o.Vendor),
+			ResourceName: o.ResourceName,
+			Total:        o.Total,
+			Nodes:        o.Nodes,
+			Labels:       o.Labels,
+		})
+	}
+	return out, nil
+}
+
 func (r *ColonyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.Colony{}).

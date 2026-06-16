@@ -99,6 +99,51 @@ type ColonyStatus struct {
 	ReadyClusters         int32                     `json:"readyClusters,omitempty"`
 	// NetBird status for VPN networking
 	NetBird *NetBirdStatus `json:"netBird,omitempty"`
+
+	// GPUInventory maps each child cluster (keyed by ClusterDeployment name) to
+	// the GPU Offerings discovered on it (ADR-0002). Populated best-effort on a
+	// periodic poll for API discovery ("what GPUs can I pick on this cluster?").
+	// It records totals only — never live free capacity, which the workspace
+	// gate computes live against the cluster at deploy time.
+	// +optional
+	GPUInventory map[string]ClusterGPUInventory `json:"gpuInventory,omitempty"`
+}
+
+// ClusterGPUInventory is the set of GPU Offerings present on one child cluster.
+type ClusterGPUInventory struct {
+	// LastUpdated is when this cluster's inventory was last refreshed. A stale
+	// timestamp means the cluster was unreachable on recent polls.
+	// +optional
+	LastUpdated metav1.Time `json:"lastUpdated,omitempty"`
+	// Offerings are the distinct GPU kinds available on the cluster.
+	// +optional
+	Offerings []GPUOffering `json:"offerings,omitempty"`
+}
+
+// GPUOffering is a distinct kind of GPU available on a cluster, identified by
+// vendor + canonical model (memory baked into the model name) + resource name.
+// The remaining fields are aggregated attributes (ADR-0002).
+type GPUOffering struct {
+	// Model is the canonical short model name (e.g. "H100", "A100-80GB"), taken
+	// from the provisioning-set GPU model node label.
+	Model string `json:"model"`
+	// Vendor is the GPU vendor (e.g. NVIDIA, AMD).
+	// +optional
+	Vendor string `json:"vendor,omitempty"`
+	// ResourceName is the extended resource a pod requests for this offering
+	// (e.g. nvidia.com/gpu, amd.com/gpu).
+	// +optional
+	ResourceName string `json:"resourceName,omitempty"`
+	// Total is the total number of GPUs of this offering across the cluster.
+	// +optional
+	Total int64 `json:"total,omitempty"`
+	// Nodes is the number of nodes carrying this offering.
+	// +optional
+	Nodes int32 `json:"nodes,omitempty"`
+	// Labels are the raw GFD/AMD/vendor node labels defining this offering,
+	// retained for display and advanced selection (data retention, not identity).
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // NetBirdStatus defines the observed state of NetBird integration.
