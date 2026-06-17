@@ -166,8 +166,8 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		workspacesv1.WorkspaceDeploymentPhaseFailed:
 		// skip
 	default:
-		if res, ok, err := r.gateGPUOffering(ctx, wsd, wsc); err != nil || !ok {
-			return res, err
+		if res, ok := r.gateGPUOffering(ctx, wsd, wsc); !ok {
+			return res, nil
 		}
 	}
 
@@ -195,8 +195,19 @@ func (r *WorkspaceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	// First-time setup: merge resources, apply service entry, set phase=Deploying
+	// First-time setup: merge resources, inject values, create the ServiceSet.
+	return r.startDeployment(ctx, wsd, wsc)
+}
 
+// startDeployment performs first-time setup for a WorkspaceDeployment: it merges
+// resources and values, resolves the GPU resource (ADR-0002), pre-creates the
+// labeled workspace namespace (ADR-0001), creates the ServiceSet, and moves the
+// workspace to Deploying. Split out of Reconcile to keep its complexity bounded.
+func (r *WorkspaceDeploymentReconciler) startDeployment(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	wsc *workspacesv1.WorkspaceClass,
+) (ctrl.Result, error) {
 	// Merge resources: class defaults + user overrides
 	resolved := mergeResources(wsc.Spec.DefaultResources, wsd.Spec.Resources)
 	wsd.Status.ResolvedResources = &resolved
@@ -431,11 +442,11 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,
 	wsc *workspacesv1.WorkspaceClass,
-) (ctrl.Result, bool, error) {
+) (ctrl.Result, bool) {
 	resolved := mergeResources(wsc.Spec.DefaultResources, wsd.Spec.Resources)
 	selector := gpuSelectorOf(resolved)
 	if len(selector) == 0 {
-		return ctrl.Result{}, true, nil
+		return ctrl.Result{}, true
 	}
 
 	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
@@ -443,7 +454,7 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
 		wsd.Status.Message = fmt.Sprintf("Waiting for child cluster access to verify GPU availability: %v", err)
 		_ = r.Status().Update(ctx, wsd)
-		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
 
 	nodes := &corev1.NodeList{}
@@ -451,14 +462,14 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
 		wsd.Status.Message = fmt.Sprintf("Could not list nodes to verify GPU availability: %v", err)
 		_ = r.Status().Update(ctx, wsd)
-		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
 	pods := &corev1.PodList{}
 	if err := childClient.List(ctx, pods); err != nil {
 		wsd.Status.Phase = workspacesv1.WorkspaceDeploymentPhasePending
 		wsd.Status.Message = fmt.Sprintf("Could not list pods to check GPU capacity: %v", err)
 		_ = r.Status().Update(ctx, wsd)
-		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
 
 	avail := gpu.AvailabilityForSelector(nodes.Items, pods.Items, selector)
@@ -470,7 +481,7 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 			describeGPUSelector(resolved), wsd.Spec.ClusterDeploymentRef.Name)
 		r.markFailed(ctx, wsd, workspacesv1.ReasonGpuOfferingUnavailable, msg)
 		_ = r.Status().Update(ctx, wsd)
-		return ctrl.Result{}, false, nil
+		return ctrl.Result{}, false
 	}
 
 	// Selector matches — hold for capacity (ADR-0002). Demand is
@@ -481,7 +492,7 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 		// Transient contention: hold in Waiting (no Helm release) and retry.
 		msg := fmt.Sprintf("Waiting for %d GPU(s) matching %s on cluster %q; %d currently free",
 			demand, describeGPUSelector(resolved), wsd.Spec.ClusterDeploymentRef.Name, avail.Free)
-		return r.enterWaiting(ctx, wsd, resolved, msg), false, nil
+		return r.enterWaiting(ctx, wsd, resolved, msg), false
 	}
 
 	// Capacity is available, but serve Waiting workspaces oldest-first
@@ -491,15 +502,15 @@ func (r *WorkspaceDeploymentReconciler) gateGPUOffering(
 	if err != nil {
 		// Transient list error — re-check next reconcile rather than jumping
 		// the queue.
-		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
 	if older {
 		msg := fmt.Sprintf("Waiting behind older workspace(s) requesting %s on cluster %q",
 			describeGPUSelector(resolved), wsd.Spec.ClusterDeploymentRef.Name)
-		return r.enterWaiting(ctx, wsd, resolved, msg), false, nil
+		return r.enterWaiting(ctx, wsd, resolved, msg), false
 	}
 
-	return ctrl.Result{}, true, nil
+	return ctrl.Result{}, true
 }
 
 // gpuSelectorOf builds the GPU Selector (node-label requirements) from a

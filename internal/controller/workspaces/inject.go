@@ -29,6 +29,17 @@ import (
 // authors should treat it as read-only input.
 const exalsiusValuesKey = "_exalsius"
 
+// Resource-injection field names, shared by the field→path map, the value
+// entries, and the per-field path switch so they stay in lockstep. CPU and
+// memory reuse the resource-name constants defined in feasibility.go.
+const (
+	fieldReplicas  = "replicas"
+	fieldStorage   = "storage"
+	fieldGPUCount  = "gpuCount"
+	fieldGPUVendor = "gpuVendor"
+	fieldGPUType   = "gpuType"
+)
+
 // injectNodeSelector writes a GPU placement selector into the merged Helm
 // values at `_exalsius.scheduling.nodeSelector`, parallel to
 // `_exalsius.resources` (ADR-0002). The chart applies this map verbatim as its
@@ -229,13 +240,13 @@ func injectionFieldPaths(m *workspacesv1.ResourceInjectionMap) map[string][]work
 		return nil
 	}
 	return map[string][]workspacesv1.InjectionPath{
-		"replicas":  m.Replicas,
-		"cpu":       m.CPU,
-		"memory":    m.Memory,
-		"storage":   m.Storage,
-		"gpuCount":  m.GPUCount,
-		"gpuVendor": m.GPUVendor,
-		"gpuType":   m.GPUType,
+		fieldReplicas:  m.Replicas,
+		resourceCPU:    m.CPU,
+		resourceMemory: m.Memory,
+		fieldStorage:   m.Storage,
+		fieldGPUCount:  m.GPUCount,
+		fieldGPUVendor: m.GPUVendor,
+		fieldGPUType:   m.GPUType,
 	}
 }
 
@@ -275,25 +286,25 @@ func injectResources(
 	var entries []fieldEntry
 
 	if resolved.Replicas != nil {
-		entries = append(entries, fieldEntry{"replicas", int64(*resolved.Replicas)})
+		entries = append(entries, fieldEntry{fieldReplicas, int64(*resolved.Replicas)})
 	}
 	if resolved.PerReplica.CPU != nil {
-		entries = append(entries, fieldEntry{"cpu", resolved.PerReplica.CPU.String()})
+		entries = append(entries, fieldEntry{resourceCPU, resolved.PerReplica.CPU.String()})
 	}
 	if resolved.PerReplica.Memory != nil {
-		entries = append(entries, fieldEntry{"memory", resolved.PerReplica.Memory.String()})
+		entries = append(entries, fieldEntry{resourceMemory, resolved.PerReplica.Memory.String()})
 	}
 	if resolved.PerReplica.Storage != nil {
-		entries = append(entries, fieldEntry{"storage", resolved.PerReplica.Storage.String()})
+		entries = append(entries, fieldEntry{fieldStorage, resolved.PerReplica.Storage.String()})
 	}
 	if resolved.PerReplica.GPUCount != nil {
-		entries = append(entries, fieldEntry{"gpuCount", int64(*resolved.PerReplica.GPUCount)})
+		entries = append(entries, fieldEntry{fieldGPUCount, int64(*resolved.PerReplica.GPUCount)})
 	}
 	if resolved.PerReplica.GPUVendor != nil {
-		entries = append(entries, fieldEntry{"gpuVendor", string(*resolved.PerReplica.GPUVendor)})
+		entries = append(entries, fieldEntry{fieldGPUVendor, string(*resolved.PerReplica.GPUVendor)})
 	}
 	if resolved.PerReplica.GPUType != nil {
-		entries = append(entries, fieldEntry{"gpuType", *resolved.PerReplica.GPUType})
+		entries = append(entries, fieldEntry{fieldGPUType, *resolved.PerReplica.GPUType})
 	}
 
 	// (1) Standard `_exalsius.resources.<field>` path — always set when the
@@ -316,8 +327,8 @@ func injectResources(
 		resourcesNode["perReplica"] = perReplica
 	}
 	for _, e := range entries {
-		if e.name == "replicas" {
-			resourcesNode["replicas"] = e.value
+		if e.name == fieldReplicas {
+			resourcesNode[fieldReplicas] = e.value
 		} else {
 			perReplica[e.name] = e.value
 		}
@@ -330,19 +341,19 @@ func injectResources(
 	for _, e := range entries {
 		var paths []workspacesv1.InjectionPath
 		switch e.name {
-		case "replicas":
+		case fieldReplicas:
 			paths = im.Replicas
-		case "cpu":
+		case resourceCPU:
 			paths = im.CPU
-		case "memory":
+		case resourceMemory:
 			paths = im.Memory
-		case "storage":
+		case fieldStorage:
 			paths = im.Storage
-		case "gpuCount":
+		case fieldGPUCount:
 			paths = im.GPUCount
-		case "gpuVendor":
+		case fieldGPUVendor:
 			paths = im.GPUVendor
-		case "gpuType":
+		case fieldGPUType:
 			paths = im.GPUType
 		}
 		for _, p := range paths {
