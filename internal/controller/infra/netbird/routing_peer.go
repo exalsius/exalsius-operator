@@ -59,7 +59,7 @@ func ensureRoutingPeerDeployment(ctx context.Context, c client.Client, colony *i
 			Replicas: int32Ptr(1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app":       "netbird",
+					"app":       netbirdAppName,
 					"colony":    colony.Name,
 					"component": "router",
 				},
@@ -67,7 +67,7 @@ func ensureRoutingPeerDeployment(ctx context.Context, c client.Client, colony *i
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"app":       "netbird",
+						"app":       netbirdAppName,
 						"colony":    colony.Name,
 						"component": "router",
 					},
@@ -75,7 +75,7 @@ func ensureRoutingPeerDeployment(ctx context.Context, c client.Client, colony *i
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "netbird",
+							Name:  netbirdAppName,
 							Image: netbirdImage,
 							Env: []corev1.EnvVar{
 								{
@@ -85,7 +85,7 @@ func ensureRoutingPeerDeployment(ctx context.Context, c client.Client, colony *i
 											LocalObjectReference: corev1.LocalObjectReference{
 												Name: setupKeySecretName,
 											},
-											Key: "setupKey",
+											Key: setupKeyDataKey,
 										},
 									},
 								},
@@ -153,7 +153,7 @@ func ensureRoutingPeerDeployment(ctx context.Context, c client.Client, colony *i
 							LocalObjectReference: corev1.LocalObjectReference{
 								Name: setupKeySecretName,
 							},
-							Key: "setupKey",
+							Key: setupKeyDataKey,
 						},
 					}
 					container.Env[i].Value = "" // Clear any direct value

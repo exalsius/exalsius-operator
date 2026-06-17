@@ -46,6 +46,10 @@ import (
 
 const (
 	colonyFinalizer = "colony.infra.exalsius.ai/finalizer"
+
+	// conditionTypeClustersReady is the status condition type reporting
+	// whether all clusters in the colony are ready.
+	conditionTypeClustersReady = "ClustersReady"
 )
 
 // ColonyReconciler reconciles a Colony object
@@ -543,7 +547,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 			msg += fmt.Sprintf(". Not ready: %v", notReadyClusters)
 		}
 		condition = metav1.Condition{
-			Type:    "ClustersReady",
+			Type:    conditionTypeClustersReady,
 			Status:  metav1.ConditionFalse,
 			Reason:  "ClusterEnsureFailed",
 			Message: msg,
@@ -551,7 +555,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	case readyClusters != totalClusters || len(notReadyClusters) > 0:
 		colony.Status.Phase = "Provisioning"
 		condition = metav1.Condition{
-			Type:    "ClustersReady",
+			Type:    conditionTypeClustersReady,
 			Status:  metav1.ConditionFalse,
 			Reason:  "NotAllClustersReady",
 			Message: fmt.Sprintf("%d out of %d clusters are ready. Not ready clusters: %v", readyClusters, totalClusters, notReadyClusters),
@@ -559,7 +563,7 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	default:
 		colony.Status.Phase = "Ready"
 		condition = metav1.Condition{
-			Type:    "ClustersReady",
+			Type:    conditionTypeClustersReady,
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllClustersReady",
 			Message: fmt.Sprintf("All %d clusters of the colony are ready", totalClusters),

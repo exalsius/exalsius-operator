@@ -23,6 +23,12 @@ linters:
     - unparam
     - unused
   settings:
+    goconst:
+      ignore-tests: true
+      # Boolean string literals ("true"/"false") are noise, not magic constants.
+      ignore-string-values:
+        - 'true'
+        - 'false'
     revive:
       rules:
         - name: comment-spacings
