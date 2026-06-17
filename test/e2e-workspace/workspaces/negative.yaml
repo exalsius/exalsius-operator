@@ -1,0 +1,14 @@
+# infra-not-ready negative (issue 03). Used while the tenant Gateway is
+# deliberately absent: the WSD must reach phase Running but report
+# RoutesReady=False with reason RoutingInfraNotReady (an admin-fixable
+# condition, NOT a Failed workspace), and recover once the Gateway returns.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: neg1
+  namespace: ${NS}
+spec:
+  workspaceClassRef: routed-multi
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}

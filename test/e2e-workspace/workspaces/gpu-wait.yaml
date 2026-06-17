@@ -1,0 +1,18 @@
+# Capacity hold (ADR-0002): same model as gpu-ok on the single-GPU child-1
+# node. With gpu-ok holding the one GPU, this stays Waiting until gpu-ok is
+# deleted, then proceeds — exercising the Waiting phase and the waiter-proceeds
+# transition.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: gpu-wait
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-gpu
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+  resources:
+    perReplica:
+      gpuType: TESTGPU-A100
+      gpuCount: 1

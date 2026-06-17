@@ -1,0 +1,18 @@
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: test-single
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-single
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+  # Override the class's default resources. The operator injects these into
+  # the chart's Helm values at _exalsius.resources.perReplica.* — verify by
+  # reading the running pod's resources after deploy.
+  resources:
+    replicas: 2
+    perReplica:
+      cpu: "150m"
+      memory: "192Mi"

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+    role: prerequisite
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+      annotations:
+        # Surfacing the configurable Helm value via an annotation makes it
+        # trivial to verify that PrerequisiteSpec.Values overrides reached
+        # the chart: kubectl get pod ... -o jsonpath='{.metadata.annotations.message}'
+        message: {{ .Values.message | quote }}
+    spec:
+      containers:
+        - name: fake-operator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

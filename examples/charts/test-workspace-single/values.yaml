@@ -1,0 +1,19 @@
+replicaCount: 1
+
+# Fallback resource values used only when the chart is installed outside the
+# workspace operator (e.g. plain `helm install` for chart authoring). When
+# deployed via the operator, _exalsius.resources.perReplica.* are injected
+# automatically and override these.
+fallbackCPU: "50m"
+fallbackMemory: "64Mi"
+
+image:
+  repository: nginx
+  tag: alpine
+
+persistence:
+  size: 1Gi
+  storageClass: ""
+
+service:
+  port: 80

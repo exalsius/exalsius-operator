@@ -90,6 +90,11 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-e2e-workspace
+test-e2e-workspace: ## Run the live multi-cluster workspace e2e suite (ADR-0001/0002). Env-agnostic: the caller (e.g. local-dev-env) must supply the topology vars (MGMT, REG, CHILD1, CHILD2, NS, CD1, CD2, REG_CLUSTER, GW, GW_NS, DOMAIN, OPERATOR_NS) and have a provisioned environment. No Go build — runs kubectl/curl against the live clusters.
+	@command -v envsubst >/dev/null 2>&1 || { echo "envsubst not found (install gettext)."; exit 1; }
+	./test/e2e-workspace/run.sh
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

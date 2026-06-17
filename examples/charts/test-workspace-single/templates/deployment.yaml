@@ -1,0 +1,90 @@
+{{- /*
+Resource fields are read from the operator-injected `_exalsius.resources` path
+when present (which it will be when deployed via the workspace operator), and
+fall back to chart-local defaults otherwise (so plain `helm install` still
+works for chart authoring).
+*/ -}}
+{{- $exalsius := .Values._exalsius | default dict -}}
+{{- $exRes := $exalsius.resources | default dict -}}
+{{- $exPer := $exRes.perReplica | default dict -}}
+{{- $replicas := $exRes.replicas | default .Values.replicaCount -}}
+{{- $cpu := $exPer.cpu | default .Values.fallbackCPU -}}
+{{- $memory := $exPer.memory | default .Values.fallbackMemory -}}
+{{- /*
+GPU placement + resource contract (ADR-0002): the operator injects the GPU
+Selector at _exalsius.scheduling.nodeSelector (applied verbatim as the pod's
+nodeSelector) and the GPU resource at _exalsius.resources.perReplica.{gpuResourceName,gpuCount}
+(requested only when a count is set). The chart hardcodes no label key or
+vendor resource name.
+*/ -}}
+{{- $sched := $exalsius.scheduling | default dict -}}
+{{- $nodeSelector := $sched.nodeSelector | default dict -}}
+{{- $gpuResource := $exPer.gpuResourceName | default "" -}}
+{{- $gpuCount := $exPer.gpuCount | default 0 -}}
+{{- $wantGPU := and (ne $gpuResource "") (gt (int $gpuCount) 0) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+  annotations:
+    workspaces.exalsius.ai/injected-cpu: {{ $cpu | quote }}
+    workspaces.exalsius.ai/injected-memory: {{ $memory | quote }}
+    workspaces.exalsius.ai/injected-replicas: {{ $replicas | quote }}
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      {{- if $nodeSelector }}
+      nodeSelector:
+        {{- toYaml $nodeSelector | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Seed an index.html into the (otherwise empty) PVC so nginx serves a
+        # 200 instead of a 403 Forbidden — makes a working route observable.
+        - name: seed-index
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /usr/share/nginx/html/index.html ]; then
+                echo "<html><body><h1>{{ .Release.Name }} OK</h1></body></html>" \
+                  > /usr/share/nginx/html/index.html
+              fi
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/nginx/html
+      containers:
+        - name: nginx
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: {{ $cpu | quote }}
+              memory: {{ $memory | quote }}
+              {{- if $wantGPU }}
+              {{ $gpuResource }}: {{ $gpuCount }}
+              {{- end }}
+            limits:
+              cpu: {{ $cpu | quote }}
+              memory: {{ $memory | quote }}
+              {{- if $wantGPU }}
+              {{ $gpuResource }}: {{ $gpuCount }}
+              {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}

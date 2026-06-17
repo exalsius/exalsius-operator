@@ -1,0 +1,243 @@
+# WorkspaceClasses for the test fixtures (cluster-scoped). Applied on the
+# management cluster. Each references the test-workspace-single ServiceTemplate;
+# the prereq class additionally pulls in the fake-operator prerequisite.
+#
+#   test-workspace-single          baseline: one HTTP endpoint
+#   test-workspace-with-prereq     prerequisite auto-install
+#   test-workspace-with-injection  resourceInjection mapping demo
+#   routed-multi                   HTTP hostname scheme + SSH/TCP port pool
+---
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: test-workspace-single
+spec:
+  displayName: "Test Workspace (Single Pod)"
+  description: "Minimal nginx pod + PVC + Service for exercising the workspace deployment flow"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 5m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: http
+      protocol: HTTP
+      port: 80
+      description: "nginx default page"
+  userFacingConfig:
+    - helmValuePath: "replicaCount"
+      displayName: "Replicas"
+      description: "Number of nginx pod replicas"
+      type: int
+      required: false
+      default: 1
+    - helmValuePath: "persistence.size"
+      displayName: "Volume Size"
+      description: "Size of the persistent volume"
+      type: string
+      required: false
+      default: "1Gi"
+  defaultValues:
+    replicaCount: 1
+---
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: test-workspace-with-prereq
+spec:
+  displayName: "Test Workspace (with Prereq)"
+  description: "Single nginx pod that depends on the fake-operator prerequisite"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 5m
+  prerequisiteDeployTimeout: 3m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  prerequisites:
+    - serviceTemplate:
+        name: test-prereq-fake-operator-0.1.0
+      values:
+        message: "hello-from-workspace-class"
+  accessEndpoints:
+    - name: http
+      protocol: HTTP
+      port: 80
+      description: "nginx default page"
+  defaultValues:
+    replicaCount: 1
+---
+# Demonstrates resourceInjection — for umbrella charts whose subcharts have
+# their own resource paths. Reuses the nginx chart but declares non-standard
+# injection paths; inspect the resulting ServiceSet's spec.services[0].values
+# to see _exalsius.resources (always injected) AND the custom paths.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: test-workspace-with-injection
+spec:
+  displayName: "Test Workspace (Resource Injection)"
+  description: "Demonstrates resourceInjection mapping into subchart-style paths"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 5m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  # The nginx chart doesn't consume these paths — inspection-only. In a real
+  # umbrella WorkspaceClass these would point at the wrapped subchart's paths.
+  resourceInjection:
+    cpu:
+      - "demo.subchart.cpu.request"
+      - 'demo.subchart.specialKey["nvidia.com/cpu-quota"]'
+    memory:
+      - "demo.subchart.memory.request"
+    replicas:
+      - "demo.subchart.replicas"
+  accessEndpoints:
+    - name: http
+      protocol: HTTP
+      port: 80
+      description: "nginx default page"
+  defaultValues:
+    replicaCount: 1
+---
+# Routing-focused class (ADR-0001): exercises the HTTP hostname scheme and the
+# SSH/TCP port pool.
+#   http : primary  -> bare hostname <ws>.<domain>, backed by <release>-http (curl 200)
+#   api  : secondary -> suffix hostname <ws>-api.<domain>; no backend in the nginx
+#          chart, so route is created/ready but curls 503 (scheme demo only)
+#   ssh  : port-pool allocation + TCPRoute (no sshd in the chart). Needs the
+#          experimental Gateway API CRDs + TCP listeners on the tenant Gateway.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: routed-multi
+spec:
+  displayName: "Routed Workspace (multi-endpoint)"
+  description: "nginx workspace exercising HTTP hostname scheme + SSH/TCP port pool"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 5m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: http
+      protocol: HTTP
+      port: 80
+      description: "primary nginx endpoint (bare hostname)"
+    - name: api
+      protocol: HTTP
+      port: 80
+      description: "secondary endpoint (suffix hostname; no backend in this chart)"
+    - name: ssh
+      protocol: SSH
+      port: 22
+      description: "port-pool allocation test (no sshd in this chart)"
+    # serviceName override example (issue 05) — uncomment to exercise:
+    # - name: ui
+    #   protocol: HTTP
+    #   port: 80
+    #   serviceName: proxy-public
+  defaultValues:
+    replicaCount: 1
+---
+# serviceName override (issue 05): the access endpoint pins an explicit
+# serviceName, so the operator drives the mirror Service + HTTPRoute backend
+# off that name instead of the <release>-<endpoint> convention.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: routed-fixed
+spec:
+  displayName: "Fixed-name Service (serviceName override)"
+  description: "nginx workspace whose access endpoint pins serviceName: proxy-public"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 5m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: ui
+      protocol: HTTP
+      port: 80
+      serviceName: proxy-public
+      description: "endpoint with an explicit serviceName override"
+  defaultValues:
+    replicaCount: 1
+---
+# failureContext (issue 07): a deliberately broken image so the Helm release
+# fails within deployTimeout, driving the workspace to Failed and populating
+# status.failureContext (phase, reason, ServiceSet snapshot, recentEvents).
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: routed-broken
+spec:
+  displayName: "Broken chart (failureContext)"
+  description: "Forces a Helm failure via a non-existent image to exercise failureContext"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 2m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: http
+      protocol: HTTP
+      port: 80
+      description: "primary endpoint (never becomes ready — image pull fails)"
+  defaultValues:
+    replicaCount: 1
+    image:
+      repository: "does-not-exist/nope"
+      tag: "0"
+---
+# GPU selection/gating class (ADR-0002). The model (gpuType) and raw selector
+# (gpuNodeSelector) are per-deployment — they cannot be set on a class (CEL).
+# Exercised with FAKED GPU nodes in the e2e suite (patched node capacity +
+# exalsius.ai/gpu-model label); nginx never touches the device.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: test-workspace-gpu
+spec:
+  displayName: "Test Workspace (GPU)"
+  description: "nginx workspace for exercising GPU selection, capacity gating, FCFS, and raw selectors"
+  serviceTemplate:
+    name: test-workspace-single-0.1.0
+  deployTimeout: 5m
+  defaultResources:
+    perReplica:
+      cpu: "100m"
+      memory: "128Mi"
+      storage: "1Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: http
+      protocol: HTTP
+      port: 80
+      description: "nginx default page"
+  defaultValues:
+    replicaCount: 1
