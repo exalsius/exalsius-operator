@@ -29,6 +29,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	// colonyOwnerKind is the Kind used in OwnerReferences pointing at a Colony.
+	colonyOwnerKind = "Colony"
+	// netbirdAppName is the app label value and container name for NetBird workloads.
+	netbirdAppName = "netbird"
+	// setupKeyDataKey is the key under which the NetBird setup key is stored in a Secret.
+	setupKeyDataKey = "setupKey"
+)
+
 // generateSetupKey creates a new NetBird setup key via the API.
 // Returns the setup key value and ID.
 func generateSetupKey(ctx context.Context, nbClient *NetBirdClient, colonyName, groupID string) (keyValue, keyID string, err error) {
@@ -73,7 +82,7 @@ func ensureSetupKeySecret(ctx context.Context, c client.Client, colony *infrav1.
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         infrav1.GroupVersion.String(),
-					Kind:               "Colony",
+					Kind:               colonyOwnerKind,
 					Name:               colony.Name,
 					UID:                colony.UID,
 					BlockOwnerDeletion: boolPtr(true),
@@ -83,7 +92,7 @@ func ensureSetupKeySecret(ctx context.Context, c client.Client, colony *infrav1.
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"setupKey": setupKeyValue,
+			setupKeyDataKey: setupKeyValue,
 		},
 	}
 
@@ -195,7 +204,7 @@ func ensureRouterSetupKeySecret(ctx context.Context, c client.Client, colony *in
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         infrav1.GroupVersion.String(),
-					Kind:               "Colony",
+					Kind:               colonyOwnerKind,
 					Name:               colony.Name,
 					UID:                colony.UID,
 					BlockOwnerDeletion: boolPtr(true),
@@ -205,7 +214,7 @@ func ensureRouterSetupKeySecret(ctx context.Context, c client.Client, colony *in
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"setupKey": setupKeyValue,
+			setupKeyDataKey: setupKeyValue,
 		},
 	}
 

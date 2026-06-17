@@ -443,7 +443,7 @@ func getSetupKey(ctx context.Context, c client.Client, colony *infrav1.Colony) (
 		return "", fmt.Errorf("failed to get setup key secret: %w", err)
 	}
 
-	setupKeyBytes, ok := secret.Data["setupKey"]
+	setupKeyBytes, ok := secret.Data[setupKeyDataKey]
 	if !ok {
 		return "", fmt.Errorf("setupKey not found in secret %s", secretName)
 	}
@@ -478,11 +478,12 @@ func injectNetBirdCommands(cloudConfig map[string]interface{}, setupKey string, 
 	}
 
 	// Prepend NetBird commands
-	netbirdCommands := []interface{}{
+	netbirdCommands := make([]interface{}, 0, 3+len(runcmd))
+	netbirdCommands = append(netbirdCommands,
 		"command -v netbird >/dev/null 2>&1 || curl -fsSL https://pkgs.netbird.io/install.sh | sh || true",
 		fmt.Sprintf("netbird up --setup-key %s || true", setupKey),
 		"timeout 30 bash -c 'until netbird status | grep -q Connected; do sleep 1; done'",
-	}
+	)
 
 	// Prepend to existing commands
 	runcmd = append(netbirdCommands, runcmd...)
@@ -810,7 +811,7 @@ func getColonyOwner(clusterDeployment *k0rdentv1beta1.ClusterDeployment) (string
 	for _, ownerRef := range clusterDeployment.OwnerReferences {
 		// Look for the controller owner reference that is a Colony
 		if ownerRef.Controller != nil && *ownerRef.Controller &&
-			ownerRef.Kind == "Colony" &&
+			ownerRef.Kind == colonyOwnerKind &&
 			strings.HasPrefix(ownerRef.APIVersion, "infra.exalsius.ai/") {
 			return ownerRef.Name, nil
 		}

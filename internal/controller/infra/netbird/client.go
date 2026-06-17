@@ -91,7 +91,7 @@ func GetSetupKeyFromSecret(ctx context.Context, c client.Client, colony *infrav1
 		return "", fmt.Errorf("failed to get setup key secret %s: %w", secretName, err)
 	}
 
-	setupKeyBytes, ok := secret.Data["setupKey"]
+	setupKeyBytes, ok := secret.Data[setupKeyDataKey]
 	if !ok {
 		// Try alternative key names
 		setupKeyBytes, ok = secret.Data["setupkey"]
