@@ -100,7 +100,12 @@ Each `WorkspaceDeployment` creates its own k0rdent `ServiceSet` named `wsd-<clus
 
 ## Deployment
 
-Helm chart at `charts/exalsius/` with operator subchart at `charts/exalsius/charts/operator/`.
+Single Helm chart at `charts/exalsius-operator/` (Deployment, RBAC, ServiceAccount, HPA, CRDs).
+The chart `version`/`appVersion` and the operator image tag move as one version line, bumped by
+release-please (`release-please-config.json` `extra-files`). On release, the chart is packaged
+and pushed to `oci://ghcr.io/exalsius/charts/exalsius-operator` and attached to the GitHub
+Release. CRDs are kept in lockstep with `config/crd/bases` via `make sync-chart-crds`. See
+`docs/adr/0003-helm-chart-distribution-and-versioning.md`.
 
 ## Agent skills
 
