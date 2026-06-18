@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/exalsius/exalsius-operator/compare/v0.9.0...v0.9.1) (2026-06-18)
+
+
+### Miscellaneous Chores
+
+* release 0.9.1 ([#153](https://github.com/exalsius/exalsius-operator/issues/153)) ([9bedd7e](https://github.com/exalsius/exalsius-operator/commit/9bedd7ecf892758360cc89cedc2690bb2efe29f0))
+
 ## [0.9.0](https://github.com/exalsius/exalsius-operator/compare/v0.8.3...v0.9.0) (2026-06-18)
 
 
