@@ -74,13 +74,6 @@ func TestParseEndpoint(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "Valid NetBird router hostname",
-			endpoint: "colony-router.netbird.cloud:30443",
-			wantHost: "colony-router.netbird.cloud",
-			wantPort: "30443",
-			wantErr:  false,
-		},
-		{
 			name:     "Valid FQDN with subdomain",
 			endpoint: "kmc-test-cluster.default.svc.cluster.local:30443",
 			wantHost: "kmc-test-cluster.default.svc.cluster.local",
@@ -410,12 +403,6 @@ func createTestColony() *infrav1.Colony {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-colony",
 			Namespace: "default",
-		},
-		Spec: infrav1.ColonySpec{
-			NetBird: &infrav1.NetBirdConfig{
-				Enabled:      true,
-				APIKeySecret: "netbird-api-key",
-			},
 		},
 		Status: infrav1.ColonyStatus{
 			ClusterDeploymentRefs: []*corev1.ObjectReference{

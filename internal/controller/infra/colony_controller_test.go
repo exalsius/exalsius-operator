@@ -530,33 +530,6 @@ var _ = Describe("Colony Controller", func() {
 			}
 		})
 
-		It("should skip processing for NetBird-enabled colony", func() {
-			By("Creating a Colony with NetBird enabled")
-			colony := &infrav1.Colony{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "netbird-skip-test",
-					Namespace: "default",
-				},
-				Spec: infrav1.ColonySpec{
-					NetBird: &infrav1.NetBirdConfig{
-						Enabled:      true,
-						APIKeySecret: "test-secret",
-					},
-				},
-				Status: infrav1.ColonyStatus{
-					ClusterDeploymentRefs: []*corev1.ObjectReference{
-						{Name: "netbird-skip-test-cluster-a", Namespace: "default"},
-					},
-				},
-			}
-
-			By("Calling ensureAPIEndpointConfigMapForAllClusters")
-			// This should not error and should skip processing
-			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
-
-			// No error expected, function returns void and skips processing
-		})
-
 		It("should handle empty ClusterDeploymentRefs gracefully", func() {
 			By("Creating a Colony without any clusters")
 			colony := &infrav1.Colony{

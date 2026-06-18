@@ -27,7 +27,7 @@ A fixed range of TCP ports on a tenant's gateway, reserved for non-HTTP workspac
 The dedicated namespace a workspace's workload runs in on its Child Cluster (`ws-<workspace-name>`). One per workspace — the unit of isolation, mesh visibility, and cleanup. Unique across a tenant's entire mesh by construction. Prerequisites do not live in Workspace Namespaces; they are cluster-local shared infrastructure.
 
 ### Colony
-A logical grouping of Kubernetes clusters managed together, potentially spanning cloud providers. Owns one or more ClusterDeployments via k0rdent. May include NetBird VPN networking for cross-cloud connectivity.
+A logical grouping of Kubernetes clusters managed together, potentially spanning cloud providers. Owns one or more ClusterDeployments via k0rdent.
 
 ### ClusterDeployment
 A k0rdent resource representing a provisioned child cluster. Owned by a Colony (via ownerReference). The workspace controller references it to know which cluster to deploy to, but does not write to it — workspace services are deployed via standalone ServiceSets.
