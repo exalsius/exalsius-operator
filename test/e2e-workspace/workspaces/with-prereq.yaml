@@ -1,0 +1,12 @@
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: test-with-prereq-a
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-with-prereq
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+  values:
+    replicaCount: 1

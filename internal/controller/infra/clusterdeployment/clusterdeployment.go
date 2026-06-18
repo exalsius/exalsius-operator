@@ -374,7 +374,7 @@ func DeletePVCForClusterDeployment(ctx context.Context, c client.Client, cluster
 
 	for i := range regionalCDs {
 		rcd := &regionalCDs[i]
-		regionalClient, err := common.GetRegionalClusterClient(ctx, c, namespace, rcd.Name, scheme)
+		regionalClient, err := common.GetClusterClientForCD(ctx, c, namespace, rcd.Name, scheme)
 		if err != nil {
 			log.Info("Could not create regional cluster client, skipping",
 				"regionalCluster", rcd.Name, "error", err)

@@ -1,0 +1,14 @@
+# failureContext (issue 07). The routed-broken class pins a non-existent image,
+# so the Helm release fails within deployTimeout and the WSD goes Failed with
+# status.failureContext populated (reason HelmReleaseFailed, ServiceSet snapshot,
+# recentEvents[0] = the operator's own failure event).
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: bad1
+  namespace: ${NS}
+spec:
+  workspaceClassRef: routed-broken
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}

@@ -1,0 +1,6 @@
+# A "fake operator" — busybox sleeping forever. Used only to exercise the
+# prerequisite auto-install flow; nothing real is installed by this chart.
+message: "default-message"
+image:
+  repository: busybox
+  tag: latest

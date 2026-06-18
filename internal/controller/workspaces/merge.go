@@ -1,0 +1,105 @@
+package workspaces
+
+import (
+	"encoding/json"
+	"fmt"
+
+	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+)
+
+// mergeResources merges user-provided resource overrides with class defaults.
+//
+// Numeric fields (replicas, cpu, memory, storage, gpuCount) and the GPUVendor
+// constraint inherit from class defaults when not overridden. GPUType is
+// special: it never inherits from class — admins cannot pin a specific GPU
+// model on a class (that's a per-deployment cluster-dependent choice).
+// Nil GPUType means "any model" for feasibility matching.
+func mergeResources(classDefaults workspacesv1.WorkspaceResourceSpec, userOverrides *workspacesv1.WorkspaceResourceSpec) workspacesv1.WorkspaceResourceSpec {
+	result := *classDefaults.DeepCopy()
+	// Defensive: even if a class somehow has these set (CEL bypass), wipe the
+	// per-deployment-only GPU targeting fields.
+	result.PerReplica.GPUType = nil
+	result.PerReplica.GPUNodeSelector = nil
+
+	if userOverrides == nil {
+		return result
+	}
+
+	if userOverrides.Replicas != nil {
+		result.Replicas = userOverrides.Replicas
+	}
+	if userOverrides.PerReplica.CPU != nil {
+		result.PerReplica.CPU = userOverrides.PerReplica.CPU
+	}
+	if userOverrides.PerReplica.Memory != nil {
+		result.PerReplica.Memory = userOverrides.PerReplica.Memory
+	}
+	if userOverrides.PerReplica.Storage != nil {
+		result.PerReplica.Storage = userOverrides.PerReplica.Storage
+	}
+	if userOverrides.PerReplica.GPUCount != nil {
+		result.PerReplica.GPUCount = userOverrides.PerReplica.GPUCount
+	}
+	if userOverrides.PerReplica.GPUVendor != nil {
+		result.PerReplica.GPUVendor = userOverrides.PerReplica.GPUVendor
+	}
+	if userOverrides.PerReplica.GPUType != nil {
+		result.PerReplica.GPUType = userOverrides.PerReplica.GPUType
+	}
+	if userOverrides.PerReplica.GPUNodeSelector != nil {
+		result.PerReplica.GPUNodeSelector = userOverrides.PerReplica.GPUNodeSelector
+	}
+
+	return result
+}
+
+// mergeValuesMap merges class default Helm values with user-provided values
+// into a single map. User values take precedence over class defaults (shallow
+// merge at the top level). Used as the input to resource injection before the
+// final values get serialised onto the ServiceSet.
+func mergeValuesMap(classDefaults *apiextensionsv1.JSON, userValues *apiextensionsv1.JSON) (map[string]any, error) {
+	merged := make(map[string]any)
+
+	if classDefaults != nil && len(classDefaults.Raw) > 0 {
+		if err := json.Unmarshal(classDefaults.Raw, &merged); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal class default values: %w", err)
+		}
+	}
+
+	if userValues != nil && len(userValues.Raw) > 0 {
+		var userMap map[string]any
+		if err := json.Unmarshal(userValues.Raw, &userMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal user values: %w", err)
+		}
+		for k, v := range userMap {
+			merged[k] = v
+		}
+	}
+
+	return merged, nil
+}
+
+// serializeValues turns the merged values map into the inline-YAML/JSON string
+// format that k0rdent's ServiceSet.spec.services[].values expects.
+func serializeValues(merged map[string]any) (string, error) {
+	if len(merged) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(merged)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal merged values: %w", err)
+	}
+	return string(data), nil
+}
+
+// mergeValues is the legacy entrypoint — preserved for callers that don't
+// participate in resource injection (e.g. prerequisite ServiceSet values,
+// which come straight from PrerequisiteSpec.Values without injection).
+func mergeValues(classDefaults *apiextensionsv1.JSON, userValues *apiextensionsv1.JSON) (string, error) {
+	merged, err := mergeValuesMap(classDefaults, userValues)
+	if err != nil {
+		return "", err
+	}
+	return serializeValues(merged)
+}

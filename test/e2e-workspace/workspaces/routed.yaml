@@ -1,0 +1,28 @@
+# Two routed workspaces on the same child cluster. The second one proves the
+# SSH/TCP port pool hands out a DISTINCT, sticky port (routed-a -> 2200,
+# routed-b -> 2201). Both reach Running independently.
+#
+#   kubectl apply -f workspace-deployment-routed.yaml
+#   kubectl -n kcm-system get wsd routed-a routed-b -o \
+#     jsonpath='{range .items[*]}{.metadata.name}: {.status.access}{"\n"}{end}' | jq .
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: routed-a
+  namespace: ${NS}
+spec:
+  workspaceClassRef: routed-multi
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+---
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: routed-b
+  namespace: ${NS}
+spec:
+  workspaceClassRef: routed-multi
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}

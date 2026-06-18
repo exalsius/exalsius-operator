@@ -1,0 +1,15 @@
+# Cross-cluster routing (the real ambient test). routed-b on child cluster 2,
+# while routed-a stays on child 1 — both routable through the ONE regional
+# Gateway, sharing the ONE regional SSH port pool. Apply AFTER the child-1
+# routed-b (deployments/routed.yaml) has been deleted, since the WSD name is the
+# same but the target ClusterDeployment differs.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: routed-b
+  namespace: ${NS}
+spec:
+  workspaceClassRef: routed-multi
+  clusterDeploymentRef:
+    name: ${CD2}
+    namespace: ${NS}

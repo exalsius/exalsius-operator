@@ -1,0 +1,666 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: workspacedeployments.workspaces.exalsius.ai
+spec:
+  group: workspaces.exalsius.ai
+  names:
+    kind: WorkspaceDeployment
+    listKind: WorkspaceDeploymentList
+    plural: workspacedeployments
+    shortNames:
+    - wsd
+    singular: workspacedeployment
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.workspaceClassRef
+      name: Class
+      type: string
+    - jsonPath: .spec.clusterDeploymentRef.name
+      name: Cluster
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.access[0].url
+      name: URL
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          WorkspaceDeployment represents user intent to deploy a workspace instance
+          onto a child cluster.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WorkspaceDeploymentSpec defines user intent to deploy a workspace
+              instance.
+            properties:
+              clusterDeploymentRef:
+                description: ClusterDeploymentRef identifies the target child cluster.
+                properties:
+                  name:
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                  namespace:
+                    maxLength: 63
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              resources:
+                description: Resources overrides the default resources from the WorkspaceClass.
+                properties:
+                  perReplica:
+                    description: PerReplica specifies resources requested per replica.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU is the number of CPU cores requested (e.g.
+                          "4", "500m").
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the number of GPUs requested per
+                          replica.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      gpuNodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          GPUNodeSelector is a raw, exact-match node-label selector for targeting a
+                          GPU directly (e.g. a GFD/AMD label like {"nvidia.com/gpu.product":
+                          "NVIDIA-H100-80GB-HBM3"}). It is the power-user/exact escape hatch
+                          alongside gpuType: both compile to one GPU Selector that the operator
+                          gate validates and the chart applies, so a request that passes the gate
+                          is always placeable (ADR-0002). Usable even on clusters that lack the
+                          canonical exalsius.ai/gpu-model label. Like gpuType, it is a
+                          per-deployment cluster-dependent choice and cannot be set on a class.
+                        type: object
+                      gpuType:
+                        description: |-
+                          GPUType is a deployment-time preference for a specific GPU model
+                          (e.g. "H100", "A100", "L40"). When unset on a WorkspaceDeployment,
+                          feasibility matches GPUs of any model. Cannot be set on a
+                          WorkspaceClass — type is a per-deployment cluster-dependent choice.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor constrains the GPU vendor (NVIDIA or AMD). Set on a
+                          WorkspaceClass to express chart-level vendor compatibility (e.g. CUDA
+                          vs ROCm); inheritable into a WorkspaceDeployment that doesn't override it.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory is the amount of memory requested (e.g.
+                          "16Gi").
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage is the amount of persistent storage requested
+                          (e.g. "100Gi").
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of pod-shaped instances the workspace deploys.
+                      Defaults to 1.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - perReplica
+                type: object
+              suspend:
+                description: Suspend, when true, causes the operator to skip reconciliation.
+                type: boolean
+              values:
+                description: Values provides user-specified Helm values merged on
+                  top of class defaults.
+                x-kubernetes-preserve-unknown-fields: true
+              workspaceClassRef:
+                description: WorkspaceClassRef is the name of the cluster-scoped WorkspaceClass.
+                maxLength: 253
+                minLength: 1
+                type: string
+            required:
+            - clusterDeploymentRef
+            - workspaceClassRef
+            type: object
+          status:
+            description: WorkspaceDeploymentStatus defines the observed state of WorkspaceDeployment.
+            properties:
+              access:
+                description: |-
+                  Access lists the externally reachable endpoints of this workspace,
+                  resolved by the routing provider once the workspace is Running.
+                items:
+                  description: |-
+                    AccessEntry describes one externally reachable endpoint of a workspace,
+                    resolved by the routing provider. The exalsius API projects these entries
+                    into Workspace.access[] unchanged (ADR-0001).
+                  properties:
+                    message:
+                      description: Message explains why an entry is not ready (e.g.
+                        port pool exhausted).
+                      type: string
+                    name:
+                      description: Name is the access endpoint name from the WorkspaceClass.
+                      type: string
+                    protocol:
+                      description: Protocol is the endpoint's wire protocol.
+                      enum:
+                      - HTTP
+                      - TCP
+                      - SSH
+                      type: string
+                    ready:
+                      description: |-
+                        Ready reports whether the platform side of routing is programmed.
+                        Application-level health remains the chart's readiness probes.
+                      type: boolean
+                    url:
+                      description: |-
+                        URL is where the endpoint is reachable, e.g.
+                        https://thorsten-nb.dos-lab.ex.ls or ssh://dos-lab.ex.ls:2207.
+                        Empty while the route is not yet resolvable.
+                      type: string
+                  required:
+                  - name
+                  - protocol
+                  - ready
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              conditions:
+                description: Conditions represent the latest observations.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              failureContext:
+                description: |-
+                  FailureContext bundles operator-side failure forensics, populated on
+                  every transition into Failed and cleared when the workspace recovers.
+                properties:
+                  phaseWhenFailed:
+                    description: |-
+                      PhaseWhenFailed is the phase the workspace was in when it failed
+                      (e.g. Deploying, InstallingPrerequisites).
+                    enum:
+                    - Pending
+                    - InstallingPrerequisites
+                    - Waiting
+                    - Deploying
+                    - Running
+                    - Failed
+                    - Deleting
+                    type: string
+                  reason:
+                    description: |-
+                      Reason is the machine-readable failure reason, mirroring the failing
+                      condition's reason (e.g. HelmReleaseFailed, PrerequisitesNotReady,
+                      RoutingInfraNotReady).
+                    type: string
+                  recentEvents:
+                    description: |-
+                      RecentEvents lists the most recent Kubernetes events recorded for
+                      this WorkspaceDeployment, newest first.
+                    items:
+                      description: EventSummary is a compact view of a Kubernetes
+                        event.
+                      properties:
+                        lastSeen:
+                          description: LastSeen is when the event last occurred.
+                          format: date-time
+                          type: string
+                        message:
+                          type: string
+                        reason:
+                          type: string
+                        type:
+                          description: Type is Normal or Warning.
+                          type: string
+                      required:
+                      - reason
+                      type: object
+                    type: array
+                  serviceSetStatus:
+                    description: |-
+                      ServiceSetStatus snapshots the workspace ServiceSet's reported
+                      service states at failure time.
+                    properties:
+                      deployed:
+                        description: Deployed mirrors ServiceSet.status.deployed.
+                        type: boolean
+                      name:
+                        description: Name of the ServiceSet.
+                        type: string
+                      services:
+                        description: Services lists the per-service states.
+                        items:
+                          description: ServiceStateSummary is one service entry's
+                            state inside a ServiceSet.
+                          properties:
+                            failureMessage:
+                              description: |-
+                                FailureMessage carries the underlying failure detail (e.g. the Helm
+                                error).
+                              type: string
+                            name:
+                              type: string
+                            state:
+                              description: State is the k0rdent service state (e.g.
+                                Deployed, Failed).
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                    required:
+                    - name
+                    type: object
+                type: object
+              feasibility:
+                description: |-
+                  Feasibility reports whether the cluster has enough free capacity to
+                  deploy this workspace. Refreshed on every reconcile while the
+                  workspace is being deployed; not updated once the workspace is Running.
+                properties:
+                  available:
+                    description: Available is the cluster-wide free capacity at evaluation
+                      time.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU in cores (decimal-encoded resource.Quantity).
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the total number of GPUs.
+                        format: int32
+                        type: integer
+                      gpuType:
+                        description: GPUType identifies the GPU model that was matched.
+                          Empty when wildcard.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor identifies the vendor that was matched (when feasibility
+                          considered vendor as a constraint). Empty when wildcard.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  demanded:
+                    description: |-
+                      Demanded is the total resource demand that was checked
+                      (Replicas × PerReplica from the merged class+deployment spec).
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU in cores (decimal-encoded resource.Quantity).
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the total number of GPUs.
+                        format: int32
+                        type: integer
+                      gpuType:
+                        description: GPUType identifies the GPU model that was matched.
+                          Empty when wildcard.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor identifies the vendor that was matched (when feasibility
+                          considered vendor as a constraint). Empty when wildcard.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  evaluatedAt:
+                    description: EvaluatedAt is when this feasibility verdict was
+                      computed.
+                    format: date-time
+                    type: string
+                  fits:
+                    description: Fits is true when the demanded resources can be satisfied.
+                    type: boolean
+                  message:
+                    description: Message is a human-readable summary.
+                    type: string
+                  missing:
+                    description: Missing describes what's lacking when Fits=false.
+                      Nil when Fits=true.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU in cores (decimal-encoded resource.Quantity).
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the total number of GPUs.
+                        format: int32
+                        type: integer
+                      gpuType:
+                        description: GPUType identifies the GPU model that was matched.
+                          Empty when wildcard.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor identifies the vendor that was matched (when feasibility
+                          considered vendor as a constraint). Empty when wildcard.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage in bytes.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                required:
+                - available
+                - demanded
+                - evaluatedAt
+                - fits
+                type: object
+              message:
+                description: Message is a human-readable error or status detail.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the .metadata.generation that was
+                  last reconciled.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is a human-readable summary of the deployment lifecycle.
+                enum:
+                - Pending
+                - InstallingPrerequisites
+                - Waiting
+                - Deploying
+                - Running
+                - Failed
+                - Deleting
+                type: string
+              prerequisites:
+                description: |-
+                  Prerequisites reports the per-prerequisite install state. Only populated
+                  when the resolved WorkspaceClass declares prerequisites.
+                items:
+                  description: PrerequisiteStatus reports the per-prerequisite install
+                    state.
+                  properties:
+                    message:
+                      description: Message is a human-readable detail (e.g., the underlying
+                        failure reason).
+                      type: string
+                    name:
+                      description: Name is the ServiceTemplate name from WorkspaceClass.spec.prerequisites.
+                      type: string
+                    phase:
+                      description: Phase is the current state of this prerequisite.
+                      enum:
+                      - Pending
+                      - Installing
+                      - Satisfied
+                      - Failed
+                      type: string
+                    source:
+                      description: Source identifies who is providing the prerequisite.
+                      enum:
+                      - workspace
+                      - colony
+                      type: string
+                  required:
+                  - name
+                  - phase
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              resolvedResources:
+                description: ResolvedResources captures the effective resources after
+                  merging.
+                properties:
+                  perReplica:
+                    description: PerReplica specifies resources requested per replica.
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: CPU is the number of CPU cores requested (e.g.
+                          "4", "500m").
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      gpuCount:
+                        description: GPUCount is the number of GPUs requested per
+                          replica.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      gpuNodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          GPUNodeSelector is a raw, exact-match node-label selector for targeting a
+                          GPU directly (e.g. a GFD/AMD label like {"nvidia.com/gpu.product":
+                          "NVIDIA-H100-80GB-HBM3"}). It is the power-user/exact escape hatch
+                          alongside gpuType: both compile to one GPU Selector that the operator
+                          gate validates and the chart applies, so a request that passes the gate
+                          is always placeable (ADR-0002). Usable even on clusters that lack the
+                          canonical exalsius.ai/gpu-model label. Like gpuType, it is a
+                          per-deployment cluster-dependent choice and cannot be set on a class.
+                        type: object
+                      gpuType:
+                        description: |-
+                          GPUType is a deployment-time preference for a specific GPU model
+                          (e.g. "H100", "A100", "L40"). When unset on a WorkspaceDeployment,
+                          feasibility matches GPUs of any model. Cannot be set on a
+                          WorkspaceClass — type is a per-deployment cluster-dependent choice.
+                        type: string
+                      gpuVendor:
+                        description: |-
+                          GPUVendor constrains the GPU vendor (NVIDIA or AMD). Set on a
+                          WorkspaceClass to express chart-level vendor compatibility (e.g. CUDA
+                          vs ROCm); inheritable into a WorkspaceDeployment that doesn't override it.
+                        enum:
+                        - NVIDIA
+                        - AMD
+                        type: string
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Memory is the amount of memory requested (e.g.
+                          "16Gi").
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storage:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Storage is the amount of persistent storage requested
+                          (e.g. "100Gi").
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of pod-shaped instances the workspace deploys.
+                      Defaults to 1.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - perReplica
+                type: object
+              serviceEntryName:
+                description: ServiceEntryName is the name of the service entry added
+                  to the ClusterDeployment.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: workspace name must be at most 60 characters so the ws-<name> workspace
+            namespace fits the 63-character namespace name limit
+          rule: size(self.metadata.name) <= 60
+        - message: 'workspace name must be a lowercase DNS-1123 label: it becomes
+            the ws-<name> workspace namespace and the workspace hostname'
+          rule: self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    served: true
+    storage: true
+    subresources:
+      status: {}

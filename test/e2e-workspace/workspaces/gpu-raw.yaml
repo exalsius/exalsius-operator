@@ -1,0 +1,19 @@
+# Raw label-selector override (ADR-0002): targets a GFD label directly on a
+# child-2 node that has NO canonical exalsius.ai/gpu-model label — proving the
+# selector path works on vendor-labelled-only clusters. Gate validates the
+# exact selector the chart places on.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: gpu-raw
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-gpu
+  clusterDeploymentRef:
+    name: ${CD2}
+    namespace: ${NS}
+  resources:
+    perReplica:
+      gpuCount: 1
+      gpuNodeSelector:
+        nvidia.com/gpu.product: TESTGPU-RAW

@@ -101,42 +101,45 @@ func FindRegionalClusterDeploymentsByRole(ctx context.Context, c client.Client, 
 	return cdList.Items, nil
 }
 
-// GetRegionalClusterClient builds a controller-runtime client for a regional cluster.
-// It fetches the regional cluster's kubeconfig secret from the management cluster
-// and creates a client that can talk to the regional cluster's API server.
-func GetRegionalClusterClient(ctx context.Context, managementClient client.Client, namespace, regionalCDName string, scheme *runtime.Scheme) (client.Client, error) {
+// GetClusterClientForCD builds a controller-runtime client for the cluster
+// behind a ClusterDeployment, from its `<cd-name>-kubeconfig` secret on the
+// management cluster. It is generic: the same helper serves both regional and
+// child ClusterDeployments — the caller decides which CD to target. (It was
+// formerly named GetRegionalClusterClient, which misleadingly implied
+// regional-only; workspace feasibility/gating uses it against child clusters.)
+func GetClusterClientForCD(ctx context.Context, managementClient client.Client, namespace, cdName string, scheme *runtime.Scheme) (client.Client, error) {
 	log := log.FromContext(ctx)
 
-	kubeconfigSecretName := fmt.Sprintf("%s-kubeconfig", regionalCDName)
+	kubeconfigSecretName := fmt.Sprintf("%s-kubeconfig", cdName)
 
 	var kubeconfigSecret corev1.Secret
 	if err := managementClient.Get(ctx, client.ObjectKey{
 		Name:      kubeconfigSecretName,
 		Namespace: namespace,
 	}, &kubeconfigSecret); err != nil {
-		return nil, fmt.Errorf("failed to get regional cluster kubeconfig secret %q: %w", kubeconfigSecretName, err)
+		return nil, fmt.Errorf("failed to get cluster kubeconfig secret %q: %w", kubeconfigSecretName, err)
 	}
 
 	kubeconfigBytes, ok := kubeconfigSecret.Data["value"]
 	if !ok {
-		return nil, fmt.Errorf("regional cluster kubeconfig secret %q does not contain key 'value'", kubeconfigSecretName)
+		return nil, fmt.Errorf("cluster kubeconfig secret %q does not contain key 'value'", kubeconfigSecretName)
 	}
 
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create REST config for regional cluster %q: %w", regionalCDName, err)
+		return nil, fmt.Errorf("failed to create REST config for cluster %q: %w", cdName, err)
 	}
 
-	regionalClient, err := client.New(restConfig, client.Options{Scheme: scheme})
+	clusterClient, err := client.New(restConfig, client.Options{Scheme: scheme})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client for regional cluster %q: %w", regionalCDName, err)
+		return nil, fmt.Errorf("failed to create client for cluster %q: %w", cdName, err)
 	}
 
-	log.V(1).Info("Created client for regional cluster",
-		"regionalClusterDeployment", regionalCDName,
+	log.V(1).Info("Created client for cluster",
+		"clusterDeployment", cdName,
 		"kubeconfigSecret", kubeconfigSecretName)
 
-	return regionalClient, nil
+	return clusterClient, nil
 }
 
 // GetColonyClusterByName looks up a ColonyCluster from the Colony spec by clusterName.
@@ -182,7 +185,7 @@ func ResolveRegionalClient(
 	}
 
 	// Build client for the regional cluster
-	regionalClient, err := GetRegionalClusterClient(ctx, managementClient, colony.Namespace, regionalCD.Name, scheme)
+	regionalClient, err := GetClusterClientForCD(ctx, managementClient, colony.Namespace, regionalCD.Name, scheme)
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to get regional cluster client for %q: %w", regionalName, err)
 	}

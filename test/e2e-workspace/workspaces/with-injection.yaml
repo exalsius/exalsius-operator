@@ -1,0 +1,22 @@
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: test-injection
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-with-injection
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+  resources:
+    replicas: 3
+    perReplica:
+      cpu: "250m"
+      memory: "320Mi"
+  # Optional: include a value at one of the injected paths to trigger the
+  # operator-overwrite warning condition. Uncomment to test:
+  # values:
+  #   demo:
+  #     subchart:
+  #       cpu:
+  #         request: "999m"        # operator will overwrite to 250m

@@ -7,6 +7,16 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - events
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
@@ -56,6 +66,61 @@ rules:
   - k0rdent.mirantis.com
   resources:
   - clusterdeployments
+  - servicetemplates
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - k0rdent.mirantis.com
+  resources:
+  - clusterdeployments/status
+  verbs:
+  - get
+- apiGroups:
+  - k0rdent.mirantis.com
+  resources:
+  - servicesets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workspaces.exalsius.ai
+  resources:
+  - workspaceclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - workspaces.exalsius.ai
+  resources:
+  - workspaceclasses/status
+  - workspacedeployments/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - workspaces.exalsius.ai
+  resources:
+  - workspacedeployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - workspaces.exalsius.ai
+  resources:
+  - workspacedeployments/finalizers
+  verbs:
+  - update

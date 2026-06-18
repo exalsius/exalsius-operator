@@ -1,0 +1,16 @@
+# Static infeasibility (ADR-0002): a model no node carries -> terminal Failed
+# with reason GpuOfferingUnavailable (the user fixes the request and recreates).
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: gpu-absent
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-gpu
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+  resources:
+    perReplica:
+      gpuType: TESTGPU-NONEXISTENT
+      gpuCount: 1

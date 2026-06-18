@@ -42,6 +42,7 @@ import (
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta2"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	k0sv1beta1 "github.com/k0sproject/k0smotron/api/controlplane/v1beta1"
@@ -50,8 +51,13 @@ import (
 	bootstrapv1beta1 "github.com/k0sproject/k0smotron/api/bootstrap/v1beta1"
 
 	infracontroller "github.com/exalsius/exalsius-operator/internal/controller/infra"
+	workspacescontroller "github.com/exalsius/exalsius-operator/internal/controller/workspaces"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing/gatewayapi"
 	"github.com/exalsius/exalsius-operator/internal/preflight"
 	"github.com/exalsius/exalsius-operator/internal/webhook"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -64,6 +70,13 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(infrav1.AddToScheme(scheme))
+	utilruntime.Must(workspacesv1.AddToScheme(scheme))
+	// Gateway API types are read/written on regional clusters via the
+	// workspace routing provider; the regional client shares this scheme.
+	// v1alpha2 carries TCPRoute (experimental channel) for the SSH/TCP
+	// port pool.
+	utilruntime.Must(gatewayv1.Install(scheme))
+	utilruntime.Must(gatewayv1alpha2.Install(scheme))
 	// +kubebuilder:scaffold:scheme
 	if err := clusterv1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Cluster API to scheme")
@@ -101,6 +114,11 @@ func main() {
 	var enableHTTP2 bool
 	var webhookPort int
 	var webhookCertDir string
+	var workspaceGatewayName string
+	var workspaceGatewayNamespace string
+	var workspaceMeshMode string
+	var workspaceWaypointName string
+	var workspaceWaypointNamespace string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -119,6 +137,18 @@ func main() {
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server binds to.")
 	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "",
 		"The directory that contains the webhook server certificate. If empty, webhook server is disabled.")
+	flag.StringVar(&workspaceGatewayName, "workspace-gateway-name", gatewayapi.DefaultGatewayName,
+		"Name of the tenant Gateway on regional clusters that workspace routes attach to.")
+	flag.StringVar(&workspaceGatewayNamespace, "workspace-gateway-namespace", gatewayapi.DefaultGatewayNamespace,
+		"Namespace of the tenant Gateway on regional clusters.")
+	flag.StringVar(&workspaceMeshMode, "workspace-mesh-mode", string(routing.MeshModeAmbient),
+		"How workspace namespaces are enrolled into the Istio mesh: "+
+			"ambient (istio.io/dataplane-mode=ambient), sidecar (istio-injection=enabled), or none.")
+	flag.StringVar(&workspaceWaypointName, "workspace-waypoint-name", "istio-waypoint",
+		"Name of the shared Istio ambient waypoint workspace namespaces route through "+
+			"(so the ingress gateway can reach cross-cluster global services). Empty disables waypoint enrollment.")
+	flag.StringVar(&workspaceWaypointNamespace, "workspace-waypoint-namespace", "istio-system",
+		"Namespace of the shared waypoint referenced by --workspace-waypoint-name.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -269,6 +299,37 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
 			os.Exit(1)
 		}
+	}
+
+	// Resolve mesh-enrollment labels once; shared by the child workspace
+	// namespace (reconciler) and the regional mirror namespace (provider).
+	meshLabels := routing.MeshNamespaceLabels(routing.MeshMode(workspaceMeshMode), routing.WaypointConfig{
+		Name:      workspaceWaypointName,
+		Namespace: workspaceWaypointNamespace,
+	})
+
+	// Workspace controllers — always enabled since we own the CRDs
+	if err = (&workspacescontroller.WorkspaceDeploymentReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		RouteProvider: gatewayapi.New(gatewayapi.Config{
+			GatewayName:         workspaceGatewayName,
+			GatewayNamespace:    workspaceGatewayNamespace,
+			MeshNamespaceLabels: meshLabels,
+		}),
+		Recorder:            mgr.GetEventRecorder("workspace-deployment"),
+		APIReader:           mgr.GetAPIReader(),
+		MeshNamespaceLabels: meshLabels,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
+		os.Exit(1)
+	}
+	if err = (&workspacescontroller.WorkspaceClassReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceClass")
+		os.Exit(1)
 	}
 
 	// Setup webhooks if enabled

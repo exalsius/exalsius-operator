@@ -53,6 +53,12 @@ spec:
                 description: ColonyClusters is the list of clusters to create.
                 items:
                   properties:
+                    clusterAnnotations:
+                      additionalProperties:
+                        type: string
+                      description: ClusterAnnotations are the annotations to be applied
+                        to the ClusterDeployment resource
+                      type: object
                     clusterDeploymentSpec:
                       description: |-
                         ClusterDeployment is the specification for the cluster deployment.
@@ -64,12 +70,6 @@ spec:
                         type: string
                       description: ClusterLabels are the labels to be applied to the
                         ClusterDeployment resource
-                      type: object
-                    clusterAnnotations:
-                      additionalProperties:
-                        type: string
-                      description: ClusterAnnotations are the annotations to be applied
-                        to the ClusterDeployment resource
                       type: object
                     clusterName:
                       description: Name is the name of the cluster.
@@ -207,6 +207,68 @@ spec:
                   - type
                   type: object
                 type: array
+              gpuInventory:
+                additionalProperties:
+                  description: ClusterGPUInventory is the set of GPU Offerings present
+                    on one child cluster.
+                  properties:
+                    lastUpdated:
+                      description: |-
+                        LastUpdated is when this cluster's inventory was last refreshed. A stale
+                        timestamp means the cluster was unreachable on recent polls.
+                      format: date-time
+                      type: string
+                    offerings:
+                      description: Offerings are the distinct GPU kinds available
+                        on the cluster.
+                      items:
+                        description: |-
+                          GPUOffering is a distinct kind of GPU available on a cluster, identified by
+                          vendor + canonical model (memory baked into the model name) + resource name.
+                          The remaining fields are aggregated attributes (ADR-0002).
+                        properties:
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Labels are the raw GFD/AMD/vendor node labels defining this offering,
+                              retained for display and advanced selection (data retention, not identity).
+                            type: object
+                          model:
+                            description: |-
+                              Model is the canonical short model name (e.g. "H100", "A100-80GB"), taken
+                              from the provisioning-set GPU model node label.
+                            type: string
+                          nodes:
+                            description: Nodes is the number of nodes carrying this
+                              offering.
+                            format: int32
+                            type: integer
+                          resourceName:
+                            description: |-
+                              ResourceName is the extended resource a pod requests for this offering
+                              (e.g. nvidia.com/gpu, amd.com/gpu).
+                            type: string
+                          total:
+                            description: Total is the total number of GPUs of this
+                              offering across the cluster.
+                            format: int64
+                            type: integer
+                          vendor:
+                            description: Vendor is the GPU vendor (e.g. NVIDIA, AMD).
+                            type: string
+                        required:
+                        - model
+                        type: object
+                      type: array
+                  type: object
+                description: |-
+                  GPUInventory maps each child cluster (keyed by ClusterDeployment name) to
+                  the GPU Offerings discovered on it (ADR-0002). Populated best-effort on a
+                  periodic poll for API discovery ("what GPUs can I pick on this cluster?").
+                  It records totals only — never live free capacity, which the workspace
+                  gate computes live against the cluster at deploy time.
+                type: object
               netBird:
                 description: NetBird status for VPN networking
                 properties:

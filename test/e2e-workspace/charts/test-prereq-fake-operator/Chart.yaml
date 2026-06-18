@@ -1,0 +1,6 @@
+apiVersion: v2
+name: test-prereq-fake-operator
+description: Minimal "operator" stand-in for exercising prerequisite auto-install
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

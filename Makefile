@@ -41,9 +41,21 @@ help: ## Display this help.
 
 ##@ Development
 
+# CHART_CRD_DIR holds the Helm chart's copy of the CRDs. The chart bundles its
+# own copy (Helm only installs crds/ on first release, never on upgrade), so it
+# must be kept in lockstep with the generated config/crd/bases — otherwise a
+# chart install ships stale CRDs and the operator's newer status fields get
+# pruned by the API server.
+CHART_CRD_DIR ?= charts/exalsius/charts/operator/crds
+
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(MAKE) sync-chart-crds
+
+.PHONY: sync-chart-crds
+sync-chart-crds: ## Copy generated CRDs from config/crd/bases into the Helm chart (keep in lockstep).
+	cp config/crd/bases/*.yaml $(CHART_CRD_DIR)/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -77,6 +89,11 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		exit 1; \
 	}
 	go test ./test/e2e/ -v -ginkgo.v
+
+.PHONY: test-e2e-workspace
+test-e2e-workspace: ## Run the live multi-cluster workspace e2e suite (ADR-0001/0002). Env-agnostic: the caller (e.g. local-dev-env) must supply the topology vars (MGMT, REG, CHILD1, CHILD2, NS, CD1, CD2, REG_CLUSTER, GW, GW_NS, DOMAIN, OPERATOR_NS) and have a provisioned environment. No Go build — runs kubectl/curl against the live clusters.
+	@command -v envsubst >/dev/null 2>&1 || { echo "envsubst not found (install gettext)."; exit 1; }
+	./test/e2e-workspace/run.sh
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

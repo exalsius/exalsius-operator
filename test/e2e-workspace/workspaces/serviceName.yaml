@@ -1,0 +1,12 @@
+# serviceName override (issue 05). Drives a mirror Service named "proxy-public"
+# and an HTTPRoute whose backend is "proxy-public" (not <release>-ui).
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: fx1
+  namespace: ${NS}
+spec:
+  workspaceClassRef: routed-fixed
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}

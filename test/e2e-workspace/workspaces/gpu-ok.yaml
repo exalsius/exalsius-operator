@@ -1,0 +1,17 @@
+# GPU model present (ADR-0002): the e2e suite labels a child-1 node
+# exalsius.ai/gpu-model=TESTGPU-A100 with a faked nvidia.com/gpu. The gate finds
+# the offering, injects the nodeSelector + GPU request, and the workspace runs.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: gpu-ok
+  namespace: ${NS}
+spec:
+  workspaceClassRef: test-workspace-gpu
+  clusterDeploymentRef:
+    name: ${CD1}
+    namespace: ${NS}
+  resources:
+    perReplica:
+      gpuType: TESTGPU-A100
+      gpuCount: 1
