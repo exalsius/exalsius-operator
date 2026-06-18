@@ -61,7 +61,7 @@ go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="pattern"
 
 ### CRDs (api/)
 
-- **Colony** (`infra.exalsius.ai/v1`): Logical grouping of clusters across cloud providers. Manages ClusterDeployments via K0rdent, NetBird VPN integration, and multi-cluster kubeconfig aggregation.
+- **Colony** (`infra.exalsius.ai/v1`): Logical grouping of clusters across cloud providers. Manages ClusterDeployments via K0rdent and multi-cluster kubeconfig aggregation.
 
 - **WorkspaceClass** (`workspaces.exalsius.ai/v1`, cluster-scoped): Catalog entry for a workspace type. Pins a k0rdent ServiceTemplate, declares resource shape (SingleNode/MultiNode), default resources, prerequisites, access endpoints, user-facing config prompts, and deploy timeout.
 
@@ -69,33 +69,25 @@ go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="pattern"
 
 ### Controllers (internal/controller/)
 
-- **ColonyReconciler** (`infra/colony_controller.go`): Main controller for cluster provisioning. Creates/deletes ClusterDeployment resources, manages NetBird setup (keys, policies, groups), configures Cilium CNI, and aggregates kubeconfigs for multi-cluster access.
+- **ColonyReconciler** (`infra/colony_controller.go`): Main controller for cluster provisioning. Creates/deletes ClusterDeployment resources, configures Cilium CNI, and aggregates kubeconfigs for multi-cluster access.
 
 - **WorkspaceDeploymentReconciler** (`workspaces/workspacedeployment_controller.go`): Resolves WorkspaceClass, validates prerequisites against `ClusterDeployment.status.services[]`, merges class defaults with user overrides, and creates a **ServiceSet** per workspace on the management cluster. Polls readiness every 15s; deletes the ServiceSet on teardown so k0rdent garbage-collects the Sveltos Profile.
 
-- **RemoteMachineCleanupReconciler** (`infra/remotemachine_controller.go`): Watches K0smotron RemoteMachine resources for NetBird cleanup on deletion. Coordinates with k0smotron finalizer ordering.
-
 ### Key Integration Packages (internal/controller/infra/)
 
-- `netbird/`: NetBird API client for VPN overlay networking
 - `cilium/`: Cilium CNI configuration for child clusters
 - `clusterdeployment/`: K0rdent ClusterDeployment helpers
-
-### Webhook (internal/webhook/)
-
-- **RemoteMachineDefaulter**: Mutating webhook that pre-initializes NetBird cleanup finalizer on RemoteMachine resources to resolve race conditions with k0smotron.
 
 ### External Dependencies
 
 - **K0rdent/KCM**: ClusterDeployment and ServiceSet provider (wraps Cluster API)
 - **K0smotron**: Lightweight Kubernetes distribution and infrastructure
 - **Sveltos** (via k0rdent StateManagementProvider `ksm-projectsveltos`): Deploys Helm charts onto child clusters based on ServiceSets
-- **NetBird**: VPN overlay for cross-cloud cluster connectivity
 - **Cilium**: CNI for networking
 
 ### Multi-Cluster Pattern
 
-The operator runs on a management cluster and provisions child clusters via K0rdent. Cross-cluster operations use kubeconfig secrets stored in the management cluster. NetBird provides the network overlay for inter-cluster communication.
+The operator runs on a management cluster and provisions child clusters via K0rdent. Cross-cluster operations use kubeconfig secrets stored in the management cluster.
 
 ### Workspace Deployment Pattern
 
@@ -105,11 +97,15 @@ Each `WorkspaceDeployment` creates its own k0rdent `ServiceSet` named `wsd-<clus
 
 - Colony: `colony.infra.exalsius.ai/finalizer`
 - WorkspaceDeployment: `workspaces.exalsius.ai/deployment`
-- RemoteMachine cleanup: `netbird.exalsius.ai/cleanup`
 
 ## Deployment
 
-Helm chart at `charts/exalsius/` with operator subchart at `charts/exalsius/charts/operator/`.
+Single Helm chart at `charts/exalsius-operator/` (Deployment, RBAC, ServiceAccount, HPA, CRDs).
+The chart `version`/`appVersion` and the operator image tag move as one version line, bumped by
+release-please (`release-please-config.json` `extra-files`). On release, the chart is packaged
+and pushed to `oci://ghcr.io/exalsius/charts/exalsius-operator` and attached to the GitHub
+Release. CRDs are kept in lockstep with `config/crd/bases` via `make sync-chart-crds`. See
+`docs/adr/0003-helm-chart-distribution-and-versioning.md`.
 
 ## Agent skills
 

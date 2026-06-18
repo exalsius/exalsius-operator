@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capdv1beta1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta2"
@@ -55,7 +54,6 @@ import (
 	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing/gatewayapi"
 	"github.com/exalsius/exalsius-operator/internal/preflight"
-	"github.com/exalsius/exalsius-operator/internal/webhook"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	// +kubebuilder:scaffold:imports
@@ -112,8 +110,6 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
-	var webhookPort int
-	var webhookCertDir string
 	var workspaceGatewayName string
 	var workspaceGatewayNamespace string
 	var workspaceMeshMode string
@@ -134,9 +130,6 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics server")
-	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server binds to.")
-	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "",
-		"The directory that contains the webhook server certificate. If empty, webhook server is disabled.")
 	flag.StringVar(&workspaceGatewayName, "workspace-gateway-name", gatewayapi.DefaultGatewayName,
 		"Name of the tenant Gateway on regional clusters that workspace routes attach to.")
 	flag.StringVar(&workspaceGatewayNamespace, "workspace-gateway-namespace", gatewayapi.DefaultGatewayNamespace,
@@ -239,17 +232,6 @@ func main() {
 		// LeaderElectionReleaseOnCancel: true,
 	}
 
-	// Configure webhook server if certificate directory is provided
-	if webhookCertDir != "" {
-		setupLog.Info("Enabling webhook server", "port", webhookPort, "cert-dir", webhookCertDir)
-		mgrOptions.WebhookServer = ctrlwebhook.NewServer(ctrlwebhook.Options{
-			Port:    webhookPort,
-			CertDir: webhookCertDir,
-		})
-	} else {
-		setupLog.Info("Webhook server disabled (no cert-dir provided)")
-	}
-
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -291,15 +273,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if enabled["RemoteMachineCleanup"] {
-		if err = (&infracontroller.RemoteMachineCleanupReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "RemoteMachineCleanup")
-			os.Exit(1)
-		}
-	}
 
 	// Resolve mesh-enrollment labels once; shared by the child workspace
 	// namespace (reconciler) and the regional mirror namespace (provider).
@@ -332,17 +305,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup webhooks if enabled
-	if webhookCertDir != "" && enabled["RemoteMachineWebhook"] {
-		setupLog.Info("Setting up webhooks")
-		if err = (&webhook.RemoteMachineDefaulter{
-			Client: mgr.GetClient(),
-		}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "RemoteMachine")
-			os.Exit(1)
-		}
-		setupLog.Info("Webhooks configured successfully")
-	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

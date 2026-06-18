@@ -46,7 +46,7 @@ help: ## Display this help.
 # must be kept in lockstep with the generated config/crd/bases — otherwise a
 # chart install ships stale CRDs and the operator's newer status fields get
 # pruned by the API server.
-CHART_CRD_DIR ?= charts/exalsius/charts/operator/crds
+CHART_CRD_DIR ?= charts/exalsius-operator/crds
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.

@@ -44,9 +44,9 @@ jobs:
 
       - name: Lint Helm Chart
         run: |
-          helm lint charts/exalsius/ --with-subcharts
+          helm lint charts/exalsius-operator/
 
-      - name: Install exalsius-operator umbrella helm chart
+      - name: Install exalsius-operator helm chart
         run: |
           set +e
           ./hack/install-ci.sh hack/ci-values.yaml
@@ -82,7 +82,7 @@ jobs:
 
       - name: Check Helm release status
         run: |
-          helm status exalsius --namespace exalsius-system
+          helm status exalsius-operator --namespace exalsius-system
 
       - name: Fail workflow if Helm install failed
         if: ${{ env.HELM_EXIT_CODE != '0' }}
