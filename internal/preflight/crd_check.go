@@ -70,18 +70,6 @@ var OperatorDependencies = []ControllerDependencies{
 			{GroupVersion: "k0rdent.mirantis.com/v1beta1", Resource: "clusterdeployments", Description: "K0rdent ClusterDeployment"},
 		},
 	},
-	{
-		Name: "RemoteMachineCleanup",
-		Dependencies: []CRDDependency{
-			{GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta1", Resource: "remotemachines", Description: "K0smotron RemoteMachine"},
-		},
-	},
-	{
-		Name: "RemoteMachineWebhook",
-		Dependencies: []CRDDependency{
-			{GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta1", Resource: "remotemachines", Description: "K0smotron RemoteMachine"},
-		},
-	},
 }
 
 // CheckCRDsAvailable uses the Kubernetes Discovery API to verify which CRDs

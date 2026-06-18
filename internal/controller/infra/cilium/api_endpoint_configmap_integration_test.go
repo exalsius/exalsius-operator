@@ -52,12 +52,6 @@ func TestIntegrationConfigMapCreation(t *testing.T) {
 				Name:      "test-colony",
 				Namespace: "default",
 			},
-			Spec: infrav1.ColonySpec{
-				NetBird: &infrav1.NetBirdConfig{
-					Enabled:      true,
-					APIKeySecret: "netbird-api-key",
-				},
-			},
 			Status: infrav1.ColonyStatus{
 				ClusterDeploymentRefs: []*corev1.ObjectReference{
 					{Name: "test-colony-cluster-a", Namespace: "default"},
@@ -146,31 +140,26 @@ func TestIntegrationConfigMapCreation(t *testing.T) {
 	})
 }
 
-// TestIntegrationNonNetBirdConfigMapCreation tests the ConfigMap creation flow
-// for non-NetBird colonies (using LoadBalancer or ClusterIP service discovery).
-func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
+// TestIntegrationDirectConfigMapCreation tests the ConfigMap creation flow
+// directly (using LoadBalancer or ClusterIP service discovery).
+func TestIntegrationDirectConfigMapCreation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	t.Run("Non-NetBird colony with LoadBalancer service", func(t *testing.T) {
+	t.Run("Colony with LoadBalancer service", func(t *testing.T) {
 		ctx := context.Background()
 		scheme := runtime.NewScheme()
 		_ = clientgoscheme.AddToScheme(scheme)
 		_ = infrav1.AddToScheme(scheme)
-
-		// Create colony without NetBird
 		colony := &infrav1.Colony{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "non-netbird-colony",
+				Name:      "direct-colony",
 				Namespace: "default",
-			},
-			Spec: infrav1.ColonySpec{
-				// NetBird is nil (not enabled)
 			},
 			Status: infrav1.ColonyStatus{
 				ClusterDeploymentRefs: []*corev1.ObjectReference{
-					{Name: "non-netbird-colony-cluster-a", Namespace: "default"},
+					{Name: "direct-colony-cluster-a", Namespace: "default"},
 				},
 			},
 		}
@@ -178,12 +167,12 @@ func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
 		// Create control plane service with LoadBalancer type and external address
 		controlPlaneService := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "kmc-non-netbird-colony-cluster-a",
+				Name:      "kmc-direct-colony-cluster-a",
 				Namespace: "default",
 				Labels: map[string]string{
 					"app":       "k0smotron",
 					"component": "cluster",
-					"cluster":   "non-netbird-colony-cluster-a",
+					"cluster":   "direct-colony-cluster-a",
 				},
 			},
 			Spec: corev1.ServiceSpec{
@@ -209,7 +198,7 @@ func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
 
 		kubeconfigSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "non-netbird-colony-cluster-a-kubeconfig",
+				Name:      "direct-colony-cluster-a-kubeconfig",
 				Namespace: "default",
 			},
 			Data: map[string][]byte{
@@ -225,7 +214,7 @@ func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
 		// Verify service discovery works
 		service := &corev1.Service{}
 		err := managementClient.Get(ctx, client.ObjectKey{
-			Name:      "kmc-non-netbird-colony-cluster-a",
+			Name:      "kmc-direct-colony-cluster-a",
 			Namespace: "default",
 		}, service)
 		if err != nil {
@@ -244,16 +233,14 @@ func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
 			t.Errorf("Expected external IP 203.0.113.50, got %v", service.Status.LoadBalancer.Ingress[0].IP)
 		}
 
-		t.Log("Non-NetBird colony LoadBalancer flow validated successfully")
+		t.Log("Colony LoadBalancer flow validated successfully")
 	})
 
-	t.Run("Non-NetBird colony with NodePort service (falls back to ClusterIP)", func(t *testing.T) {
+	t.Run("Colony with NodePort service (falls back to ClusterIP)", func(t *testing.T) {
 		ctx := context.Background()
 		scheme := runtime.NewScheme()
 		_ = clientgoscheme.AddToScheme(scheme)
 		_ = infrav1.AddToScheme(scheme)
-
-		// Create colony without NetBird
 		colony := &infrav1.Colony{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "nodeport-colony",
@@ -327,7 +314,7 @@ func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
 			t.Errorf("Expected ClusterIP 10.0.0.200, got %v", service.Spec.ClusterIP)
 		}
 
-		t.Log("Non-NetBird colony NodePort flow (ClusterIP fallback) validated successfully")
+		t.Log("Colony NodePort flow (ClusterIP fallback) validated successfully")
 	})
 
 	t.Run("Service not ready yet (cluster provisioning)", func(t *testing.T) {
@@ -335,8 +322,6 @@ func TestIntegrationNonNetBirdConfigMapCreation(t *testing.T) {
 		scheme := runtime.NewScheme()
 		_ = clientgoscheme.AddToScheme(scheme)
 		_ = infrav1.AddToScheme(scheme)
-
-		// Create colony without NetBird
 		colony := &infrav1.Colony{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "provisioning-colony",

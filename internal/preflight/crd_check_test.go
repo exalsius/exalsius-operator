@@ -44,19 +44,14 @@ func newFakeDiscovery(resources []*metav1.APIResourceList) *fakediscovery.FakeDi
 	return fd
 }
 
-// allResources returns API resource lists covering all CRDs used by the operator.
+// allResources returns API resource lists covering all CRDs the operator
+// preflight-checks.
 func allResources() []*metav1.APIResourceList {
 	return []*metav1.APIResourceList{
 		{
 			GroupVersion: "k0rdent.mirantis.com/v1beta1",
 			APIResources: []metav1.APIResource{
 				{Name: "clusterdeployments", Kind: "ClusterDeployment"},
-			},
-		},
-		{
-			GroupVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
-			APIResources: []metav1.APIResource{
-				{Name: "remotemachines", Kind: "RemoteMachine"},
 			},
 		},
 	}
@@ -96,9 +91,7 @@ func TestK0rdentMissing(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"Colony":               false, // needs K0rdent clusterdeployments
-		"RemoteMachineCleanup": true,
-		"RemoteMachineWebhook": true,
+		"Colony": false, // needs K0rdent clusterdeployments
 	}
 	for _, r := range results {
 		if want, ok := expected[r.Name]; ok {
@@ -127,9 +120,7 @@ func TestOnlyK0smotronMissing(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"Colony":               true,
-		"RemoteMachineCleanup": false, // needs K0smotron remotemachines
-		"RemoteMachineWebhook": false,
+		"Colony": true,
 	}
 	for _, r := range results {
 		if want, ok := expected[r.Name]; ok {

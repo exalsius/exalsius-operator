@@ -30,7 +30,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
@@ -41,7 +40,6 @@ import (
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/cilium"
 	clusterdeployment "github.com/exalsius/exalsius-operator/internal/controller/infra/clusterdeployment"
 	"github.com/exalsius/exalsius-operator/internal/controller/infra/common"
-	netbirdpkg "github.com/exalsius/exalsius-operator/internal/controller/infra/netbird"
 	"github.com/exalsius/exalsius-operator/internal/gpu"
 )
 
@@ -124,14 +122,6 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 	// Create a copy before making any status changes for the final patch
 	origForStatusPatch := colony.DeepCopy()
 
-	// Reconcile NetBird integration FIRST if enabled
-	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
-		if err := netbirdpkg.ReconcileNetBird(ctx, r.Client, colony, r.Scheme); err != nil {
-			log.Error(err, "Failed to reconcile NetBird integration")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-		}
-	}
-
 	// Ensure all ClusterDeployments exist. A failure to ensure one cluster must not
 	// block the others, so collect per-cluster errors and keep going. The aggregated
 	// error is returned at the end, after status has been persisted.
@@ -170,7 +160,6 @@ func (r *ColonyReconciler) reconcileColony(ctx context.Context, colony *infrav1.
 	// This runs on every reconcile (even during provisioning) because:
 	// 1. The control plane service may exist before cluster is fully ready
 	// 2. The function handles gracefully when services/clusters aren't ready yet
-	// For NetBird-enabled colonies, this is handled by the NetBird reconciler instead
 	r.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
 
 	// If any cluster failed to be ensured, return the aggregated error now that status
@@ -379,18 +368,6 @@ func (r *ColonyReconciler) handleColonyDeletion(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// Cleanup NetBird resources if enabled
-	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
-		nbClient, err := netbirdpkg.GetNetBirdClientFromSecrets(ctx, r.Client, colony)
-		if err != nil {
-			log.Error(err, "Failed to get NetBird client for cleanup, continuing with other cleanup")
-		} else {
-			if err := netbirdpkg.CleanupNetBirdResources(ctx, r.Client, nbClient, colony); err != nil {
-				log.Error(err, "Failed to cleanup NetBird resources, continuing with other cleanup")
-			}
-		}
-	}
-
 	// Cleanup all ClusterDeployments - track if any are still being deleted
 	anyStillDeleting := false
 	for _, colonyCluster := range colony.Spec.ColonyClusters {
@@ -434,16 +411,6 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 	log := log.FromContext(ctx)
 
 	clusterDeploymentName := colony.Name + "-" + colonyCluster.ClusterName
-
-	// First, delete patched bootstrap secrets to avoid garbage collection conflicts
-	// This prevents the ClusterDeployment deletion from hanging due to field ownership issues
-	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
-		log.Info("Cleaning up patched bootstrap secrets for cluster", "cluster", colonyCluster.ClusterName)
-		if err := netbirdpkg.DeletePatchedBootstrapSecretsForCluster(ctx, r.Client, colony, colonyCluster.ClusterName); err != nil {
-			log.Error(err, "Failed to delete patched bootstrap secrets, continuing with ClusterDeployment deletion", "cluster", colonyCluster.ClusterName)
-			// Continue with deletion even if secret cleanup fails - ClusterDeployment deletion should still proceed
-		}
-	}
 
 	// Check if the ClusterDeployment still exists
 	clusterDeployment := &k0rdentv1beta1.ClusterDeployment{}
@@ -494,12 +461,6 @@ func (r *ColonyReconciler) cleanupAssociatedResources(ctx context.Context, colon
 func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, colony *infrav1.Colony, clusterErrs []error) error {
 	log := log.FromContext(ctx)
 	var notReadyClusters []string
-
-	// Log to verify NetBird status is preserved
-	if colony.Status.NetBird != nil {
-		log.V(1).Info("Preserving NetBird status in cluster status update",
-			"setupKeyID", colony.Status.NetBird.SetupKeyID)
-	}
 
 	// Total reflects the intended cluster count from spec, so a cluster that failed to
 	// be ensured (and therefore has no ClusterDeploymentRef) still counts as not-ready
@@ -584,22 +545,15 @@ func (r *ColonyReconciler) updateColonyStatusFromClusters(ctx context.Context, c
 	meta.SetStatusCondition(&colony.Status.Conditions, condition)
 
 	// Note: Status is now persisted at the end of Reconcile, not here
-	// This avoids multiple patches that can conflict and lose NetBird status
+	// This avoids multiple patches that can conflict and lose status
 
 	return nil
 }
 
 // ensureAPIEndpointConfigMapForAllClusters ensures the cp-api-endpoint ConfigMap exists
-// in all child clusters. For NetBird-enabled colonies, this is handled by the NetBird reconciler.
-// For non-NetBird colonies, this function creates the ConfigMap directly.
+// in all child clusters. It creates the ConfigMap directly for every cluster in the colony.
 func (r *ColonyReconciler) ensureAPIEndpointConfigMapForAllClusters(ctx context.Context, colony *infrav1.Colony) {
 	log := log.FromContext(ctx)
-
-	// Skip if NetBird is enabled - the NetBird reconciler handles this
-	if colony.Spec.NetBird != nil && colony.Spec.NetBird.Enabled {
-		log.V(1).Info("Skipping API endpoint ConfigMap creation for NetBird-enabled colony")
-		return
-	}
 
 	// Iterate over all clusters in the colony
 	for _, clusterRef := range colony.Status.ClusterDeploymentRefs {
@@ -806,10 +760,6 @@ func scanClusterGPUOfferings(ctx context.Context, childClient client.Client) ([]
 func (r *ColonyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.Colony{}).
-		Watches(
-			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(netbirdpkg.SecretToColonyMapper(mgr.GetClient())),
-		).
 		Named("infra-colony").
 		Complete(r)
 }
