@@ -1,11 +1,11 @@
-name: Post-Release - Push Docker Image to GHCR
+name: Post-Release - Push Image and Helm Chart to GHCR
 
 on:
   release:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -35,3 +35,27 @@ jobs:
           context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:${{ github.event.release.tag_name }},${{ env.IMAGE_NAME }}:latest
+
+  helm-chart:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package chart
+        run: helm package charts/exalsius-operator --destination dist
+
+      - name: Push chart to GHCR (OCI)
+        run: helm push dist/exalsius-operator-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      - name: Attach chart to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.event.release.tag_name }} dist/exalsius-operator-*.tgz

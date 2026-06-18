@@ -48,9 +48,8 @@ helm upgrade --install volcano volcano-sh/volcano \
 echo "installing kcm"
 helm install kcm oci://ghcr.io/k0rdent/kcm/charts/kcm --version 1.0.0 -n kcm-system --create-namespace
 
-echo "installing exalsius-operator umbrella chart"
-helm dependency update "${SCRIPT_DIR}/../charts/exalsius"
-helm upgrade --install exalsius "${SCRIPT_DIR}/../charts/exalsius" \
+echo "installing exalsius-operator chart"
+helm upgrade --install exalsius-operator "${SCRIPT_DIR}/../charts/exalsius-operator" \
   --namespace $NAMESPACE \
   --create-namespace \
   $VALUES_ARG \
