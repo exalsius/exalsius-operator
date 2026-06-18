@@ -24,6 +24,7 @@ linters:
     - unused
   settings:
     goconst:
+      ignore-tests: true
       # Boolean string literals ("true"/"false") are noise, not magic constants.
       ignore-string-values:
         - 'true'
@@ -41,10 +42,6 @@ linters:
           - dupl
           - lll
         path: internal/*
-      # Repeated string literals in test fixtures/tables are noise, not magic constants.
-      - linters:
-          - goconst
-        path: _test\.go
     paths:
       - third_party$
       - builtin$
