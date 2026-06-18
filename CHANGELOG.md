@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/exalsius/exalsius-operator/compare/v0.8.3...v0.9.0) (2026-06-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workspaces:** WorkspaceDeployment.spec.owner is removed.
+
+### Features
+
+* **workspaces:** add Workspaces subsystem with WorkspaceClass + WorkspaceDeployment ([#147](https://github.com/exalsius/exalsius-operator/issues/147)) ([fb46241](https://github.com/exalsius/exalsius-operator/commit/fb46241c15e157a90288f38563cdb60fe0b682c1))
+
+
+### Miscellaneous Chores
+
+* release 0.9.0 ([#149](https://github.com/exalsius/exalsius-operator/issues/149)) ([05e1403](https://github.com/exalsius/exalsius-operator/commit/05e140340a6e4f637617f6ea18c9f5535ab8cf0d))
+
 ## [0.8.3](https://github.com/exalsius/exalsius-operator/compare/v0.8.2...v0.8.3) (2026-05-28)
 
 
