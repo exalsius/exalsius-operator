@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/exalsius/exalsius-operator/compare/v0.9.1...v0.10.0) (2026-06-19)
+
+
+### Features
+
+* **gpu:** discover vendor-labeled GPUs without canonical model label ([#155](https://github.com/exalsius/exalsius-operator/issues/155)) ([3c0fa0f](https://github.com/exalsius/exalsius-operator/commit/3c0fa0fcc0e396278d6150a18f00b2089aaeb254))
+
 ## [0.9.1](https://github.com/exalsius/exalsius-operator/compare/v0.9.0...v0.9.1) (2026-06-18)
 
 
