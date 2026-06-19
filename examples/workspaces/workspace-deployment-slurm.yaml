@@ -1,0 +1,25 @@
+# Deploy a Slurm cluster workspace (multi-replica)
+#
+# This workspace requires the slurm-operator prerequisite.
+# It deploys multiple replicas — replicas overrides the class default.
+#
+# Apply with: kubectl apply -f workspace-deployment-slurm.yaml
+# Watch:      kubectl get wsd -n dos-lab -w
+
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: thorsten-slurm
+  namespace: kcm-system
+spec:
+  workspaceClassRef: slurm-cluster
+  clusterDeploymentRef:
+    name: default-child-adopted            # Colony "default" + cluster "child-adopted"
+    namespace: kcm-system
+  # Override node count and GPU count
+  resources:
+    replicas: 5
+    perReplica:
+      gpuCount: 4
+  values:
+    sshPublicKey: "ssh-ed25519 AAAA..."

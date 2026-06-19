@@ -1,6 +1,16 @@
 # GPU selection, inventory, and capacity gating
 
-Status: accepted (2026-06-16)
+Status: accepted (2026-06-16, revised 2026-06-19)
+
+> **Revision (2026-06-19).** The original decision keyed offering identity *strictly* on the
+> canonical `exalsius.ai/gpu-model` label and made any node lacking it invisible to both the
+> inventory and the gate. In practice GPU nodes provisioned by the NVIDIA GPU Operator / AMD
+> (ROCm) GPU Operator carry rich vendor labels but frequently *not* the canonical one, so real
+> clusters showed an empty inventory despite having visible GPUs. This revision makes the
+> canonical label **preferred, not required**: every GPU node is now discoverable, the model
+> name falls back to a vendor "product" label (or stays empty), and each offering publishes the
+> exact **Selector** that picks it so the placeability invariant still holds. The revised text
+> is inline below; bullets touched by the revision are marked.
 
 Users need to say which GPU a workspace runs on (`gpuType: H100`, optionally a vendor),
 have the operator **fail early** when that GPU isn't available on the target cluster, and
@@ -8,8 +18,10 @@ have the operator **fail early** when that GPU isn't available on the target clu
 vocabulary gap: a user types `H100`, but a node carries long, vendor-specific GPU Feature
 Discovery (GFD) labels (`nvidia.com/gpu.product=NVIDIA-H100-80GB-HBM3`; AMD's scheme differs
 and is messier), and a `nodeSelector` can only exact-match. We resolve this by splitting GPU
-data by **change-rate** and keeping the operator a pure *reader* of a provisioning-owned
-normalization, never an owner of the vendor label mess.
+data by **change-rate**, normalizing toward a provisioning-owned canonical label *when present*
+while still surfacing and selecting on raw vendor labels when it is not — so the operator is a
+faithful reader of whatever the cluster advertises, never blocking discovery on a label the
+vendor operators don't set.
 
 ## The shape
 
@@ -32,12 +44,23 @@ normalization, never an owner of the vendor label mess.
 
 - **Offering = `(vendor, model, profile, resourceName)`**, aggregated per cluster (not per
   node). Memory is **baked into the canonical model name** (`A100-80GB`, `A100-40GB`, `H100`),
-  not a separate axis, so a model name fully disambiguates the hardware. Identity is the
-  **`exalsius.ai/gpu-model` label set by provisioning** — the *same label the chart places on* —
-  so passing the gate implies the offering is placeable. Raw GFD/AMD/HAMi labels are retained as
-  **attributes** for display and future selection, never as the identity key. "Backward compat"
-  means *retaining* those labels as data, not treating an unlabelled-by-provisioning node as a
-  pickable canonical offering.
+  not a separate axis, so a canonical model name fully disambiguates the hardware. **(Revised)**
+  The model name is **best-effort, not required**, derived by precedence: the canonical
+  `exalsius.ai/gpu-model` label when provisioning set one; else the first present **vendor
+  product label** (NVIDIA `nvidia.com/gpu.product`; AMD an ordered candidate list defaulting to
+  `amd.com/gpu.product-name`, then `amd.com/gpu.device-id`; both lists configurable); else empty.
+  **Every schedulable node advertising a supported GPU extended resource produces an offering** —
+  a node is no longer dropped for lacking the canonical label. To keep "passing the gate implies
+  placeable," each offering publishes the **`Selector`** that reproduces it: `{exalsius.ai/gpu-model: <model>}`
+  when canonical-backed, `{<product-label>: <value>}` when product-backed, or empty when the node
+  carried no usable GPU label (the caller then composes a selector from the retained raw labels).
+  Raw GFD/AMD/HAMi labels are still retained as **attributes** for display and selection.
+  Consequence of best-effort identity: the *same* physical GPU surfaces as **two offerings** when
+  some of its nodes carry the canonical label and others only a vendor label (`H100` vs
+  `NVIDIA-H100-80GB-HBM3`) — intentional, because each set needs a different `Selector`; merging
+  them would yield an offering no single selector could place on. The original rule — never treat
+  an unlabelled node as a pickable *canonical* offering — still holds: such a node is pickable
+  only via its raw `Selector`, and `gpuType` sugar remains canonical-only.
 
 - **Request = a GPU Selector; the chart places, the operator gates the same selector.**
   A request is a set of node-label requirements, expressed two ways (both exposed in v1):
@@ -76,10 +99,13 @@ normalization, never an owner of the vendor label mess.
 
 ## Consequences
 
-- **Provisioning owns GPU-node labelling** (`exalsius.ai/gpu-model`, `exalsius.ai/gpu-vendor`,
-  configurable keys with sensible defaults) — a tenant/cluster-onboarding obligation, the same
-  category as the admin-installed routing infra in ADR-0001. The GFD→canonical-name normalization
-  lives there, confined to one place; the operator never sees the long vendor strings for identity.
+- **(Revised) Provisioning *should* label GPU nodes, but the operator no longer requires it.**
+  Setting `exalsius.ai/gpu-model` / `exalsius.ai/gpu-vendor` (configurable keys, sensible defaults)
+  remains the recommended tenant/cluster-onboarding step — it is what unlocks the clean `gpuType`
+  sugar and a stable canonical vocabulary across vendors. But an unlabelled cluster is no longer
+  invisible: its GPUs are discovered from vendor (GPU Operator / ROCm) labels and are pickable via
+  the offering's published `Selector`. The GFD→canonical-name normalization still belongs in
+  provisioning when you want it; the operator just no longer *depends* on it to function.
 
 - **Charts you own must change**: apply a generic `nodeSelector` map from values, and request the
   GPU via injected `{resourceName, count}` instead of a hardcoded `nvidia.com/gpu`.

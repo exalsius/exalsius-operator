@@ -47,6 +47,18 @@ const (
 	ResourceAMDGPU = "amd.com/gpu"
 )
 
+// defaultProductLabels are the per-vendor node-label keys, in priority order,
+// that the GPU Operator / GPU Feature Discovery sets to describe the GPU model.
+// They populate an Offering's model when the canonical model label is absent
+// (ADR-0002, revised): the first key present on the node wins. They are not the
+// identity of record — provisioning's canonical label is preferred — but they
+// keep otherwise-unlabelled GPU nodes discoverable and pickable. AMD's scheme
+// has no single clean equivalent, so it lists candidates messiest-last.
+var defaultProductLabels = map[workspacesv1.GPUVendor][]string{
+	workspacesv1.GPUVendorNVIDIA: {"nvidia.com/gpu.product"},
+	workspacesv1.GPUVendorAMD:    {"amd.com/gpu.product-name", "amd.com/gpu.device-id"},
+}
+
 // gpuLabelPrefixes are the node-label key prefixes captured verbatim onto an
 // Offering for display and future selection (memory, MIG, vGPU). Identity is
 // never derived from them.
@@ -80,20 +92,30 @@ func ResourceForVendor(vendor workspacesv1.GPUVendor) string {
 type Offering struct {
 	// --- identity ---
 	Vendor       workspacesv1.GPUVendor
-	Model        string // canonical short name from the model label; memory baked in
+	Model        string // best-effort short name: canonical model label, else a vendor product label, else empty
 	Profile      string // partition/MIG profile; empty for whole GPUs (reserved for later phases)
 	ResourceName string // extended resource a pod must request (e.g. nvidia.com/gpu)
 
 	// --- attributes ---
-	Total  int64             // total GPUs of this offering across the cluster
-	Nodes  int32             // number of nodes carrying it
-	Labels map[string]string // representative raw vendor labels (data retention)
+	Total int64 // total GPUs of this offering across the cluster
+	Nodes int32 // number of nodes carrying it
+	// Selector is the exact node-label requirement that reproduces this
+	// offering — the GPU Selector a workspace uses to pick it, and the one the
+	// gate validates (ADR-0002: "passing the gate implies placeable"). It is
+	// {canonical-label: model} when provisioning labelled the node, else
+	// {product-label: value} when derived from a vendor label, else nil when the
+	// node carried no usable GPU label (callers then compose one from Labels).
+	Selector map[string]string
+	Labels   map[string]string // representative raw vendor labels (data retention)
 }
 
 // Options controls how offerings are derived. Zero value uses the defaults.
 type Options struct {
 	ModelLabel  string
 	VendorLabel string
+	// ProductLabels overrides the per-vendor fallback model labels. Zero value
+	// uses defaultProductLabels.
+	ProductLabels map[workspacesv1.GPUVendor][]string
 }
 
 func (o Options) modelLabel() string {
@@ -110,15 +132,67 @@ func (o Options) vendorLabel() string {
 	return DefaultVendorLabel
 }
 
-type offeringKey struct {
-	vendor, model, profile, resourceName string
+func (o Options) productLabels(vendor workspacesv1.GPUVendor) []string {
+	if o.ProductLabels != nil {
+		if keys, ok := o.ProductLabels[vendor]; ok {
+			return keys
+		}
+		return nil
+	}
+	return defaultProductLabels[vendor]
 }
 
-// DeriveOfferings aggregates the GPU Offerings present on the given nodes,
-// keyed on the model label. Nodes that are unschedulable, advertise no
-// supported GPU resource, or lack the model label contribute nothing — a node
-// without the canonical model label is not a placeable offering (ADR-0002), so
-// it is deliberately invisible here. Offerings are returned in a stable order.
+type offeringKey struct {
+	vendor, profile, resourceName, selector string
+}
+
+// resolveModelSelector derives an offering's model name and the node-label
+// Selector that reproduces it, by precedence (ADR-0002, revised): the canonical
+// model label wins; else the first present per-vendor product label; else the
+// model is empty and the Selector nil (the node is discoverable but the caller
+// must compose a selector from its raw labels).
+func resolveModelSelector(n *corev1.Node, modelLabel string, productKeys []string) (string, map[string]string) {
+	if m := n.Labels[modelLabel]; m != "" {
+		return m, map[string]string{modelLabel: m}
+	}
+	for _, k := range productKeys {
+		if v := n.Labels[k]; v != "" {
+			return v, map[string]string{k: v}
+		}
+	}
+	return "", nil
+}
+
+// selectorIdentity serializes a Selector into a stable key, so offerings that
+// need a different selector to be picked stay distinct (e.g. the same physical
+// GPU labelled canonically on some nodes and only by a vendor label on others).
+func selectorIdentity(sel map[string]string) string {
+	if len(sel) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(sel))
+	for k := range sel {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(sel[k])
+		b.WriteByte(';')
+	}
+	return b.String()
+}
+
+// DeriveOfferings aggregates the GPU Offerings present on the given nodes
+// (ADR-0002, revised). Every schedulable node advertising a supported GPU
+// extended resource produces an offering — a node is no longer dropped for
+// lacking the canonical model label. The model is best-effort (canonical label,
+// else a vendor product label, else empty) and each offering carries the
+// Selector that reproduces it, so discovery stays faithful to the hardware
+// while "passing the gate implies placeable" still holds. Offerings are keyed
+// on (vendor, profile, resourceName, selector) and returned in a stable order.
 func DeriveOfferings(nodes []corev1.Node, opts Options) []Offering {
 	modelLabel := opts.modelLabel()
 	vendorLabel := opts.vendorLabel()
@@ -127,10 +201,6 @@ func DeriveOfferings(nodes []corev1.Node, opts Options) []Offering {
 	for i := range nodes {
 		n := &nodes[i]
 		if !nodeIsSchedulable(n) {
-			continue
-		}
-		model := n.Labels[modelLabel]
-		if model == "" {
 			continue
 		}
 		for _, vr := range vendorResources {
@@ -142,13 +212,15 @@ func DeriveOfferings(nodes []corev1.Node, opts Options) []Offering {
 			if v := n.Labels[vendorLabel]; v != "" {
 				vendor = workspacesv1.GPUVendor(v)
 			}
-			key := offeringKey{string(vendor), model, "", vr.resourceName}
+			model, selector := resolveModelSelector(n, modelLabel, opts.productLabels(vendor))
+			key := offeringKey{string(vendor), "", vr.resourceName, selectorIdentity(selector)}
 			o := byKey[key]
 			if o == nil {
 				o = &Offering{
 					Vendor:       vendor,
 					Model:        model,
 					ResourceName: vr.resourceName,
+					Selector:     selector,
 					Labels:       gpuLabels(n),
 				}
 				byKey[key] = o

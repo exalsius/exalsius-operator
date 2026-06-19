@@ -747,6 +747,7 @@ func scanClusterGPUOfferings(ctx context.Context, childClient client.Client) ([]
 	for _, o := range offerings {
 		out = append(out, infrav1.GPUOffering{
 			Model:        o.Model,
+			Selector:     o.Selector,
 			Vendor:       string(o.Vendor),
 			ResourceName: o.ResourceName,
 			Total:        o.Total,

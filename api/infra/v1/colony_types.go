@@ -102,12 +102,22 @@ type ClusterGPUInventory struct {
 }
 
 // GPUOffering is a distinct kind of GPU available on a cluster, identified by
-// vendor + canonical model (memory baked into the model name) + resource name.
-// The remaining fields are aggregated attributes (ADR-0002).
+// vendor + model + resource name + Selector. The model is best-effort (ADR-0002,
+// revised) and may be empty; the remaining fields are aggregated attributes.
 type GPUOffering struct {
-	// Model is the canonical short model name (e.g. "H100", "A100-80GB"), taken
-	// from the provisioning-set GPU model node label.
-	Model string `json:"model"`
+	// Model is the best-effort short model name (e.g. "H100", "A100-80GB" from
+	// the provisioning-set GPU model label, or a vendor product label value like
+	// "NVIDIA-L40"). Empty when the node carried no usable GPU model label; the
+	// offering is then pickable only via a Selector composed from Labels.
+	// +optional
+	Model string `json:"model,omitempty"`
+	// Selector is the exact node-label requirement that picks this offering — the
+	// GPU Selector to put in a workspace's gpuNodeSelector, and the one the gate
+	// validates. {exalsius.ai/gpu-model: <model>} when canonically labelled,
+	// {<vendor-product-label>: <value>} when derived from a vendor label, empty
+	// when the node had no usable GPU label (compose one from Labels instead).
+	// +optional
+	Selector map[string]string `json:"selector,omitempty"`
 	// Vendor is the GPU vendor (e.g. NVIDIA, AMD).
 	// +optional
 	Vendor string `json:"vendor,omitempty"`

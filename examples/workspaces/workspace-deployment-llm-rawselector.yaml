@@ -1,0 +1,40 @@
+# Deploy an LLM inference workspace onto a GPU picked by a RAW vendor label.
+#
+# Use this when the target cluster's GPU nodes were labelled by the NVIDIA GPU
+# Operator / AMD (ROCm) GPU Operator but NOT by exalsius provisioning — i.e.
+# they carry no canonical `exalsius.ai/gpu-model` label, so `gpuType: L40`
+# would not match (ADR-0002, revised). Such GPUs still appear in
+# `Colony.status.gpuInventory`; each offering there publishes the exact
+# `selector` to copy here.
+#
+# Discover what to put below:
+#   kubectl get colony <name> -o jsonpath='{.status.gpuInventory}' | jq
+#   # -> offerings[].selector, e.g. {"nvidia.com/gpu.product":"NVIDIA-L40"}
+#
+# The operator validates this exact selector against the live cluster and the
+# chart applies it verbatim as the pod nodeSelector, so a request that passes
+# the gate is always placeable.
+#
+# Apply with: kubectl apply -f workspace-deployment-llm-rawselector.yaml
+# Watch:      kubectl get wsd -n kcm-system -w
+
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: thorsten-llama-l40
+  namespace: kcm-system
+spec:
+  workspaceClassRef: llm-inference
+  clusterDeploymentRef:
+    name: default-child-adopted            # Colony "default" + cluster "child-adopted"
+    namespace: kcm-system
+  resources:
+    perReplica:
+      gpuCount: 1
+      # Raw, exact-match node-label selector — the escape hatch alongside gpuType.
+      # Copy the value straight from the offering's `selector` in the inventory.
+      gpuNodeSelector:
+        nvidia.com/gpu.product: "NVIDIA-L40"
+  values:
+    huggingfaceToken: "hf_your_token_here"
+    modelName: "meta-llama/Llama-3.1-8B-Instruct"

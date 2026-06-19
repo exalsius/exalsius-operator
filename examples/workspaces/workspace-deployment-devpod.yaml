@@ -1,0 +1,27 @@
+# Deploy a VS Code DevContainer workspace
+#
+# Works with the local-dev-env setup script (setup-kcm-regional-child-adopted.sh)
+# which creates Colony "default" with child cluster "child-adopted".
+#
+# Apply with: kubectl apply -f workspace-deployment-devpod.yaml
+# Watch:      kubectl get wsd -n kcm-system -w
+# Delete:     kubectl delete wsd thorsten-dev -n kcm-system
+
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: thorsten-dev
+  namespace: kcm-system
+spec:
+  workspaceClassRef: dev-pod
+  clusterDeploymentRef:
+    name: default-child-adopted
+    namespace: kcm-system
+  values:
+    sshPassword: "test123456"
+    resources:
+      gpuCount: 0
+      cpuCores: 2
+      memoryGb: 4
+      storageGb: 20
+    deploymentNumReplicas: 1
