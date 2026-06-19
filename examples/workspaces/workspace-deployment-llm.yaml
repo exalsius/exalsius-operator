@@ -1,0 +1,25 @@
+# Deploy an LLM inference workspace
+#
+# This workspace requires the llm-d-stack prerequisite on the target cluster.
+# If the prerequisite is not installed, the deployment will fail with a
+# descriptive message telling you what's missing.
+#
+# Apply with: kubectl apply -f workspace-deployment-llm.yaml
+# Watch:      kubectl get wsd -n dos-lab -w
+
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: thorsten-llama
+  namespace: kcm-system
+spec:
+  workspaceClassRef: llm-inference
+  clusterDeploymentRef:
+    name: default-child-adopted            # Colony "default" + cluster "child-adopted"
+    namespace: kcm-system
+  resources:
+    perReplica:
+      gpuCount: 2
+  values:
+    huggingfaceToken: "hf_your_token_here"
+    modelName: "meta-llama/Llama-3.1-8B-Instruct"

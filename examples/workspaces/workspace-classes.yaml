@@ -1,0 +1,178 @@
+# WorkspaceClass examples
+#
+# These are cluster-scoped catalog entries. Platform engineers create them,
+# users reference them by name when deploying workspaces.
+#
+# Apply with: kubectl apply -f workspace-classes.yaml
+
+---
+# Simple SingleNode workspace — no GPUs, no prerequisites
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: jupyter-notebook
+spec:
+  displayName: "Jupyter Notebook"
+  description: "Interactive Python notebook with JupyterLab UI"
+  serviceTemplate:
+    name: jupyter-notebook-template
+  deployTimeout: 20m
+  defaultResources:
+    perReplica:
+      cpu: "2"
+      memory: "8Gi"
+      storage: "20Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: web
+      protocol: HTTP
+      port: 8888
+      description: "JupyterLab web interface"
+  userFacingConfig:
+    - helmValuePath: "notebookPassword"
+      displayName: "Notebook Password"
+      description: "Password to access the JupyterLab instance"
+      type: secret
+      required: true
+  defaultValues:
+    global:
+      deploymentNamespace: default
+
+---
+# SingleNode with GPU and prerequisites
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: llm-inference
+spec:
+  displayName: "LLM Inference Endpoint"
+  description: "Deploy and serve large language models via vLLM"
+  serviceTemplate:
+    name: llm-inference-workspace-2.0.0
+  defaultResources:
+    perReplica:
+      cpu: "4"
+      memory: "32Gi"
+      storage: "100Gi"
+      gpuCount: 1
+      gpuVendor: NVIDIA
+  prerequisites:
+    - serviceTemplate:
+        name: llm-d-stack
+  accessEndpoints:
+    - name: api
+      protocol: HTTP
+      port: 8080
+      description: "OpenAI-compatible inference API"
+    - name: ui
+      protocol: HTTP
+      port: 3000
+      description: "Model management UI"
+  userFacingConfig:
+    - helmValuePath: "huggingfaceToken"
+      displayName: "HuggingFace Token"
+      description: "Token for downloading gated models"
+      type: secret
+      required: true
+    - helmValuePath: "modelName"
+      displayName: "Model"
+      description: "HuggingFace model ID (e.g. meta-llama/Llama-3.1-8B-Instruct)"
+      type: string
+      required: true
+  defaultValues:
+    ms:
+      accelerator:
+        type: nvidia
+
+---
+# Multi-replica workspace with prerequisites + umbrella-chart resource injection.
+# slurm-workspace is an umbrella chart wrapping a third-party Slurm chart;
+# resourceInjection bridges spec.resources into the subchart's value paths so
+# users can specify resources once via the API.
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: slurm-cluster
+spec:
+  displayName: "Slurm Cluster"
+  description: "Multi-replica HPC cluster with Slurm scheduler"
+  serviceTemplate:
+    name: slurm-workspace-1.0.0
+  defaultResources:
+    replicas: 3
+    perReplica:
+      cpu: "8"
+      memory: "32Gi"
+      storage: "100Gi"
+      gpuCount: 1
+  resourceInjection:
+    replicas:
+      - "slurm.workerNodes.count"
+    cpu:
+      - "slurm.workerNodes.resources.requests.cpu"
+      - "slurm.workerNodes.resources.limits.cpu"
+    memory:
+      - "slurm.workerNodes.resources.requests.memory"
+      - "slurm.workerNodes.resources.limits.memory"
+    gpuCount:
+      - 'slurm.workerNodes.resources.limits["nvidia.com/gpu"]'
+  prerequisites:
+    - serviceTemplate:
+        name: slurm-operator
+  accessEndpoints:
+    - name: login
+      protocol: SSH
+      port: 22
+      description: "SSH access to the Slurm login node"
+    - name: dashboard
+      protocol: HTTP
+      port: 8080
+      description: "Slurm web dashboard"
+  userFacingConfig:
+    - helmValuePath: "sshPassword"
+      displayName: "SSH Password"
+      type: secret
+      required: false
+    - helmValuePath: "sshPublicKey"
+      displayName: "SSH Public Key"
+      description: "Your SSH public key for passwordless login"
+      type: publicKey
+      required: false
+
+---
+# Dev pod — SSH access, optional GPU
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceClass
+metadata:
+  name: dev-pod
+spec:
+  displayName: "Development Pod"
+  description: "Remote development environment with VS Code devcontainer and SSH access"
+  serviceTemplate:
+    name: vscode-devcontainer-template
+  deployTimeout: 20m
+  defaultResources:
+    perReplica:
+      cpu: "2"
+      memory: "4Gi"
+      storage: "50Gi"
+      gpuCount: 0
+  accessEndpoints:
+    - name: ssh
+      protocol: SSH
+      port: 22
+      description: "SSH access to devcontainer"
+  userFacingConfig:
+    - helmValuePath: "sshPassword"
+      displayName: "SSH Password"
+      description: "Password for SSH access"
+      type: secret
+      required: false
+    - helmValuePath: "sshPublicKey"
+      displayName: "SSH Public Key"
+      description: "Public key(s) for passwordless SSH access"
+      type: publicKey
+      required: false
+  defaultValues:
+    shmSizeGb: 8
+    deploymentNumReplicas: 1

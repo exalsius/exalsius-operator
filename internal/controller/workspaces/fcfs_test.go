@@ -112,7 +112,7 @@ func TestHasOlderWaitingSibling(t *testing.T) {
 
 func TestEffectiveGPUSelector(t *testing.T) {
 	const modelLabel = "exalsius.ai/gpu-model"
-	statusModel := "H100"
+	statusModel := testGPUTypeH100
 	specModel := "A100-80GB"
 
 	// Stamped status wins over spec.

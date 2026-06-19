@@ -26,6 +26,11 @@ import (
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
 )
 
+const (
+	testModelH100   = "H100"
+	testProductH100 = "NVIDIA-H100-80GB-HBM3"
+)
+
 // gpuNode builds a schedulable node advertising `count` NVIDIA GPUs, labelled
 // with the canonical model (unless model is empty) plus any extra labels.
 func gpuNode(name, model string, count int64, extra map[string]string) corev1.Node {
@@ -51,15 +56,15 @@ func gpuNode(name, model string, count int64, extra map[string]string) corev1.No
 
 func TestDeriveOfferings_SingleModel(t *testing.T) {
 	offerings := DeriveOfferings([]corev1.Node{
-		gpuNode("n1", "H100", 8, nil),
-		gpuNode("n2", "H100", 4, nil),
+		gpuNode("n1", testModelH100, 8, nil),
+		gpuNode("n2", testModelH100, 4, nil),
 	}, Options{})
 
 	if len(offerings) != 1 {
 		t.Fatalf("expected 1 offering, got %d: %+v", len(offerings), offerings)
 	}
 	o := offerings[0]
-	if o.Model != "H100" || o.Vendor != workspacesv1.GPUVendorNVIDIA {
+	if o.Model != testModelH100 || o.Vendor != workspacesv1.GPUVendorNVIDIA {
 		t.Errorf("unexpected identity: %+v", o)
 	}
 	if o.ResourceName != ResourceNvidiaGPU {
@@ -87,19 +92,103 @@ func TestDeriveOfferings_MemoryBakedModelsAreDistinct(t *testing.T) {
 	}
 }
 
-func TestDeriveOfferings_ExcludesNodeWithoutModelLabel(t *testing.T) {
-	// A node with GPUs but no canonical model label is not a placeable
-	// offering (ADR-0002) — it must be invisible to the gate.
+func TestDeriveOfferings_CanonicalSelector(t *testing.T) {
+	// A canonically-labelled node carries a Selector on the canonical label.
+	offerings := DeriveOfferings([]corev1.Node{gpuNode("n1", testModelH100, 8, nil)}, Options{})
+	if len(offerings) != 1 {
+		t.Fatalf("expected 1 offering, got %d", len(offerings))
+	}
+	if got := offerings[0].Selector[DefaultModelLabel]; got != testModelH100 {
+		t.Errorf("expected selector %s=H100, got %v", DefaultModelLabel, offerings[0].Selector)
+	}
+}
+
+func TestDeriveOfferings_DerivesModelFromProductLabel(t *testing.T) {
+	// A node with GPUs but no canonical model label is now discoverable
+	// (ADR-0002, revised): its model comes from the vendor product label and the
+	// Selector targets that label, so it stays placeable via gpuNodeSelector.
 	offerings := DeriveOfferings([]corev1.Node{
-		gpuNode("n1", "", 8, map[string]string{"nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3"}),
+		gpuNode("n1", "", 8, map[string]string{"nvidia.com/gpu.product": testProductH100}),
 	}, Options{})
-	if len(offerings) != 0 {
-		t.Fatalf("expected 0 offerings for unlabelled node, got %d: %+v", len(offerings), offerings)
+	if len(offerings) != 1 {
+		t.Fatalf("expected 1 offering for product-labelled node, got %d: %+v", len(offerings), offerings)
+	}
+	o := offerings[0]
+	if o.Model != testProductH100 {
+		t.Errorf("expected model from product label, got %q", o.Model)
+	}
+	if o.Selector["nvidia.com/gpu.product"] != testProductH100 {
+		t.Errorf("expected selector on product label, got %v", o.Selector)
+	}
+}
+
+func TestDeriveOfferings_CanonicalLabelWinsOverProductLabel(t *testing.T) {
+	// When both are present, the canonical label is the identity and the Selector.
+	offerings := DeriveOfferings([]corev1.Node{
+		gpuNode("n1", testModelH100, 8, map[string]string{"nvidia.com/gpu.product": testProductH100}),
+	}, Options{})
+	if len(offerings) != 1 {
+		t.Fatalf("expected 1 offering, got %d", len(offerings))
+	}
+	o := offerings[0]
+	if o.Model != testModelH100 || o.Selector[DefaultModelLabel] != testModelH100 {
+		t.Errorf("expected canonical to win, got model=%q selector=%v", o.Model, o.Selector)
+	}
+}
+
+func TestDeriveOfferings_LabelLessNodeHasEmptyModelAndSelector(t *testing.T) {
+	// A GPU node with no canonical and no product label is still discoverable,
+	// but with an empty model and nil Selector — the caller composes one from Labels.
+	offerings := DeriveOfferings([]corev1.Node{gpuNode("n1", "", 4, nil)}, Options{})
+	if len(offerings) != 1 {
+		t.Fatalf("expected 1 offering for bare GPU node, got %d", len(offerings))
+	}
+	o := offerings[0]
+	if o.Model != "" || o.Selector != nil {
+		t.Errorf("expected empty model and nil selector, got model=%q selector=%v", o.Model, o.Selector)
+	}
+	if o.Vendor != workspacesv1.GPUVendorNVIDIA || o.Total != 4 {
+		t.Errorf("unexpected offering: %+v", o)
+	}
+}
+
+func TestDeriveOfferings_AMDProductLabelCandidateList(t *testing.T) {
+	// AMD has no single product label; the default candidate list falls back to
+	// the device-id when the product-name label is absent.
+	n := corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"amd.com/gpu.device-id": "74a1"}},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{corev1.ResourceName(ResourceAMDGPU): *resource.NewQuantity(8, resource.DecimalSI)},
+			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+		},
+	}
+	offerings := DeriveOfferings([]corev1.Node{n}, Options{})
+	if len(offerings) != 1 {
+		t.Fatalf("expected 1 offering, got %d", len(offerings))
+	}
+	o := offerings[0]
+	if o.Vendor != workspacesv1.GPUVendorAMD || o.Model != "74a1" {
+		t.Errorf("expected AMD model from device-id, got vendor=%q model=%q", o.Vendor, o.Model)
+	}
+	if o.Selector["amd.com/gpu.device-id"] != "74a1" {
+		t.Errorf("expected selector on device-id, got %v", o.Selector)
+	}
+}
+
+func TestDeriveOfferings_CanonicalAndProductBackedAreDistinct(t *testing.T) {
+	// The same physical GPU surfaces as two offerings when one node is canonically
+	// labelled and another only by a vendor label — each needs a different Selector.
+	offerings := DeriveOfferings([]corev1.Node{
+		gpuNode("n1", testModelH100, 8, nil),
+		gpuNode("n2", "", 8, map[string]string{"nvidia.com/gpu.product": testProductH100}),
+	}, Options{})
+	if len(offerings) != 2 {
+		t.Fatalf("expected 2 distinct offerings, got %d: %+v", len(offerings), offerings)
 	}
 }
 
 func TestDeriveOfferings_ExcludesUnschedulableNode(t *testing.T) {
-	n := gpuNode("n1", "H100", 8, nil)
+	n := gpuNode("n1", testModelH100, 8, nil)
 	n.Spec.Unschedulable = true
 	offerings := DeriveOfferings([]corev1.Node{n}, Options{})
 	if len(offerings) != 0 {
@@ -108,7 +197,7 @@ func TestDeriveOfferings_ExcludesUnschedulableNode(t *testing.T) {
 }
 
 func TestDeriveOfferings_ExcludesNotReadyNode(t *testing.T) {
-	n := gpuNode("n1", "H100", 8, nil)
+	n := gpuNode("n1", testModelH100, 8, nil)
 	n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
 	offerings := DeriveOfferings([]corev1.Node{n}, Options{})
 	if len(offerings) != 0 {
@@ -118,8 +207,8 @@ func TestDeriveOfferings_ExcludesNotReadyNode(t *testing.T) {
 
 func TestDeriveOfferings_RetainsRawGpuLabels(t *testing.T) {
 	offerings := DeriveOfferings([]corev1.Node{
-		gpuNode("n1", "H100", 8, map[string]string{
-			"nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3",
+		gpuNode("n1", testModelH100, 8, map[string]string{
+			"nvidia.com/gpu.product": testProductH100,
 			"kubernetes.io/hostname": "n1", // non-GPU label, must be dropped
 		}),
 	}, Options{})
@@ -127,7 +216,7 @@ func TestDeriveOfferings_RetainsRawGpuLabels(t *testing.T) {
 		t.Fatalf("expected 1 offering, got %d", len(offerings))
 	}
 	labels := offerings[0].Labels
-	if labels["nvidia.com/gpu.product"] != "NVIDIA-H100-80GB-HBM3" {
+	if labels["nvidia.com/gpu.product"] != testProductH100 {
 		t.Errorf("expected GFD product label retained, got %v", labels)
 	}
 	if _, ok := labels["kubernetes.io/hostname"]; ok {
@@ -138,7 +227,7 @@ func TestDeriveOfferings_RetainsRawGpuLabels(t *testing.T) {
 func TestDeriveOfferings_VendorLabelOverridesInference(t *testing.T) {
 	// An explicit vendor label wins over the resource-inferred vendor.
 	offerings := DeriveOfferings([]corev1.Node{
-		gpuNode("n1", "H100", 8, map[string]string{DefaultVendorLabel: string(workspacesv1.GPUVendorAMD)}),
+		gpuNode("n1", testModelH100, 8, map[string]string{DefaultVendorLabel: string(workspacesv1.GPUVendorAMD)}),
 	}, Options{})
 	if len(offerings) != 1 || offerings[0].Vendor != workspacesv1.GPUVendorAMD {
 		t.Fatalf("expected vendor label to win, got %+v", offerings)
@@ -148,21 +237,21 @@ func TestDeriveOfferings_VendorLabelOverridesInference(t *testing.T) {
 func TestDeriveOfferings_CustomModelLabel(t *testing.T) {
 	const customKey = "acme.example/gpu"
 	n := corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{customKey: "H100"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{customKey: testModelH100}},
 		Status: corev1.NodeStatus{
 			Allocatable: corev1.ResourceList{corev1.ResourceName(ResourceNvidiaGPU): *resource.NewQuantity(8, resource.DecimalSI)},
 			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
 		},
 	}
 	offerings := DeriveOfferings([]corev1.Node{n}, Options{ModelLabel: customKey})
-	if len(offerings) != 1 || offerings[0].Model != "H100" {
+	if len(offerings) != 1 || offerings[0].Model != testModelH100 {
 		t.Fatalf("expected offering via custom label, got %+v", offerings)
 	}
 }
 
 func TestFindByModel(t *testing.T) {
-	offerings := []Offering{{Model: "H100"}, {Model: "A100-80GB"}}
-	if _, ok := FindByModel(offerings, "H100"); !ok {
+	offerings := []Offering{{Model: testModelH100}, {Model: "A100-80GB"}}
+	if _, ok := FindByModel(offerings, testModelH100); !ok {
 		t.Error("expected H100 found")
 	}
 	if _, ok := FindByModel(offerings, "L40"); ok {
@@ -171,12 +260,12 @@ func TestFindByModel(t *testing.T) {
 }
 
 func TestNodeSelectorForModel(t *testing.T) {
-	sel := NodeSelectorForModel("H100", Options{})
-	if sel[DefaultModelLabel] != "H100" || len(sel) != 1 {
+	sel := NodeSelectorForModel(testModelH100, Options{})
+	if sel[DefaultModelLabel] != testModelH100 || len(sel) != 1 {
 		t.Errorf("unexpected selector: %v", sel)
 	}
-	custom := NodeSelectorForModel("H100", Options{ModelLabel: "acme.example/gpu"})
-	if custom["acme.example/gpu"] != "H100" {
+	custom := NodeSelectorForModel(testModelH100, Options{ModelLabel: "acme.example/gpu"})
+	if custom["acme.example/gpu"] != testModelH100 {
 		t.Errorf("expected custom-key selector, got %v", custom)
 	}
 }
@@ -202,9 +291,9 @@ func gpuPod(name, nodeName string, count int64) corev1.Pod {
 
 func TestAvailableForModel_NoPodsAllFree(t *testing.T) {
 	free, found := AvailableForModel([]corev1.Node{
-		gpuNode("n1", "H100", 8, nil),
-		gpuNode("n2", "H100", 4, nil),
-	}, nil, "H100", Options{})
+		gpuNode("n1", testModelH100, 8, nil),
+		gpuNode("n2", testModelH100, 4, nil),
+	}, nil, testModelH100, Options{})
 	if !found {
 		t.Fatal("expected found")
 	}
@@ -214,38 +303,38 @@ func TestAvailableForModel_NoPodsAllFree(t *testing.T) {
 }
 
 func TestAvailableForModel_SubtractsPodsOnMatchingNodes(t *testing.T) {
-	nodes := []corev1.Node{gpuNode("n1", "H100", 8, nil)}
+	nodes := []corev1.Node{gpuNode("n1", testModelH100, 8, nil)}
 	pods := []corev1.Pod{
 		gpuPod("p1", "n1", 3),
 		gpuPod("p2", "other-node", 2), // not on a matching node -> ignored
 	}
-	free, found := AvailableForModel(nodes, pods, "H100", Options{})
+	free, found := AvailableForModel(nodes, pods, testModelH100, Options{})
 	if !found || free != 5 {
 		t.Errorf("expected found and 5 free, got found=%v free=%d", found, free)
 	}
 }
 
 func TestAvailableForModel_AbsentModel(t *testing.T) {
-	_, found := AvailableForModel([]corev1.Node{gpuNode("n1", "H100", 8, nil)}, nil, "A100-80GB", Options{})
+	_, found := AvailableForModel([]corev1.Node{gpuNode("n1", testModelH100, 8, nil)}, nil, "A100-80GB", Options{})
 	if found {
 		t.Error("expected not found for absent model")
 	}
 }
 
 func TestAvailableForModel_FullClusterClampsToZero(t *testing.T) {
-	nodes := []corev1.Node{gpuNode("n1", "H100", 2, nil)}
+	nodes := []corev1.Node{gpuNode("n1", testModelH100, 2, nil)}
 	pods := []corev1.Pod{gpuPod("p1", "n1", 2), gpuPod("p2", "n1", 1)} // over-subscribed
-	free, found := AvailableForModel(nodes, pods, "H100", Options{})
+	free, found := AvailableForModel(nodes, pods, testModelH100, Options{})
 	if !found || free != 0 {
 		t.Errorf("expected found and 0 free (clamped), got found=%v free=%d", found, free)
 	}
 }
 
 func TestAvailableForModel_IgnoresTerminatedPods(t *testing.T) {
-	nodes := []corev1.Node{gpuNode("n1", "H100", 8, nil)}
+	nodes := []corev1.Node{gpuNode("n1", testModelH100, 8, nil)}
 	p := gpuPod("p1", "n1", 4)
 	p.Status.Phase = corev1.PodSucceeded // freed
-	free, _ := AvailableForModel(nodes, []corev1.Pod{p}, "H100", Options{})
+	free, _ := AvailableForModel(nodes, []corev1.Pod{p}, testModelH100, Options{})
 	if free != 8 {
 		t.Errorf("expected succeeded pod ignored (8 free), got %d", free)
 	}
@@ -316,7 +405,7 @@ func TestResourceForVendor(t *testing.T) {
 
 func TestBuildSelector(t *testing.T) {
 	// model only
-	if got := BuildSelector("H100", nil, Options{}); got[DefaultModelLabel] != "H100" || len(got) != 1 {
+	if got := BuildSelector(testModelH100, nil, Options{}); got[DefaultModelLabel] != testModelH100 || len(got) != 1 {
 		t.Errorf("model-only: %v", got)
 	}
 	// raw only
@@ -324,12 +413,12 @@ func TestBuildSelector(t *testing.T) {
 		t.Errorf("raw-only: %v", got)
 	}
 	// both merged
-	got := BuildSelector("H100", map[string]string{"k": "v"}, Options{})
-	if got[DefaultModelLabel] != "H100" || got["k"] != "v" || len(got) != 2 {
+	got := BuildSelector(testModelH100, map[string]string{"k": "v"}, Options{})
+	if got[DefaultModelLabel] != testModelH100 || got["k"] != "v" || len(got) != 2 {
 		t.Errorf("merged: %v", got)
 	}
 	// raw wins on collision
-	if got := BuildSelector("H100", map[string]string{DefaultModelLabel: "override"}, Options{}); got[DefaultModelLabel] != "override" {
+	if got := BuildSelector(testModelH100, map[string]string{DefaultModelLabel: "override"}, Options{}); got[DefaultModelLabel] != "override" {
 		t.Errorf("raw should win on collision: %v", got)
 	}
 	// empty
@@ -341,13 +430,13 @@ func TestBuildSelector(t *testing.T) {
 func TestAvailabilityForSelector(t *testing.T) {
 	// A node lacking the canonical model label but carrying a raw GFD label.
 	rawNode := corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"nvidia.com/gpu.product": testProductH100}},
 		Status: corev1.NodeStatus{
 			Allocatable: corev1.ResourceList{corev1.ResourceName(ResourceNvidiaGPU): *resource.NewQuantity(4, resource.DecimalSI)},
 			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
 		},
 	}
-	sel := map[string]string{"nvidia.com/gpu.product": "NVIDIA-H100-80GB-HBM3"}
+	sel := map[string]string{"nvidia.com/gpu.product": testProductH100}
 
 	avail := AvailabilityForSelector([]corev1.Node{rawNode}, nil, sel)
 	if !avail.Found || avail.Free != 4 || avail.ResourceName != ResourceNvidiaGPU || avail.Vendor != workspacesv1.GPUVendorNVIDIA {

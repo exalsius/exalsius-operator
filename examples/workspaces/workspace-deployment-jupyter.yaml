@@ -1,0 +1,28 @@
+# Deploy a Jupyter Notebook workspace
+#
+# Works with the local-dev-env setup script (setup-kcm-regional-child-adopted.sh)
+# which creates Colony "default" with child cluster "child-adopted".
+#
+# Apply with: kubectl apply -f workspace-deployment-jupyter.yaml
+# Watch:      kubectl get wsd -n kcm-system -w
+# Delete:     kubectl delete wsd thorsten-nb -n kcm-system
+
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: thorsten-nb
+  namespace: kcm-system
+spec:
+  workspaceClassRef: jupyter-notebook
+  clusterDeploymentRef:
+    name: default-child-adopted            # Colony "default" + cluster "child-adopted"
+    namespace: kcm-system
+  # Helm values passed to the chart (must match chart's values.yaml keys)
+  values:
+    notebookPassword: "my-secret-password"
+    resources:
+      gpuCount: 0
+      cpuCores: 2
+      memoryGb: 4
+      storageGb: 10
+    deploymentNumReplicas: 1
