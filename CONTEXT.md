@@ -6,7 +6,10 @@
 The user-facing concept for a running application instance on a child cluster (e.g., "my Jupyter workspace"). Represented in Kubernetes as a **WorkspaceDeployment** CR. The CLI and user-facing documentation use "workspace"; the operator and API use "WorkspaceDeployment." They refer to the same thing at different abstraction levels.
 
 ### WorkspaceClass
-A cluster-scoped catalog entry defining a type of workspace — its Helm chart, resource defaults, prerequisites, access endpoints, and user-facing configuration prompts. Created by platform engineers. Users reference a WorkspaceClass by name when creating a workspace. Analogous to `StorageClass` or `IngressClass`.
+A cluster-scoped catalog entry defining a type of workspace — its Helm chart, resource defaults, prerequisites, access endpoints, and user-facing configuration prompts. Created by platform engineers. Users reference a WorkspaceClass by name when creating a workspace. Analogous to `StorageClass` or `IngressClass`. A WorkspaceClass is a **versioned, immutable** artifact: its name carries the version (e.g. `jupyter-notebook-1-0-1`) and a WorkspaceDeployment pins one exactly, so a running workspace's definition never changes underneath it (versioning, distribution, and rollback: ADR-0004).
+
+### Workspace Template
+The versioned unit a workspace type ships as: a Helm chart (deployed to a Child Cluster) bundled with the management-cluster CRs that make it selectable — its ServiceTemplate and WorkspaceClass — plus an example WorkspaceDeployment. Chart and CRs version and release together (one SemVer line per chart), are published immutably (the chart to an OCI registry), and roll back as a unit. A chart only qualifies as a Workspace Template if it consumes the operator's resource/scheduling injection and exposes a ClusterIP Service for operator-owned routing rather than NodePort/Ingress.
 
 ### Tenant
 An organization using the exalsius platform. Synonymous with "org" (the API/auth layer says "org"; infrastructure discussions say "tenant"). Each tenant has exactly one Regional Cluster and one dedicated Tenant Domain (e.g. `dos-lab.ex.ls`).
