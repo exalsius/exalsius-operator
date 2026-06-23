@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/exalsius/exalsius-operator/compare/v0.10.0...v0.11.0) (2026-06-23)
+
+
+### Features
+
+* **workspaces:** scope cross-cluster routing via per-child waypoints ([#158](https://github.com/exalsius/exalsius-operator/issues/158)) ([9c712db](https://github.com/exalsius/exalsius-operator/commit/9c712dbdf0d14f5bff52bf494230d368374470c8))
+
 ## [0.10.0](https://github.com/exalsius/exalsius-operator/compare/v0.9.1...v0.10.0) (2026-06-19)
 
 
