@@ -81,11 +81,12 @@ const (
 type Config struct {
 	GatewayName      string
 	GatewayNamespace string
-	// MeshNamespaceLabels are the Istio mesh-enrollment labels stamped on the
-	// regional mirror namespace (from --workspace-mesh-mode). The mirror
-	// namespace holds no pods, so this is typically a no-op; applied for
-	// parity with the child namespace.
-	MeshNamespaceLabels map[string]string
+	// Mesh resolves the Istio mesh-enrollment labels stamped on the regional
+	// mirror namespace (from --workspace-mesh-mode). The waypoint label is
+	// per-hosting-child (ADR-0005) and must match the child namespace's so the
+	// global service scopes to that child; the per-child waypoint Gateway is
+	// validated on both clusters in EnsureRoutes.
+	Mesh routing.MeshConfig
 }
 
 // Provider implements routing.RouteProvider via Gateway API resources.
@@ -126,8 +127,10 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 		return nil, err
 	}
 
+	cdName := req.Workspace.Spec.ClusterDeploymentRef.Name
 	nsName := routing.WorkspaceNamespaceName(req.Workspace)
-	if err := p.ensureMirrorNamespace(ctx, gwCtx.regionalClient, nsName, req.Workspace.Name); err != nil {
+	if err := p.ensureMirrorNamespace(ctx, gwCtx.regionalClient, nsName, req.Workspace.Name,
+		p.cfg.Mesh.NamespaceLabels(cdName)); err != nil {
 		return nil, err
 	}
 
@@ -140,6 +143,14 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 	childClient, err := common.GetClusterClientForCD(ctx, req.ManagementClient, cdRef.Namespace, cdRef.Name, req.Scheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach child cluster to mark services global: %w", err)
+	}
+
+	// The per-child waypoint scopes the global service's cross-cluster traffic
+	// to this hosting child (ADR-0005); it must be present and programmed on the
+	// child side too. Validated here (child client in hand) — the regional side
+	// is checked in resolveGatewayContext.
+	if err := p.ensureWaypointReady(ctx, childClient, cdName, "child"); err != nil {
+		return nil, err
 	}
 
 	entries := make([]workspacesv1.AccessEntry, 0, len(req.Endpoints))
@@ -336,7 +347,43 @@ func (p *Provider) resolveGatewayContext(ctx context.Context, req routing.RouteR
 			p.cfg.GatewayNamespace, p.cfg.GatewayName)}
 	}
 
+	// The regional side of the per-child waypoint pair (ADR-0005) must exist and
+	// be programmed before routes are attached — it scopes the global service to
+	// the hosting child. The child side is checked in EnsureRoutes.
+	if err := p.ensureWaypointReady(ctx, regionalClient, cdRef.Name, "regional"); err != nil {
+		return nil, err
+	}
+
 	return &gatewayContext{regionalClient: regionalClient, domain: domain, scheme: scheme, gateway: gw}, nil
+}
+
+// ensureWaypointReady verifies the per-child waypoint Gateway exists and is
+// Programmed on the given cluster (ADR-0005). The global service's cross-cluster
+// traffic is scoped through this waypoint; if it is absent the route would
+// silently mis-route (fan out / dead-end), so a missing or unprogrammed
+// waypoint is surfaced as an admin-fixable InfraNotReadyError rather than a
+// broken route. A no-op when waypoint routing is disabled. `side` is "regional"
+// or "child", for the diagnostic message only.
+func (p *Provider) ensureWaypointReady(ctx context.Context, c client.Client, cdName, side string) error {
+	if !p.cfg.Mesh.WaypointEnabled {
+		return nil
+	}
+	name := routing.WaypointNameForClusterDeployment(cdName)
+	ns := p.cfg.Mesh.WaypointNamespace
+	gw := &gatewayv1.Gateway{}
+	if err := c.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, gw); err != nil {
+		if apierrors.IsNotFound(err) || apimeta.IsNoMatchError(err) {
+			return &routing.InfraNotReadyError{Reason: fmt.Sprintf(
+				"per-child waypoint %s/%s not found on the %s cluster — provision the per-child waypoint pair (ADR-0005)",
+				ns, name, side)}
+		}
+		return fmt.Errorf("failed to get per-child waypoint %s/%s on the %s cluster: %w", ns, name, side, err)
+	}
+	if !apimeta.IsStatusConditionTrue(gw.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)) {
+		return &routing.InfraNotReadyError{Reason: fmt.Sprintf(
+			"per-child waypoint %s/%s on the %s cluster is not programmed yet", ns, name, side)}
+	}
+	return nil
 }
 
 func (p *Provider) getClusterDeployment(ctx context.Context, req routing.RouteRequest) (*metav1.PartialObjectMetadata, error) {
@@ -389,9 +436,9 @@ func tenantDomainFromGateway(gw *gatewayv1.Gateway) (domain, scheme string) {
 // regional cluster. Same name as on the child cluster — Istio multi-cluster
 // discovery requires namespace sameness for the mirror Service to resolve
 // child-cluster endpoints.
-func (p *Provider) ensureMirrorNamespace(ctx context.Context, c client.Client, nsName, workspaceName string) error {
+func (p *Provider) ensureMirrorNamespace(ctx context.Context, c client.Client, nsName, workspaceName string, meshLabels map[string]string) error {
 	desired := map[string]string{routing.LabelWorkspace: workspaceName}
-	for k, v := range p.cfg.MeshNamespaceLabels {
+	for k, v := range meshLabels {
 		desired[k] = v
 	}
 

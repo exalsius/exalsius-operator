@@ -113,7 +113,7 @@ func main() {
 	var workspaceGatewayName string
 	var workspaceGatewayNamespace string
 	var workspaceMeshMode string
-	var workspaceWaypointName string
+	var workspaceWaypointEnabled bool
 	var workspaceWaypointNamespace string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -137,11 +137,13 @@ func main() {
 	flag.StringVar(&workspaceMeshMode, "workspace-mesh-mode", string(routing.MeshModeAmbient),
 		"How workspace namespaces are enrolled into the Istio mesh: "+
 			"ambient (istio.io/dataplane-mode=ambient), sidecar (istio-injection=enabled), or none.")
-	flag.StringVar(&workspaceWaypointName, "workspace-waypoint-name", "istio-waypoint",
-		"Name of the shared Istio ambient waypoint workspace namespaces route through "+
-			"(so the ingress gateway can reach cross-cluster global services). Empty disables waypoint enrollment.")
+	flag.BoolVar(&workspaceWaypointEnabled, "workspace-waypoint-enabled", true,
+		"Route workspace namespaces through a per-child Istio ambient waypoint "+
+			"(<clusterdeployment>-waypoint) so cross-cluster global-service traffic is scoped to the "+
+			"hosting child instead of fanning out across clusters (ADR-0005). "+
+			"Disable to enroll namespaces without a waypoint label.")
 	flag.StringVar(&workspaceWaypointNamespace, "workspace-waypoint-namespace", "istio-system",
-		"Namespace of the shared waypoint referenced by --workspace-waypoint-name.")
+		"Namespace where the per-child waypoint Gateways live (on both the regional and child clusters).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -274,25 +276,28 @@ func main() {
 		}
 	}
 
-	// Resolve mesh-enrollment labels once; shared by the child workspace
-	// namespace (reconciler) and the regional mirror namespace (provider).
-	meshLabels := routing.MeshNamespaceLabels(routing.MeshMode(workspaceMeshMode), routing.WaypointConfig{
-		Name:      workspaceWaypointName,
-		Namespace: workspaceWaypointNamespace,
-	})
+	// Mesh-enrollment config shared by the child workspace namespace
+	// (reconciler) and the regional mirror namespace (provider). The waypoint
+	// label is resolved per-hosting-child at reconcile time (ADR-0005), so this
+	// carries the mode + waypoint settings, not a fixed label set.
+	meshCfg := routing.MeshConfig{
+		Mode:              routing.MeshMode(workspaceMeshMode),
+		WaypointEnabled:   workspaceWaypointEnabled,
+		WaypointNamespace: workspaceWaypointNamespace,
+	}
 
 	// Workspace controllers — always enabled since we own the CRDs
 	if err = (&workspacescontroller.WorkspaceDeploymentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		RouteProvider: gatewayapi.New(gatewayapi.Config{
-			GatewayName:         workspaceGatewayName,
-			GatewayNamespace:    workspaceGatewayNamespace,
-			MeshNamespaceLabels: meshLabels,
+			GatewayName:      workspaceGatewayName,
+			GatewayNamespace: workspaceGatewayNamespace,
+			Mesh:             meshCfg,
 		}),
-		Recorder:            mgr.GetEventRecorder("workspace-deployment"),
-		APIReader:           mgr.GetAPIReader(),
-		MeshNamespaceLabels: meshLabels,
+		Recorder:  mgr.GetEventRecorder("workspace-deployment"),
+		APIReader: mgr.GetAPIReader(),
+		Mesh:      meshCfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkspaceDeployment")
 		os.Exit(1)

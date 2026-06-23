@@ -73,6 +73,7 @@ func gwSetupTopology(prefix string) (childCD string) {
 	})).To(Succeed())
 	ensureChildKubeconfigSecret(childCD, "default")
 	ensureChildKubeconfigSecret(regionalCD, "default")
+	gwSetupWaypoint(childCD)
 	return childCD
 }
 
@@ -145,9 +146,45 @@ func gwNewProvider(gwNamespace string) *gatewayapi.Provider {
 	return gatewayapi.New(gatewayapi.Config{
 		GatewayName:      "exalsius-workspaces",
 		GatewayNamespace: gwNamespace,
-		MeshNamespaceLabels: routing.MeshNamespaceLabels(routing.MeshModeAmbient,
-			routing.WaypointConfig{Name: "istio-waypoint", Namespace: "istio-system"}),
+		Mesh: routing.MeshConfig{
+			Mode:              routing.MeshModeAmbient,
+			WaypointEnabled:   true,
+			WaypointNamespace: "istio-system",
+		},
 	})
+}
+
+// gwSetupWaypoint creates the per-child waypoint Gateway (<cd>-waypoint in
+// istio-system), marked Programmed — the per-child waypoint the provider
+// requires on both the regional and child clusters (ADR-0005). envtest is both,
+// so one Gateway satisfies both checks. Idempotent on the shared istio-system.
+func gwSetupWaypoint(cdName string) {
+	GinkgoHelper()
+	istioNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "istio-system"}}
+	if err := k8sClient.Create(ctx, istioNs); err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+	wp := &gatewayv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: routing.WaypointNameForClusterDeployment(cdName), Namespace: "istio-system",
+		},
+		Spec: gatewayv1.GatewaySpec{
+			GatewayClassName: "istio-waypoint",
+			Listeners: []gatewayv1.Listener{{
+				Name: "mesh", Port: 15008, Protocol: gatewayv1.TCPProtocolType,
+			}},
+		},
+	}
+	if err := k8sClient.Create(ctx, wp); err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+	wp.Status.Conditions = []metav1.Condition{{
+		Type:               string(gatewayv1.GatewayConditionProgrammed),
+		Status:             metav1.ConditionTrue,
+		Reason:             "Programmed",
+		LastTransitionTime: metav1.Now(),
+	}}
+	Expect(k8sClient.Status().Update(ctx, wp)).To(Succeed())
 }
 
 func gwAcceptedParentStatus(gwNamespace string) []gatewayv1.RouteParentStatus {
@@ -210,7 +247,8 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(ns.Labels).To(HaveKeyWithValue(LabelWorkspace, "gwhttp-wsd"))
 		// Mirror namespace gets the mesh-enrollment + waypoint labels too (provider runs ambient).
 		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/dataplane-mode", "ambient"))
-		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint", "istio-waypoint"))
+		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint",
+			routing.WaypointNameForClusterDeployment("gwhttp-cd")))
 		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/ingress-use-waypoint", "true"))
 
 		// Selector-less mirror Service named by the chart convention.
@@ -313,6 +351,23 @@ var _ = Describe("Gateway API route provider", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
 		Expect(err.Error()).To(ContainSubstring("not programmed"))
+	})
+
+	It("returns InfraNotReady when the per-child waypoint is missing", func() {
+		cd := gwSetupTopology("gwnowp")
+		gwSetupGateway("gwnowp-gwns", true)
+		// Remove the per-child waypoint the topology helper provisioned, to
+		// exercise the ADR-0005 waypoint-existence check.
+		Expect(k8sClient.Delete(ctx, &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{
+			Name: routing.WaypointNameForClusterDeployment(cd), Namespace: "istio-system",
+		}})).To(Succeed())
+		provider := gwNewProvider("gwnowp-gwns")
+
+		_, err := provider.EnsureRoutes(ctx, gwMakeRequest("gwnowp-wsd", cd,
+			workspacesv1.AccessEndpoint{Name: "ide", Protocol: workspacesv1.RouteProtocolHTTP, Port: 8888}))
+		Expect(err).To(HaveOccurred())
+		Expect(routing.IsInfraNotReady(err)).To(BeTrue())
+		Expect(err.Error()).To(ContainSubstring("per-child waypoint"))
 	})
 
 	It("returns InfraNotReady when no wildcard listener exists", func() {
