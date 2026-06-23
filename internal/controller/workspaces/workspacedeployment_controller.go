@@ -60,10 +60,10 @@ type WorkspaceDeploymentReconciler struct {
 	// APIReader reads events uncached so the manager cache never has to
 	// hold all cluster events. Nil disables event capture.
 	APIReader client.Reader
-	// MeshNamespaceLabels are the Istio mesh-enrollment labels stamped on the
-	// child workspace namespace (from --workspace-mesh-mode). Nil/empty = no
-	// enrollment label (mesh-mode none).
-	MeshNamespaceLabels map[string]string
+	// Mesh resolves the Istio mesh-enrollment labels stamped on the child
+	// workspace namespace (from --workspace-mesh-mode). The waypoint label is
+	// per-hosting-child (ADR-0005), derived from the WSD's ClusterDeployment.
+	Mesh routing.MeshConfig
 }
 
 // +kubebuilder:rbac:groups=workspaces.exalsius.ai,resources=workspacedeployments,verbs=get;list;watch;create;update;patch;delete
@@ -266,7 +266,8 @@ func (r *WorkspaceDeploymentReconciler) startDeployment(
 	// the ServiceSet exists: Sveltos creates namespaces unlabeled, and the
 	// mesh-discovery label must be present before any workspace Service does
 	// (ADR-0001). Reuses the child client resolved above.
-	nsReady, err := ensureWorkspaceNamespace(ctx, childClient, wsd, r.MeshNamespaceLabels)
+	nsReady, err := ensureWorkspaceNamespace(ctx, childClient, wsd,
+		r.Mesh.NamespaceLabels(wsd.Spec.ClusterDeploymentRef.Name))
 	if err != nil {
 		return ctrl.Result{}, err
 	}

@@ -17,6 +17,8 @@ limitations under the License.
 package routing
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -70,6 +72,65 @@ const (
 type WaypointConfig struct {
 	Name      string
 	Namespace string
+}
+
+// waypointNameSuffix is appended to a ClusterDeployment name to form its
+// per-child waypoint name (ADR-0005).
+const waypointNameSuffix = "-waypoint"
+
+// maxDNS1123Label is the Kubernetes object-name / DNS-1123 label limit.
+const maxDNS1123Label = 63
+
+// WaypointNameForClusterDeployment returns the name of the per-child waypoint
+// for the given ClusterDeployment (ADR-0005). Each child cluster has a
+// dedicated waypoint named `<cd-name>-waypoint`, present on both the regional
+// cluster and that child; the waypoint name scopes the global service's
+// cross-cluster endpoints to the one hosting child (no fan-out, no relay).
+//
+// The operator and onboarding must agree on this name without coordination, so
+// it is a pure function of the CD name. If `<cd-name>-waypoint` would exceed
+// the 63-char object-name limit, the CD name is truncated and a short,
+// deterministic hash of the full name is inserted to keep it unique.
+func WaypointNameForClusterDeployment(cdName string) string {
+	name := cdName + waypointNameSuffix
+	if len(name) <= maxDNS1123Label {
+		return name
+	}
+	sum := sha256.Sum256([]byte(cdName))
+	h := hex.EncodeToString(sum[:])[:8]
+	// budget: maxDNS1123Label - len("-"+hash) - len(suffix)
+	keep := maxDNS1123Label - (1 + len(h)) - len(waypointNameSuffix)
+	return cdName[:keep] + "-" + h + waypointNameSuffix
+}
+
+// MeshConfig captures how the operator enrolls workspace namespaces into the
+// Istio mesh, resolved from manager flags. Unlike a fixed label set, the
+// waypoint label is per-hosting-child (ADR-0005): NamespaceLabels derives the
+// `<cd-name>-waypoint` value for a specific ClusterDeployment.
+type MeshConfig struct {
+	// Mode is the data-plane enrollment mode (ambient/sidecar/none).
+	Mode MeshMode
+	// WaypointEnabled turns on per-child waypoint routing (ambient only). When
+	// false, namespaces are enrolled without a waypoint label.
+	WaypointEnabled bool
+	// WaypointNamespace is where the per-child waypoint Gateways live (e.g.
+	// istio-system) on both the regional and child clusters.
+	WaypointNamespace string
+}
+
+// NamespaceLabels returns the mesh-enrollment labels to stamp on a workspace's
+// namespaces for the workspace hosted on the given ClusterDeployment. In
+// ambient mode with waypoints enabled, the waypoint label points at that
+// child's dedicated `<cd-name>-waypoint`.
+func (c MeshConfig) NamespaceLabels(cdName string) map[string]string {
+	wp := WaypointConfig{}
+	if c.WaypointEnabled {
+		wp = WaypointConfig{
+			Name:      WaypointNameForClusterDeployment(cdName),
+			Namespace: c.WaypointNamespace,
+		}
+	}
+	return MeshNamespaceLabels(c.Mode, wp)
 }
 
 // MeshNamespaceLabels returns the mesh-enrollment labels to stamp on

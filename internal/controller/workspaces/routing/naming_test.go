@@ -57,3 +57,64 @@ func TestMeshNamespaceLabels(t *testing.T) {
 		}
 	}
 }
+
+func TestWaypointNameForClusterDeployment(t *testing.T) {
+	t.Run("short name gets the plain suffix", func(t *testing.T) {
+		if got := WaypointNameForClusterDeployment("default-child-adopted-1"); got != "default-child-adopted-1-waypoint" {
+			t.Errorf("got %q, want %q", got, "default-child-adopted-1-waypoint")
+		}
+	})
+
+	t.Run("over-long name is truncated, hashed, and stays a valid label", func(t *testing.T) {
+		long := ""
+		for len(long) < 80 {
+			long += "abcdefghij"
+		}
+		got := WaypointNameForClusterDeployment(long)
+		if len(got) > maxDNS1123Label {
+			t.Errorf("name %q is %d chars, exceeds %d", got, len(got), maxDNS1123Label)
+		}
+		if got[len(got)-len(waypointNameSuffix):] != waypointNameSuffix {
+			t.Errorf("name %q does not end with %q", got, waypointNameSuffix)
+		}
+		// Deterministic: same input → same output.
+		if WaypointNameForClusterDeployment(long) != got {
+			t.Errorf("not deterministic")
+		}
+	})
+
+	t.Run("distinct long names hash differently", func(t *testing.T) {
+		base := ""
+		for len(base) < 70 {
+			base += "x"
+		}
+		if WaypointNameForClusterDeployment(base+"-a") == WaypointNameForClusterDeployment(base+"-b") {
+			t.Errorf("distinct CD names collided")
+		}
+	})
+}
+
+func TestMeshConfigNamespaceLabels(t *testing.T) {
+	t.Run("ambient + waypoint enabled derives the per-child waypoint", func(t *testing.T) {
+		c := MeshConfig{Mode: MeshModeAmbient, WaypointEnabled: true, WaypointNamespace: "istio-system"}
+		got := c.NamespaceLabels("cd-1")
+		want := map[string]string{
+			"istio.io/dataplane-mode":         "ambient",
+			"istio.io/use-waypoint":           "cd-1-waypoint",
+			"istio.io/use-waypoint-namespace": "istio-system",
+			"istio.io/ingress-use-waypoint":   "true",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("waypoint disabled omits the waypoint labels", func(t *testing.T) {
+		c := MeshConfig{Mode: MeshModeAmbient, WaypointEnabled: false, WaypointNamespace: "istio-system"}
+		got := c.NamespaceLabels("cd-1")
+		want := map[string]string{"istio.io/dataplane-mode": "ambient"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}

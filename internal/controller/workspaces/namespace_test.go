@@ -10,6 +10,7 @@ import (
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
 	workspacesv1 "github.com/exalsius/exalsius-operator/api/workspaces/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/workspaces/routing"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -70,7 +71,8 @@ var _ = Describe("Workspace namespace lifecycle", func() {
 			g.Expect(ns.Labels).To(HaveKeyWithValue(LabelWorkspace, "nslc-wsd"))
 			// Mesh enrollment (suite runs ambient mode) + waypoint routing.
 			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/dataplane-mode", "ambient"))
-			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint", "istio-waypoint"))
+			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint",
+				routing.WaypointNameForClusterDeployment("nslc-cd")))
 			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint-namespace", "istio-system"))
 			g.Expect(ns.Labels).To(HaveKeyWithValue("istio.io/ingress-use-waypoint", "true"))
 

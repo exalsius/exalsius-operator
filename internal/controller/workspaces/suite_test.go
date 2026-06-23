@@ -106,8 +106,11 @@ var _ = BeforeSuite(func() {
 		RouteProvider: testRouteProvider,
 		Recorder:      mgr.GetEventRecorder("workspace-deployment"),
 		APIReader:     mgr.GetAPIReader(),
-		MeshNamespaceLabels: routing.MeshNamespaceLabels(routing.MeshModeAmbient,
-			routing.WaypointConfig{Name: "istio-waypoint", Namespace: "istio-system"}),
+		Mesh: routing.MeshConfig{
+			Mode:              routing.MeshModeAmbient,
+			WaypointEnabled:   true,
+			WaypointNamespace: "istio-system",
+		},
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
