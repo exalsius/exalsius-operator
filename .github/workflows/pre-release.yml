@@ -60,6 +60,11 @@ jobs:
           GITHUB_TOKEN=${{ steps.app-token.outputs.token }}
           EOF
 
+      - name: Install CLI prerequisites (kind/kubectl/helm/yq; skips any already present)
+        run: |
+          ./local-dev-env/scripts/ci/install-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - name: Render components.yaml (operator built from this PR's source)
         run: ./local-dev-env/scripts/ci/render-components.sh config/components.ci.yaml exalsius-operator ../exalsius-operator
 
