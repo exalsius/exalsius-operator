@@ -14,10 +14,14 @@ gating, HTTP/SSH routing, cross-cluster routing, deletion ordering, the infra-no
 
 - **The environment lives in local-dev-env; the test lives here.** local-dev-env owns provisioning
   (4 kind clusters — management + regional + two adopted children — plus Istio ambient and
-  k0rdent) and exposes a **generic reusable workflow** (`workflow_call`). This repo's CI is a thin
-  caller that passes `component: exalsius-operator`, the PR ref, and the make-target sequence to
-  run. exalsius-api will be a second caller of the same reusable workflow.
-- **The operator under test is built from local source** (`components.*.yaml`
+  k0rdent). This repo's CI **checks out local-dev-env** with the App token and runs its shared CI
+  scripts (`scripts/ci/render-components.sh`, `collect-diagnostics.sh`) plus the make targets.
+  exalsius-api will run the analogous checkout-and-run job.
+- **Not a reusable workflow.** This repo is **public** and local-dev-env is **private**; GitHub
+  forbids a public repo from calling a reusable workflow in a private one (`workflow was not
+  found`, regardless of the repo Access setting). `actions/checkout` of a private repo with a token
+  has no such restriction, so checkout-and-run is the correct shape. See local-dev-env ADR-0001.
+- **The operator under test is built from local source** (`components.ci.yaml`
   `source.local` + `build.enabled: true` pointed at the PR checkout), the exact path a developer
   uses — so CI also exercises the Dockerfile, no special-case injection.
 - **The rest of the stack is pinned.** The release gate runs every *other* component (api,
@@ -42,8 +46,8 @@ gating, HTTP/SSH routing, cross-cluster routing, deletion ordering, the infra-no
   cluster from a Colony. This is deliberate: that path is covered by the API-driven user-flow in
   exalsius-api's gate and by the nightly-at-main run. **Do not "restore" a colony-provisioning
   step to this gate without revisiting this trade-off** — the old job was dropped on purpose.
-- The gate depends on the **cross-repo** reusable workflow and a GitHub App token (scoped to the
-  org, `contents:read` + `packages:read`). Env changes (new cluster, bumped k0rdent) are made once
-  in local-dev-env and require no change here.
-- The shared testing architecture (reusable workflow, local-source injection, pinned baseline) is
-  recorded in local-dev-env's own ADR.
+- The gate depends on a **cross-repo checkout** of local-dev-env and a GitHub App token (scoped to
+  the org, `contents:read` + `packages:read`). Env changes (new cluster, bumped k0rdent) are made
+  once in local-dev-env and require no change here.
+- The shared testing architecture (checkout + shared scripts, local-source injection, pinned
+  baseline) is recorded in local-dev-env's own ADR.

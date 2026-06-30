@@ -1,7 +1,12 @@
 name: Pre-Release E2E Tests
 
-# Drives the workspace operator e2e suite against a real 4-cluster local-dev-env
+# Runs the workspace operator e2e suite against a real 4-cluster local-dev-env
 # (ADR-0006). Replaces the old single-cluster kind+colony job that hung forever.
+#
+# This repo is PUBLIC and local-dev-env is PRIVATE, so a reusable-workflow
+# (`uses:`) call is forbidden by GitHub (public callers cannot reach private
+# reusable workflows). Instead we CHECK OUT local-dev-env with the App token and
+# run its shared CI scripts — checkout has no such visibility restriction.
 #
 # Runs on release-please PRs (required, blocking) and opt-in elsewhere via the
 # `e2e` label. The actual REQUIRED status check is `e2e-gate`, which always
@@ -22,13 +27,59 @@ jobs:
     if: >-
       startsWith(github.head_ref, 'release-please--') ||
       contains(github.event.pull_request.labels.*.name, 'e2e')
-    uses: exalsius/local-dev-env/.github/workflows/e2e-reusable.yml@main
-    with:
-      component: exalsius-operator
-      ref: ${{ github.event.pull_request.head.sha }}
-      run: up setup-kcm-regional-child workspace-testing-operator
-      env_ref: main   # keep in lockstep with the @main pin above
-    secrets: inherit
+    runs-on: exalsius-runner-default   # ephemeral self-hosted DinD; matches local-dev-env
+    timeout-minutes: 60                # never-hang guarantee — a stuck bring-up FAILS, it does not spin forever
+    steps:
+      - name: Mint GitHub App token (contents:read + packages:read on the org)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout operator (this PR) as a sibling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: exalsius-operator   # resolves to ../exalsius-operator from local-dev-env root
+
+      - name: Checkout local-dev-env (provisioning + CI scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/local-dev-env
+          ref: main
+          path: local-dev-env
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Write local-dev-env .env (App token for clones / GHCR pulls)
+        run: |
+          umask 077
+          cat > local-dev-env/.env <<EOF
+          GITHUB_USER=x-access-token
+          GITHUB_TOKEN=${{ steps.app-token.outputs.token }}
+          EOF
+
+      - name: Render components.yaml (operator built from this PR's source)
+        run: ./local-dev-env/scripts/ci/render-components.sh config/components.ci.yaml exalsius-operator ../exalsius-operator
+
+      - name: Run workspace e2e suite
+        working-directory: local-dev-env
+        timeout-minutes: 50
+        run: make up setup-kcm-regional-child workspace-testing-operator
+
+      - name: Collect diagnostics (always — ephemeral pod leaves nothing behind)
+        if: always()
+        run: ./local-dev-env/scripts/ci/collect-diagnostics.sh diagnostics
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
 
   e2e-gate:
     # The REQUIRED check. Always runs; passes when the heavy job succeeded or was
