@@ -10,4 +10,4 @@ on:
 
 jobs:
   call-probe:
-    uses: exalsius/local-dev-env/.github/workflows/_probe.yml@677a3586c3d466d7bb2187cec9d9e503b6a7bfae
+    uses: ./.github/workflows/_probe-local.yml
