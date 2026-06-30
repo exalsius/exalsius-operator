@@ -1,0 +1,13 @@
+name: _e2e-probe (cross-repo access test)
+
+# Throwaway: dispatch this to test whether this repo can resolve a reusable
+# workflow in exalsius/local-dev-env. Delete once e2e wiring is proven.
+
+on:
+  push:
+    branches: [ci/test-helm-release]
+  workflow_dispatch: {}
+
+jobs:
+  call-probe:
+    uses: exalsius/local-dev-env/.github/workflows/_probe.yml@main
