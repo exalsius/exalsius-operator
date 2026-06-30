@@ -55,9 +55,9 @@ const (
 	// DefaultGatewayName is the well-known name of the tenant Gateway on the
 	// regional cluster. The Gateway's HTTPS listener hostname is the single
 	// source of truth for the tenant domain.
-	DefaultGatewayName = "exalsius-workspaces"
+	DefaultGatewayName = "istio-ingressgateway"
 	// DefaultGatewayNamespace is the well-known namespace of the tenant Gateway.
-	DefaultGatewayNamespace = "exalsius-gateway"
+	DefaultGatewayNamespace = "istio-system"
 
 	// maxHostnameLabel is the DNS limit for a single hostname label.
 	maxHostnameLabel = 63
