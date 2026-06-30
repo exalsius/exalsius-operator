@@ -1,163 +1,47 @@
-name: Release PR - Pre-Release E2E Tests
+name: Pre-Release E2E Tests
+
+# Drives the workspace operator e2e suite against a real 4-cluster local-dev-env
+# (ADR-0006). Replaces the old single-cluster kind+colony job that hung forever.
+#
+# Runs on release-please PRs (required, blocking) and opt-in elsewhere via the
+# `e2e` label. The actual REQUIRED status check is `e2e-gate`, which always
+# reports — so non-release PRs (where workspace-e2e is skipped by design) are
+# not blocked waiting on a status that never arrives.
 
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
 
 jobs:
-  test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+  workspace-e2e:
+    # Release PR, or any PR carrying the `e2e` label.
+    if: >-
+      startsWith(github.head_ref, 'release-please--') ||
+      contains(github.event.pull_request.labels.*.name, 'e2e')
+    uses: exalsius/local-dev-env/.github/workflows/e2e-reusable.yml@main
+    with:
+      component: exalsius-operator
+      ref: ${{ github.event.pull_request.head.sha }}
+      run: up setup-kcm-regional-child workspace-testing-operator
+      env_ref: main   # keep in lockstep with the @main pin above
+    secrets: inherit
+
+  e2e-gate:
+    # The REQUIRED check. Always runs; passes when the heavy job succeeded or was
+    # skipped-by-design, fails only when it actually ran and failed/cancelled.
+    needs: [workspace-e2e]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Clone the code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install the latest version of kind
+      - name: Evaluate workspace-e2e result
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Create kind cluster
-        run: ./hack/start-dev-env.sh
-
-      - name: Prepare exalsius-operator
-        run: |
-          go mod tidy
-          make docker-build IMG=exalsius-operator:ci-test
-          kind load docker-image exalsius-operator:ci-test
-
-      - name: Install Helm
-        run: |
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-      - name: Verify Helm installation
-        run: helm version
-
-      - name: Lint Helm Chart
-        run: |
-          helm lint charts/exalsius-operator/
-
-      - name: Install exalsius-operator helm chart
-        run: |
-          set +e
-          ./hack/install-ci.sh hack/ci-values.yaml
-          echo "HELM_EXIT_CODE=$?" >> $GITHUB_ENV
-          set -e
-        continue-on-error: true
-
-      - name: Show pod status in exalsius-system namespace
-        run: kubectl get pods -n exalsius-system -o wide
-
-      - name: Show pod status in kcm-system namespace
-        run: kubectl get pods -n kcm-system -o wide
-
-      - name: Describe all pods in exalsius-system namespace
-        run: |
-          for pod in $(kubectl get pods -n exalsius-system -o name); do
-            echo "==== $pod ===="
-            kubectl describe "$pod" -n exalsius-system || true
-          done
-
-      - name: Describe all pods in kcm-system namespace
-        run: |
-          for pod in $(kubectl get pods -n kcm-system -o name); do
-            echo "==== $pod ===="
-            kubectl describe "$pod" -n kcm-system || true
-          done
-
-      - name: Get events in exalsius-system namespace
-        run: kubectl get events -n exalsius-system --sort-by=.metadata.creationTimestamp
-
-      - name: Get events in kcm-system namespace
-        run: kubectl get events -n kcm-system --sort-by=.metadata.creationTimestamp
-
-      - name: Check Helm release status
-        run: |
-          helm status exalsius-operator --namespace exalsius-system
-
-      - name: Fail workflow if Helm install failed
-        if: ${{ env.HELM_EXIT_CODE != '0' }}
-        run: |
-          echo "Helm install failed. See debug output above."
-          exit 1
-
-      - name: Wait for all pods in kcm-system namespace to be running
-        run: |
-          echo "Waiting for all pods in kcm-system namespace to be running..."
-          while true; do
-            not_running=$(kubectl -n kcm-system get pods --no-headers | awk '$3 != "Running" {print $1}')
-            if [ -z "$not_running" ]; then
-              echo "All pods in kcm-system namespace are running!"
-              break
-            fi
-            echo "Pods not yet running: $not_running"
-            sleep 10
-          done
-
-      - name: Wait for infrastructure provider to be ready
-        run: |
-          echo "Waiting for docker infrastructure provider to be ready..."
-          while true; do
-            status=$(kubectl -n kcm-system get infrastructureprovider docker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
-            if [ "$status" = "True" ]; then
-              echo "Docker infrastructure provider is ready!"
-              break
-            elif [ "$status" = "NotFound" ]; then
-              echo "infrastructureprovider CRD or resource not found yet, waiting..."
-            else
-              echo "Current condition status: $status"
-            fi
-            sleep 10
-          done
-
-      - name: Create docker credentials
-        run: ./hack/credentials-setup/setup-credentials.sh --provider docker
-
-      - name: Create template chains
-        run: ./hack/templates-setup/setup-user-ns.sh
-
-      - name: Create a docker colony
-        run: kubectl apply -f examples/docker-colony.yaml
-
-      - name: Wait for docker colony to be ready
-        run: |
-          echo "Waiting for docker colony to be ready..."
-          echo "Sleeping for 10 seconds first"
-          sleep 10
-          while true; do
-            status=$(kubectl get colony docker-colony -o jsonpath='{.status.phase}')
-            if [ "$status" = "Ready" ]; then
-              echo "Docker colony is ready!"
-              break
-            fi
-            echo "Current status: $status"
-            kubectl get colony
-            sleep 10
-          done
-
-      - name: Wait for CAPI machine resources to be running
-        run: |
-          echo "Waiting for CAPI machine resources to be running..."
-          while true; do
-            status=$(kubectl get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
-            if [ -n "$status" ]; then
-              echo "CAPI machine resources are running!"
-              break
-            fi
-            echo "Current running machines: $status"
-            sleep 10
-          done
-
-      - name: Show all colony resources
-        run: kubectl get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
-
-        
+          r='${{ needs.workspace-e2e.result }}'
+          echo "workspace-e2e result: $r"
+          case "$r" in
+            failure|cancelled) echo "::error::Workspace e2e failed"; exit 1 ;;
+            *)                 echo "OK (result=$r)"; exit 0 ;;   # success | skipped
+          esac
