@@ -270,12 +270,12 @@ phase_routing() {
     'kubectl --context $MGMT -n $NS get wsd routed-b -o json | jq -e ".status.phase==\"Running\"" >/dev/null'
 
   check "$SETTLE" "routing: ws-routed-a child ns has workspace + ambient + waypoint labels" \
-    'kubectl --context $CHILD1 get ns ws-routed-a -o json | jq -e ".metadata.labels[\"workspaces.exalsius.ai/workspace\"]==\"routed-a\" and .metadata.labels[\"istio.io/dataplane-mode\"]==\"ambient\" and .metadata.labels[\"istio.io/use-waypoint\"]==\"istio-waypoint\"" >/dev/null'
+    'kubectl --context $CHILD1 get ns ws-routed-a -o json | jq -e ".metadata.labels[\"workspaces.exalsius.ai/workspace\"]==\"routed-a\" and .metadata.labels[\"istio.io/dataplane-mode\"]==\"ambient\" and .metadata.labels[\"istio.io/use-waypoint\"]==\"${CD1}-waypoint\"" >/dev/null'
 
   check "$SETTLE" "routing: access[http] = bare hostname routed-a.$DOMAIN" \
-    'kubectl --context $MGMT -n $NS get wsd routed-a -o json | jq -e ".status.access[]|select(.name==\"http\")|.url==\"http://routed-a.$DOMAIN\"" >/dev/null'
+    'kubectl --context $MGMT -n $NS get wsd routed-a -o json | jq -e ".status.access[]|select(.name==\"http\")|.url==\"https://routed-a.$DOMAIN\"" >/dev/null'
   check "$SETTLE" "routing: access[api] = suffix hostname routed-a-api.$DOMAIN" \
-    'kubectl --context $MGMT -n $NS get wsd routed-a -o json | jq -e ".status.access[]|select(.name==\"api\")|.url==\"http://routed-a-api.$DOMAIN\"" >/dev/null'
+    'kubectl --context $MGMT -n $NS get wsd routed-a -o json | jq -e ".status.access[]|select(.name==\"api\")|.url==\"https://routed-a-api.$DOMAIN\"" >/dev/null'
   check "$SETTLE" "routing: routed-a RoutesReady=True" \
     'kubectl --context $MGMT -n $NS get wsd routed-a -o json | jq -e ".status.conditions[]|select(.type==\"RoutesReady\")|.status==\"True\"" >/dev/null'
 

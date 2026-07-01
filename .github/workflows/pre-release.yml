@@ -1,163 +1,106 @@
-name: Release PR - Pre-Release E2E Tests
+name: Pre-Release E2E Tests
+
+# Runs the workspace operator e2e suite against a real 4-cluster local-dev-env
+# (ADR-0006). Replaces the old single-cluster kind+colony job that hung forever.
+#
+# This repo is PUBLIC and local-dev-env is PRIVATE, so a reusable-workflow
+# (`uses:`) call is forbidden by GitHub (public callers cannot reach private
+# reusable workflows). Instead we CHECK OUT local-dev-env with the App token and
+# run its shared CI scripts — checkout has no such visibility restriction.
+#
+# Runs on release-please PRs (required, blocking) and opt-in elsewhere via the
+# `e2e` label. The actual REQUIRED status check is `e2e-gate`, which always
+# reports — so non-release PRs (where workspace-e2e is skipped by design) are
+# not blocked waiting on a status that never arrives.
 
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+  packages: read   # so GITHUB_TOKEN can pull the private exalsius-api GHCR image (App tokens can't)
 
 jobs:
-  test-helm:
-    if: startsWith(github.head_ref, 'release-please--')
+  workspace-e2e:
+    # Release PR, or any PR carrying the `e2e` label.
+    if: >-
+      startsWith(github.head_ref, 'release-please--') ||
+      contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: exalsius-runner-default   # ephemeral self-hosted DinD; matches local-dev-env
+    timeout-minutes: 60                # never-hang guarantee — a stuck bring-up FAILS, it does not spin forever
+    steps:
+      - name: Mint GitHub App token (contents:read + packages:read on the org)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout operator (this PR) as a sibling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: exalsius-operator   # resolves to ../exalsius-operator from local-dev-env root
+
+      - name: Checkout local-dev-env (provisioning + CI scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/local-dev-env
+          ref: main
+          path: local-dev-env
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Write local-dev-env .env (App token for clones; GITHUB_TOKEN for GHCR pulls)
+        run: |
+          umask 077
+          cat > local-dev-env/.env <<EOF
+          GITHUB_USER=x-access-token
+          GITHUB_TOKEN=${{ steps.app-token.outputs.token }}
+          GHCR_PULL_USER=${{ github.actor }}
+          GHCR_PULL_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          EOF
+
+      - name: Install CLI prerequisites (kind/kubectl/helm/yq; skips any already present)
+        run: |
+          ./local-dev-env/scripts/ci/install-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Render components.yaml (operator built from this PR's source)
+        run: ./local-dev-env/scripts/ci/render-components.sh config/components.ci.yaml exalsius-operator ../exalsius-operator
+
+      - name: Run workspace e2e suite
+        working-directory: local-dev-env
+        timeout-minutes: 50
+        run: make up setup-kcm-regional-child workspace-testing-operator
+
+      - name: Collect diagnostics (always — ephemeral pod leaves nothing behind)
+        if: always()
+        run: ./local-dev-env/scripts/ci/collect-diagnostics.sh diagnostics
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e-gate:
+    # The REQUIRED check. Always runs; passes when the heavy job succeeded or was
+    # skipped-by-design, fails only when it actually ran and failed/cancelled.
+    needs: [workspace-e2e]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Clone the code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install the latest version of kind
+      - name: Evaluate workspace-e2e result
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Create kind cluster
-        run: ./hack/start-dev-env.sh
-
-      - name: Prepare exalsius-operator
-        run: |
-          go mod tidy
-          make docker-build IMG=exalsius-operator:ci-test
-          kind load docker-image exalsius-operator:ci-test
-
-      - name: Install Helm
-        run: |
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-      - name: Verify Helm installation
-        run: helm version
-
-      - name: Lint Helm Chart
-        run: |
-          helm lint charts/exalsius-operator/
-
-      - name: Install exalsius-operator helm chart
-        run: |
-          set +e
-          ./hack/install-ci.sh hack/ci-values.yaml
-          echo "HELM_EXIT_CODE=$?" >> $GITHUB_ENV
-          set -e
-        continue-on-error: true
-
-      - name: Show pod status in exalsius-system namespace
-        run: kubectl get pods -n exalsius-system -o wide
-
-      - name: Show pod status in kcm-system namespace
-        run: kubectl get pods -n kcm-system -o wide
-
-      - name: Describe all pods in exalsius-system namespace
-        run: |
-          for pod in $(kubectl get pods -n exalsius-system -o name); do
-            echo "==== $pod ===="
-            kubectl describe "$pod" -n exalsius-system || true
-          done
-
-      - name: Describe all pods in kcm-system namespace
-        run: |
-          for pod in $(kubectl get pods -n kcm-system -o name); do
-            echo "==== $pod ===="
-            kubectl describe "$pod" -n kcm-system || true
-          done
-
-      - name: Get events in exalsius-system namespace
-        run: kubectl get events -n exalsius-system --sort-by=.metadata.creationTimestamp
-
-      - name: Get events in kcm-system namespace
-        run: kubectl get events -n kcm-system --sort-by=.metadata.creationTimestamp
-
-      - name: Check Helm release status
-        run: |
-          helm status exalsius-operator --namespace exalsius-system
-
-      - name: Fail workflow if Helm install failed
-        if: ${{ env.HELM_EXIT_CODE != '0' }}
-        run: |
-          echo "Helm install failed. See debug output above."
-          exit 1
-
-      - name: Wait for all pods in kcm-system namespace to be running
-        run: |
-          echo "Waiting for all pods in kcm-system namespace to be running..."
-          while true; do
-            not_running=$(kubectl -n kcm-system get pods --no-headers | awk '$3 != "Running" {print $1}')
-            if [ -z "$not_running" ]; then
-              echo "All pods in kcm-system namespace are running!"
-              break
-            fi
-            echo "Pods not yet running: $not_running"
-            sleep 10
-          done
-
-      - name: Wait for infrastructure provider to be ready
-        run: |
-          echo "Waiting for docker infrastructure provider to be ready..."
-          while true; do
-            status=$(kubectl -n kcm-system get infrastructureprovider docker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
-            if [ "$status" = "True" ]; then
-              echo "Docker infrastructure provider is ready!"
-              break
-            elif [ "$status" = "NotFound" ]; then
-              echo "infrastructureprovider CRD or resource not found yet, waiting..."
-            else
-              echo "Current condition status: $status"
-            fi
-            sleep 10
-          done
-
-      - name: Create docker credentials
-        run: ./hack/credentials-setup/setup-credentials.sh --provider docker
-
-      - name: Create template chains
-        run: ./hack/templates-setup/setup-user-ns.sh
-
-      - name: Create a docker colony
-        run: kubectl apply -f examples/docker-colony.yaml
-
-      - name: Wait for docker colony to be ready
-        run: |
-          echo "Waiting for docker colony to be ready..."
-          echo "Sleeping for 10 seconds first"
-          sleep 10
-          while true; do
-            status=$(kubectl get colony docker-colony -o jsonpath='{.status.phase}')
-            if [ "$status" = "Ready" ]; then
-              echo "Docker colony is ready!"
-              break
-            fi
-            echo "Current status: $status"
-            kubectl get colony
-            sleep 10
-          done
-
-      - name: Wait for CAPI machine resources to be running
-        run: |
-          echo "Waiting for CAPI machine resources to be running..."
-          while true; do
-            status=$(kubectl get machine -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
-            if [ -n "$status" ]; then
-              echo "CAPI machine resources are running!"
-              break
-            fi
-            echo "Current running machines: $status"
-            sleep 10
-          done
-
-      - name: Show all colony resources
-        run: kubectl get colony,cluster,dockercluster,k0smotroncontrolplane,pods,machine,dockermachine -o wide
-
-        
+          r='${{ needs.workspace-e2e.result }}'
+          echo "workspace-e2e result: $r"
+          case "$r" in
+            failure|cancelled) echo "::error::Workspace e2e failed"; exit 1 ;;
+            *)                 echo "OK (result=$r)"; exit 0 ;;   # success | skipped
+          esac
