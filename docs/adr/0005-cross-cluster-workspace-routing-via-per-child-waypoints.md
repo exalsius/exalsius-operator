@@ -51,9 +51,11 @@ pair**, instead of the shared default waypoint.
 
 - **The operator only relabels.** It keeps `istio.io/global` + the regional mirror Service exactly
   as today, and changes one thing: the `istio.io/use-waypoint` value stamped on the workspace's
-  **child** namespace and **regional mirror** namespace becomes the per-child
-  `<cd>-waypoint` (derived from `spec.clusterDeploymentRef.Name`) instead of a single shared
-  waypoint. Everything else in the routing path is unchanged.
+  **child** namespace becomes the per-child `<cd>-waypoint` (derived from
+  `spec.clusterDeploymentRef.Name`) instead of a single shared waypoint. The waypoint-routing
+  labels are stamped **only on the child namespace** — the side that owns the real endpoints; the
+  regional mirror namespace gets mesh enrollment (`istio.io/dataplane-mode`) but no waypoint
+  reference. Everything else in the routing path is unchanged.
 
 - **Both sides required; hold otherwise.** If the regional or child `<cd>-waypoint` is absent or
   not `Programmed`, the operator surfaces `RoutesReady=False` / `InfraNotReadyError` and retries —
@@ -70,9 +72,10 @@ pair**, instead of the shared default waypoint.
 - **Onboarding gains an obligation:** provision the `<cd>-waypoint` pair when a child cluster is
   onboarded (operator + local-dev-env must agree on the name).
 - **The operator change is minimal:** make the static `MeshNamespaceLabels` (computed once in
-  `cmd/main.go`) a per-workspace value (the waypoint name derived from the CD), thread it through
-  the child-namespace step and the regional mirror-namespace step, and add the waypoint existence
-  check. No new CRDs, no cross-cluster writes beyond what already exists.
+  `cmd/main.go`) a per-workspace value (the waypoint name derived from the CD), stamp it on the
+  child-namespace step (`MeshConfig.NamespaceLabels`), enrol the regional mirror namespace without
+  the waypoint labels (`MeshConfig.MirrorNamespaceLabels`), and add the waypoint existence check.
+  No new CRDs, no cross-cluster writes beyond what already exists.
 
 ## Risks / open verification (validate before relying on it in production)
 

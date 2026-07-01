@@ -82,9 +82,9 @@ type Config struct {
 	GatewayName      string
 	GatewayNamespace string
 	// Mesh resolves the Istio mesh-enrollment labels stamped on the regional
-	// mirror namespace (from --workspace-mesh-mode). The waypoint label is
-	// per-hosting-child (ADR-0005) and must match the child namespace's so the
-	// global service scopes to that child; the per-child waypoint Gateway is
+	// mirror namespace (from --workspace-mesh-mode). The mirror gets enrollment
+	// only — the per-child waypoint-routing labels are stamped on the child
+	// namespace alone (ADR-0005). The per-child waypoint Gateway itself is still
 	// validated on both clusters in EnsureRoutes.
 	Mesh routing.MeshConfig
 }
@@ -129,8 +129,10 @@ func (p *Provider) EnsureRoutes(ctx context.Context, req routing.RouteRequest) (
 
 	cdName := req.Workspace.Spec.ClusterDeploymentRef.Name
 	nsName := routing.WorkspaceNamespaceName(req.Workspace)
+	// Mesh-enrollment labels only — the per-child waypoint-routing labels are
+	// stamped on the child namespace, not the mirror (ADR-0005).
 	if err := p.ensureMirrorNamespace(ctx, gwCtx.regionalClient, nsName, req.Workspace.Name,
-		p.cfg.Mesh.NamespaceLabels(cdName)); err != nil {
+		p.cfg.Mesh.MirrorNamespaceLabels()); err != nil {
 		return nil, err
 	}
 

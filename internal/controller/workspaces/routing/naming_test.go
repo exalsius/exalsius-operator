@@ -118,3 +118,23 @@ func TestMeshConfigNamespaceLabels(t *testing.T) {
 		}
 	})
 }
+
+func TestMeshConfigMirrorNamespaceLabels(t *testing.T) {
+	t.Run("ambient + waypoint enabled stamps enrollment only, no waypoint labels", func(t *testing.T) {
+		c := MeshConfig{Mode: MeshModeAmbient, WaypointEnabled: true, WaypointNamespace: "istio-system"}
+		got := c.MirrorNamespaceLabels()
+		want := map[string]string{"istio.io/dataplane-mode": "ambient"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("sidecar mode stamps the injection label", func(t *testing.T) {
+		c := MeshConfig{Mode: MeshModeSidecar, WaypointEnabled: true, WaypointNamespace: "istio-system"}
+		got := c.MirrorNamespaceLabels()
+		want := map[string]string{"istio-injection": "enabled"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}
