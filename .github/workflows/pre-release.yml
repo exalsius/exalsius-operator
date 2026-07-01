@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  packages: read   # so GITHUB_TOKEN can pull the private exalsius-api GHCR image (App tokens can't)
 
 jobs:
   workspace-e2e:
@@ -52,12 +53,14 @@ jobs:
           path: local-dev-env
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Write local-dev-env .env (App token for clones / GHCR pulls)
+      - name: Write local-dev-env .env (App token for clones; GITHUB_TOKEN for GHCR pulls)
         run: |
           umask 077
           cat > local-dev-env/.env <<EOF
           GITHUB_USER=x-access-token
           GITHUB_TOKEN=${{ steps.app-token.outputs.token }}
+          GHCR_PULL_USER=${{ github.actor }}
+          GHCR_PULL_TOKEN=${{ secrets.GITHUB_TOKEN }}
           EOF
 
       - name: Install CLI prerequisites (kind/kubectl/helm/yq; skips any already present)
