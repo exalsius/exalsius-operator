@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/exalsius/exalsius-operator/compare/v0.11.0...v0.11.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* align ingress gateway naming with istio convention ([#160](https://github.com/exalsius/exalsius-operator/issues/160)) ([f78a67a](https://github.com/exalsius/exalsius-operator/commit/f78a67aa693cb3195838f4f01b99423c9c3b3817))
+* remove waypoint labels on regional-mirror namespace/service ([#163](https://github.com/exalsius/exalsius-operator/issues/163)) ([77b2180](https://github.com/exalsius/exalsius-operator/commit/77b218045c605a9da903baa0d7f57f2a6ac097ca))
+
 ## [0.11.0](https://github.com/exalsius/exalsius-operator/compare/v0.10.0...v0.11.0) (2026-06-23)
 
 
