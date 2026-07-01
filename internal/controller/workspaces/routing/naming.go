@@ -118,10 +118,16 @@ type MeshConfig struct {
 	WaypointNamespace string
 }
 
-// NamespaceLabels returns the mesh-enrollment labels to stamp on a workspace's
-// namespaces for the workspace hosted on the given ClusterDeployment. In
-// ambient mode with waypoints enabled, the waypoint label points at that
-// child's dedicated `<cd-name>-waypoint`.
+// NamespaceLabels returns the mesh-enrollment labels to stamp on the workspace
+// namespace on the CHILD cluster hosting the given ClusterDeployment — the
+// cluster where the workspace pods actually run. In ambient mode with waypoints
+// enabled, the per-child waypoint-routing labels point at that child's
+// dedicated `<cd-name>-waypoint`.
+//
+// The waypoint labels are intentionally NOT applied to the regional mirror
+// namespace (see MirrorNamespaceLabels): the per-child waypoint scope is
+// asserted on the child namespace alone — the side that owns the real
+// endpoints (ADR-0005).
 func (c MeshConfig) NamespaceLabels(cdName string) map[string]string {
 	wp := WaypointConfig{}
 	if c.WaypointEnabled {
@@ -131,6 +137,16 @@ func (c MeshConfig) NamespaceLabels(cdName string) map[string]string {
 		}
 	}
 	return MeshNamespaceLabels(c.Mode, wp)
+}
+
+// MirrorNamespaceLabels returns the mesh-enrollment labels to stamp on the
+// regional MIRROR namespace. It carries the data-plane enrollment label so the
+// selector-less mirror Service participates in the ambient mesh as a global
+// service, but NOT the waypoint-routing labels: the per-child waypoint scope is
+// expressed only on the child namespace (ADR-0005), keeping the regional mirror
+// free of a child-specific waypoint reference.
+func (c MeshConfig) MirrorNamespaceLabels() map[string]string {
+	return MeshNamespaceLabels(c.Mode, WaypointConfig{})
 }
 
 // MeshNamespaceLabels returns the mesh-enrollment labels to stamp on

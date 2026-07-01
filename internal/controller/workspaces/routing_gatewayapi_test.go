@@ -245,11 +245,13 @@ var _ = Describe("Gateway API route provider", func() {
 		ns := &corev1.Namespace{}
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "ws-gwhttp-wsd"}, ns)).To(Succeed())
 		Expect(ns.Labels).To(HaveKeyWithValue(LabelWorkspace, "gwhttp-wsd"))
-		// Mirror namespace gets the mesh-enrollment + waypoint labels too (provider runs ambient).
+		// Mirror namespace gets the mesh-enrollment label (provider runs ambient)
+		// but NOT the waypoint-routing labels — those are scoped to the child
+		// namespace alone (ADR-0005).
 		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/dataplane-mode", "ambient"))
-		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/use-waypoint",
-			routing.WaypointNameForClusterDeployment("gwhttp-cd")))
-		Expect(ns.Labels).To(HaveKeyWithValue("istio.io/ingress-use-waypoint", "true"))
+		Expect(ns.Labels).NotTo(HaveKey("istio.io/use-waypoint"))
+		Expect(ns.Labels).NotTo(HaveKey("istio.io/use-waypoint-namespace"))
+		Expect(ns.Labels).NotTo(HaveKey("istio.io/ingress-use-waypoint"))
 
 		// Selector-less mirror Service named by the chart convention.
 		svc := &corev1.Service{}
