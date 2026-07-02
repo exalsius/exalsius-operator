@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/exalsius/exalsius-operator/compare/v0.11.1...v0.11.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* configurable prerequisite namespace with singleton conflict policy ([#164](https://github.com/exalsius/exalsius-operator/issues/164)) ([66c04b8](https://github.com/exalsius/exalsius-operator/commit/66c04b8f00bf0e895ca944df0b1f10eb8d60fc62))
+
 ## [0.11.1](https://github.com/exalsius/exalsius-operator/compare/v0.11.0...v0.11.1) (2026-07-01)
 
 
