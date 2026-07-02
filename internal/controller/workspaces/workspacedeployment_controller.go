@@ -743,6 +743,20 @@ func (r *WorkspaceDeploymentReconciler) reconcilePrerequisites(
 		_ = r.Status().Update(ctx, wsd)
 		return ctrl.Result{}, true, nil
 
+	case PrerequisitesVerdictConflict:
+		conflict := firstFailedPrerequisite(statuses)
+		msg := conflict.Message
+		r.markFailed(ctx, wsd, workspacesv1.ReasonPrerequisiteNamespaceConflict, msg)
+		setCondition(&wsd.Status, metav1.Condition{
+			Type:               workspacesv1.ConditionPrerequisitesMet,
+			Status:             metav1.ConditionFalse,
+			Reason:             workspacesv1.ReasonPrerequisiteNamespaceConflict,
+			Message:            msg,
+			ObservedGeneration: wsd.Generation,
+		})
+		_ = r.Status().Update(ctx, wsd)
+		return ctrl.Result{}, true, nil
+
 	case PrerequisitesVerdictFailed:
 		failed := firstFailedPrerequisite(statuses)
 		msg := fmt.Sprintf("Prerequisite %q failed: %s", failed.Name, failed.Message)

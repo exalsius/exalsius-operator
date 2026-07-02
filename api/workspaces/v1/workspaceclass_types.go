@@ -292,6 +292,18 @@ type ResourceInjectionMap struct {
 type PrerequisiteSpec struct {
 	// ServiceTemplate references the prerequisite ServiceTemplate.
 	ServiceTemplate ServiceTemplateRef `json:"serviceTemplate"`
+	// Namespace is the target namespace on the child cluster for this shared
+	// prerequisite install. A prerequisite is a per-cluster singleton, so this
+	// namespace is a cluster-global property even though it is authored per
+	// class. When unset, the install lands in "default" and the class accepts
+	// whatever namespace another provider (a colony service or another class's
+	// install) already placed the prerequisite in; when set explicitly, the
+	// namespace must match wherever the singleton actually lives or the
+	// WorkspaceDeployment fails with a namespace conflict (ADR-0007).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Namespace string `json:"namespace,omitempty"`
 	// Values are optional Helm value overrides applied when installing this
 	// prerequisite. When nil, chart defaults are used.
 	// +optional

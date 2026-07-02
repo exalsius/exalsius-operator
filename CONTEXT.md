@@ -29,6 +29,9 @@ A fixed range of TCP ports on a tenant's gateway, reserved for non-HTTP workspac
 ### Workspace Namespace
 The dedicated namespace a workspace's workload runs in on its Child Cluster (`ws-<workspace-name>`). One per workspace — the unit of isolation, mesh visibility, and cleanup. Unique across a tenant's entire mesh by construction. Prerequisites do not live in Workspace Namespaces; they are cluster-local shared infrastructure.
 
+### Prerequisite
+A piece of cluster-local shared infrastructure — an operator or stack (e.g. `slurm-operator`, `llm-d-stack`) — that must be healthy on a Child Cluster before a workspace of a given WorkspaceClass can deploy. Declared on the WorkspaceClass (never on the WorkspaceDeployment) as a reference to a ServiceTemplate. A prerequisite is a **per-cluster singleton**: installed at most once per Child Cluster and shared by every workspace that needs it, regardless of how many WorkspaceClasses or WorkspaceDeployments reference it. It may instead be satisfied by the Colony (a service already present on the ClusterDeployment) rather than installed by the workspace controller. Because it is a singleton, the namespace it lives in is a **cluster-global property** even though each WorkspaceClass declares it: two classes that name the same prerequisite in different namespaces are in conflict, since the shared install can occupy only one namespace.
+
 ### Colony
 A logical grouping of Kubernetes clusters managed together, potentially spanning cloud providers. Owns one or more ClusterDeployments via k0rdent.
 

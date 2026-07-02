@@ -119,6 +119,11 @@ spec:
   prerequisites:
     - serviceTemplate:
         name: slurm-operator
+      # Install this shared prerequisite into its own namespace on the child
+      # cluster (created automatically). A prerequisite is a per-cluster
+      # singleton, so this namespace is cluster-global: another class naming
+      # slurm-operator in a different namespace would conflict (ADR-0007).
+      namespace: slurm-system
   accessEndpoints:
     - name: login
       protocol: SSH

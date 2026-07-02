@@ -183,6 +183,169 @@ var _ = Describe("Prerequisite auto-install", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	It("should install a prereq into the namespace declared on the class and report it", func() {
+		wsc := makeClass("nsx-class", "nsx-prereq")
+		wsc.Spec.Prerequisites[0].Namespace = "monitoring"
+		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCD("nsx-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("nsx-cd", "default")
+		wsd := makeWSD("nsx-wsd", "nsx-class", "nsx-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		ssKey := client.ObjectKey{Name: "wsprereq-nsx-cd-nsx-prereq", Namespace: "default"}
+		Eventually(func(g Gomega) {
+			ss := &k0rdentv1beta1.ServiceSet{}
+			g.Expect(k8sClient.Get(ctx, ssKey, ss)).To(Succeed())
+			g.Expect(ss.Spec.Services).To(HaveLen(1))
+			g.Expect(ss.Spec.Services[0].Namespace).To(Equal("monitoring"))
+			g.Expect(ss.Spec.Services[0].HelmOptions).NotTo(BeNil())
+			g.Expect(ss.Spec.Services[0].HelmOptions.InstallOptions).NotTo(BeNil())
+			g.Expect(ss.Spec.Services[0].HelmOptions.InstallOptions.CreateNamespace).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Prerequisites).To(HaveLen(1))
+			g.Expect(fetched.Status.Prerequisites[0].Namespace).To(Equal("monitoring"))
+		}, timeout, interval).Should(Succeed())
+	})
+
+	It("should fail with a namespace conflict when an explicit namespace disagrees with the existing install", func() {
+		Expect(k8sClient.Create(ctx, makeCD("conf-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("conf-cd", "default")
+
+		// Incumbent shared prereq SS already pins the template to ns-a.
+		incumbent := &k0rdentv1beta1.ServiceSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "wsprereq-conf-cd-conf-prereq",
+				Namespace: "default",
+				Labels: map[string]string{
+					labelPrerequisiteRole:     labelPrerequisiteRoleValue,
+					labelPrerequisiteCluster:  "conf-cd",
+					labelPrerequisiteTemplate: "conf-prereq",
+				},
+			},
+			Spec: k0rdentv1beta1.ServiceSetSpec{
+				Cluster:  "conf-cd",
+				Provider: k0rdentv1beta1.StateManagementProviderConfig{Name: defaultStateManagementProvider},
+				Services: []k0rdentv1beta1.ServiceWithValues{{
+					Name: "conf-prereq", Namespace: "ns-a", Template: "conf-prereq",
+				}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, incumbent)).To(Succeed())
+
+		// A class explicitly asks for ns-b — a conflict with the incumbent.
+		wsc := makeClass("conf-class", "conf-prereq")
+		wsc.Spec.Prerequisites[0].Namespace = "ns-b"
+		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
+		wsd := makeWSD("conf-wsd", "conf-class", "conf-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseFailed))
+			g.Expect(fetched.Status.Message).To(ContainSubstring("ns-a"))
+			g.Expect(fetched.Status.Message).To(ContainSubstring("ns-b"))
+			cond := findCondition(fetched.Status.Conditions, workspacesv1.ConditionPrerequisitesMet)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Reason).To(Equal(workspacesv1.ReasonPrerequisiteNamespaceConflict))
+			g.Expect(fetched.Status.Prerequisites).To(HaveLen(1))
+			g.Expect(fetched.Status.Prerequisites[0].Phase).To(Equal(workspacesv1.PrerequisitePhaseFailed))
+			g.Expect(fetched.Status.Prerequisites[0].Namespace).To(Equal("ns-a"))
+		}, timeout, interval).Should(Succeed())
+	})
+
+	It("should accept the incumbent namespace when the class leaves namespace unset", func() {
+		Expect(k8sClient.Create(ctx, makeCD("perm-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("perm-cd", "default")
+
+		ssKey := client.ObjectKey{Name: "wsprereq-perm-cd-perm-prereq", Namespace: "default"}
+		incumbent := &k0rdentv1beta1.ServiceSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ssKey.Name,
+				Namespace: "default",
+				Labels: map[string]string{
+					labelPrerequisiteRole:     labelPrerequisiteRoleValue,
+					labelPrerequisiteCluster:  "perm-cd",
+					labelPrerequisiteTemplate: "perm-prereq",
+				},
+			},
+			Spec: k0rdentv1beta1.ServiceSetSpec{
+				Cluster:  "perm-cd",
+				Provider: k0rdentv1beta1.StateManagementProviderConfig{Name: defaultStateManagementProvider},
+				Services: []k0rdentv1beta1.ServiceWithValues{{
+					Name: "perm-prereq", Namespace: "ns-a", Template: "perm-prereq",
+				}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, incumbent)).To(Succeed())
+		patchSSStatus(ssKey, "perm-prereq", k0rdentv1beta1.ServiceStateDeployed, "")
+
+		// Class leaves prereq namespace unset — must accept ns-a, not conflict.
+		wsc := makeClass("perm-class", "perm-prereq")
+		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
+		wsd := makeWSD("perm-wsd", "perm-class", "perm-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseDeploying))
+			g.Expect(fetched.Status.Prerequisites).To(HaveLen(1))
+			g.Expect(fetched.Status.Prerequisites[0].Phase).To(Equal(workspacesv1.PrerequisitePhaseSatisfied))
+			g.Expect(fetched.Status.Prerequisites[0].Namespace).To(Equal("ns-a"))
+		}, timeout, interval).Should(Succeed())
+	})
+
+	It("should fail with a conflict when an explicit namespace disagrees with a colony-provided prereq", func() {
+		wsc := makeClass("colconf-class", "colconf-prereq")
+		wsc.Spec.Prerequisites[0].Namespace = "ns-b"
+		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
+		cd := makeCD("colconf-cd")
+		Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+		ensureChildKubeconfigSecret(cd.Name, cd.Namespace)
+
+		// Colony already deployed the prereq in ns-a.
+		Eventually(func(g Gomega) {
+			fresh := &k0rdentv1beta1.ClusterDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), fresh)).To(Succeed())
+			now := metav1.Now()
+			fresh.Status.Services = []k0rdentv1beta1.ServiceState{{
+				Name: "colconf-svc", Namespace: "ns-a",
+				Template: "colconf-prereq", State: k0rdentv1beta1.ServiceStateDeployed,
+				Type: "Helm", LastStateTransitionTime: &now,
+			}}
+			g.Expect(k8sClient.Status().Update(ctx, fresh)).To(Succeed())
+		}, timeout, interval).Should(Succeed())
+
+		wsd := makeWSD("colconf-wsd", "colconf-class", "colconf-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseFailed))
+			g.Expect(fetched.Status.Message).To(ContainSubstring("ns-a"))
+			g.Expect(fetched.Status.Message).To(ContainSubstring("ns-b"))
+			cond := findCondition(fetched.Status.Conditions, workspacesv1.ConditionPrerequisitesMet)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Reason).To(Equal(workspacesv1.ReasonPrerequisiteNamespaceConflict))
+			g.Expect(fetched.Status.Prerequisites).To(HaveLen(1))
+			g.Expect(fetched.Status.Prerequisites[0].Source).To(Equal(workspacesv1.PrerequisiteSourceColony))
+			g.Expect(fetched.Status.Prerequisites[0].Namespace).To(Equal("ns-a"))
+		}, timeout, interval).Should(Succeed())
+
+		// No wsprereq SS should have been created for the conflicting prereq.
+		ss := &k0rdentv1beta1.ServiceSet{}
+		err := k8sClient.Get(ctx, client.ObjectKey{
+			Name: "wsprereq-colconf-cd-colconf-prereq", Namespace: "default",
+		}, ss)
+		Expect(err).To(HaveOccurred())
+	})
+
 	It("should fail loudly when versionConstraint is set on a prereq", func() {
 		wsc := &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: "vc-class"},
