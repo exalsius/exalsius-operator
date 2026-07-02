@@ -414,9 +414,29 @@ func prerequisiteNamespaceConflict(explicitNS, incumbentNS string) bool {
 	return explicitNS != "" && incumbentNS != "" && incumbentNS != explicitNS
 }
 
+// prerequisiteConflictMsgFragment is an invariant substring of every namespace
+// conflict message. Shared by the builder and the finder so a conflict-failed
+// prerequisite can be told apart from an ordinarily-failed one without matching
+// on a full, human-facing string.
+const prerequisiteConflictMsgFragment = " is already installed in namespace "
+
 // prerequisiteConflictMessage describes a namespace conflict for the WSD status.
 func prerequisiteConflictMessage(template, incumbentNS, source, requestedNS string) string {
 	return fmt.Sprintf(
-		"prerequisite %q is already installed in namespace %q (source: %s); this class requests namespace %q",
-		template, incumbentNS, source, requestedNS)
+		"prerequisite %q%s%q (source: %s); this class requests namespace %q",
+		template, prerequisiteConflictMsgFragment, incumbentNS, source, requestedNS)
+}
+
+// firstConflictPrerequisite returns the first prerequisite that failed due to a
+// namespace conflict. Distinct from firstFailedPrerequisite: when a conflict
+// coexists with an ordinary failure, the conflict is the actionable config
+// error whose message the WSD must report (ADR-0007).
+func firstConflictPrerequisite(statuses []workspacesv1.PrerequisiteStatus) (workspacesv1.PrerequisiteStatus, bool) {
+	for _, s := range statuses {
+		if s.Phase == workspacesv1.PrerequisitePhaseFailed &&
+			strings.Contains(s.Message, prerequisiteConflictMsgFragment) {
+			return s, true
+		}
+	}
+	return workspacesv1.PrerequisiteStatus{}, false
 }

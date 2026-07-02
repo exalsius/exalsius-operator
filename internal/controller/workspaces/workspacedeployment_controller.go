@@ -744,7 +744,12 @@ func (r *WorkspaceDeploymentReconciler) reconcilePrerequisites(
 		return ctrl.Result{}, true, nil
 
 	case PrerequisitesVerdictConflict:
-		conflict := firstFailedPrerequisite(statuses)
+		// Report the conflict specifically — not merely the first failed prereq,
+		// which may be an unrelated ordinary failure (ADR-0007).
+		conflict, ok := firstConflictPrerequisite(statuses)
+		if !ok {
+			conflict = firstFailedPrerequisite(statuses)
+		}
 		msg := conflict.Message
 		r.markFailed(ctx, wsd, workspacesv1.ReasonPrerequisiteNamespaceConflict, msg)
 		setCondition(&wsd.Status, metav1.Condition{

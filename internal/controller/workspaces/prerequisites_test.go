@@ -346,6 +346,84 @@ var _ = Describe("Prerequisite auto-install", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	It("should report the conflict message when another prereq also failed", func() {
+		Expect(k8sClient.Create(ctx, makeCD("multi-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("multi-cd", "default")
+
+		// Prereq A: an ordinary install failure, listed first.
+		failKey := client.ObjectKey{Name: "wsprereq-multi-cd-afail", Namespace: "default"}
+		failSS := &k0rdentv1beta1.ServiceSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: failKey.Name, Namespace: "default",
+				Labels: map[string]string{
+					labelPrerequisiteRole:     labelPrerequisiteRoleValue,
+					labelPrerequisiteCluster:  "multi-cd",
+					labelPrerequisiteTemplate: "afail",
+				},
+			},
+			Spec: k0rdentv1beta1.ServiceSetSpec{
+				Cluster:  "multi-cd",
+				Provider: k0rdentv1beta1.StateManagementProviderConfig{Name: defaultStateManagementProvider},
+				Services: []k0rdentv1beta1.ServiceWithValues{{
+					Name: "afail", Namespace: "default", Template: "afail",
+				}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, failSS)).To(Succeed())
+		patchSSStatus(failKey, "afail", k0rdentv1beta1.ServiceStateFailed, "chart boom")
+
+		// Prereq B: incumbent in ns-a, but the class asks for ns-b — a conflict.
+		confSS := &k0rdentv1beta1.ServiceSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "wsprereq-multi-cd-bconf", Namespace: "default",
+				Labels: map[string]string{
+					labelPrerequisiteRole:     labelPrerequisiteRoleValue,
+					labelPrerequisiteCluster:  "multi-cd",
+					labelPrerequisiteTemplate: "bconf",
+				},
+			},
+			Spec: k0rdentv1beta1.ServiceSetSpec{
+				Cluster:  "multi-cd",
+				Provider: k0rdentv1beta1.StateManagementProviderConfig{Name: defaultStateManagementProvider},
+				Services: []k0rdentv1beta1.ServiceWithValues{{
+					Name: "bconf", Namespace: "ns-a", Template: "bconf",
+				}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, confSS)).To(Succeed())
+
+		wsc := &workspacesv1.WorkspaceClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "multi-class"},
+			Spec: workspacesv1.WorkspaceClassSpec{
+				DisplayName:     "multi",
+				ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "ws-template"},
+				DefaultResources: workspacesv1.WorkspaceResourceSpec{
+					PerReplica: workspacesv1.ResourceRequirements{CPU: resourceQuantityPtr("100m")},
+				},
+				Prerequisites: []workspacesv1.PrerequisiteSpec{
+					{ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "afail"}},
+					{ServiceTemplate: workspacesv1.ServiceTemplateRef{Name: "bconf"}, Namespace: "ns-b"},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, wsc)).To(Succeed())
+		wsd := makeWSD("multi-wsd", "multi-class", "multi-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			fetched := &workspacesv1.WorkspaceDeployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), fetched)).To(Succeed())
+			g.Expect(fetched.Status.Phase).To(Equal(workspacesv1.WorkspaceDeploymentPhaseFailed))
+			cond := findCondition(fetched.Status.Conditions, workspacesv1.ConditionPrerequisitesMet)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Reason).To(Equal(workspacesv1.ReasonPrerequisiteNamespaceConflict))
+			// The reported message must be the conflict, not the unrelated failure.
+			g.Expect(fetched.Status.Message).To(ContainSubstring("ns-a"))
+			g.Expect(fetched.Status.Message).To(ContainSubstring("ns-b"))
+			g.Expect(fetched.Status.Message).NotTo(ContainSubstring("chart boom"))
+		}, timeout, interval).Should(Succeed())
+	})
+
 	It("should fail loudly when versionConstraint is set on a prereq", func() {
 		wsc := &workspacesv1.WorkspaceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: "vc-class"},
