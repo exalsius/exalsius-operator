@@ -28,7 +28,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.25.0 // indirect
 	github.com/fluxcd/source-controller/api v1.8.0
 	github.com/google/btree v1.1.3 // indirect
-	github.com/projectsveltos/addon-controller v1.1.1 // indirect
+	github.com/projectsveltos/addon-controller v1.1.1
 	github.com/projectsveltos/libsveltos v1.1.1 // indirect
 	github.com/vmware-tanzu/velero v1.17.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect

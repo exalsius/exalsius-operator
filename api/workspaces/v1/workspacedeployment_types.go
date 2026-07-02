@@ -124,6 +124,11 @@ type PrerequisiteStatus struct {
 	// Source identifies who is providing the prerequisite.
 	// +optional
 	Source PrerequisiteSource `json:"source,omitempty"`
+	// Namespace is where the shared prerequisite install actually resides on
+	// the child cluster: the incumbent's namespace when one exists, otherwise
+	// the namespace this class would install into.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 	// Message is a human-readable detail (e.g., the underlying failure reason).
 	// +optional
 	Message string `json:"message,omitempty"`
@@ -257,15 +262,21 @@ const (
 	ReasonInternalError             = "InternalError"
 	ReasonSuspended                 = "Suspended"
 	ReasonInvalidPrerequisite       = "InvalidPrerequisite"
-	ReasonResourcesAvailable        = "ResourcesAvailable"
-	ReasonInsufficientResources     = "InsufficientResources"
-	ReasonFeasibilityUnknown        = "FeasibilityUnknown"
-	ReasonResourcesInjected         = "ResourcesInjected"
-	ReasonUserPathsOverwritten      = "UserPathsOverwritten"
-	ReasonInvalidWorkspaceClass     = "InvalidWorkspaceClass"
-	ReasonRoutesReady               = "RoutesReady"
-	ReasonRoutingInProgress         = "RoutingInProgress"
-	ReasonRoutingError              = "RoutingError"
+	// ReasonPrerequisiteNamespaceConflict signals that a class explicitly
+	// requested a prerequisite namespace that disagrees with where the shared
+	// singleton already lives (installed by another class's ServiceSet or
+	// provided by the colony). Terminal: an admin resolves it by aligning the
+	// class with the incumbent namespace (ADR-0007).
+	ReasonPrerequisiteNamespaceConflict = "PrerequisiteNamespaceConflict"
+	ReasonResourcesAvailable            = "ResourcesAvailable"
+	ReasonInsufficientResources         = "InsufficientResources"
+	ReasonFeasibilityUnknown            = "FeasibilityUnknown"
+	ReasonResourcesInjected             = "ResourcesInjected"
+	ReasonUserPathsOverwritten          = "UserPathsOverwritten"
+	ReasonInvalidWorkspaceClass         = "InvalidWorkspaceClass"
+	ReasonRoutesReady                   = "RoutesReady"
+	ReasonRoutingInProgress             = "RoutingInProgress"
+	ReasonRoutingError                  = "RoutingError"
 	// ReasonRoutingInfraNotReady signals that the tenant's routing
 	// infrastructure (regional cluster, gateway, listeners) is missing or
 	// unprogrammed — an admin-fixable condition (remediation: contact_admin).

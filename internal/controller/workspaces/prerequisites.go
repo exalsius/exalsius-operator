@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	k0rdentv1beta1 "github.com/K0rdent/kcm/api/v1beta1"
+	addoncontrollerv1beta1 "github.com/projectsveltos/addon-controller/api/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,7 +43,23 @@ const (
 	labelPrerequisiteCluster     = "workspaces.exalsius.ai/cluster-deployment"
 	labelPrerequisiteTemplate    = "workspaces.exalsius.ai/template"
 	prerequisiteServiceSetPrefix = "wsprereq-"
+
+	// defaultPrerequisiteNamespace is where a prerequisite lands on the child
+	// cluster when its class does not declare a namespace. Defaulted in code
+	// (not via a CRD default) so an unset namespace stays distinguishable from
+	// an explicit "default" — that distinction drives opt-in conflict
+	// strictness (ADR-0007).
+	defaultPrerequisiteNamespace = "default"
 )
+
+// effectivePrerequisiteNamespace returns the namespace the prerequisite should
+// install into: the class's explicit namespace, or "default" when unset.
+func effectivePrerequisiteNamespace(prereq workspacesv1.PrerequisiteSpec) string {
+	if prereq.Namespace != "" {
+		return prereq.Namespace
+	}
+	return defaultPrerequisiteNamespace
+}
 
 // labelValueRE constrains a Kubernetes label value: up to 63 chars,
 // alphanumeric or [-_.] in the middle, alphanumeric at the boundaries.
@@ -134,6 +151,11 @@ func ensurePrerequisiteServiceSet(
 	helmOptions := &k0rdentv1beta1.ServiceHelmOptions{
 		Wait:    ptrBool(true),
 		Timeout: &metav1.Duration{Duration: parseDuration(timeout)},
+		// The prereq's target namespace may not exist on the child cluster
+		// (prereqs are not mesh participants, so unlike workspace namespaces
+		// they are not pre-created by the reconciler). Let the install create
+		// it (ADR-0007).
+		InstallOptions: &addoncontrollerv1beta1.HelmInstallOptions{CreateNamespace: true},
 	}
 
 	values := ""
@@ -153,7 +175,7 @@ func ensurePrerequisiteServiceSet(
 
 	svc := k0rdentv1beta1.ServiceWithValues{
 		Name:        sanitizeServiceEntryName(templateName),
-		Namespace:   "default",
+		Namespace:   effectivePrerequisiteNamespace(prereq),
 		Template:    templateName,
 		Values:      values,
 		HelmOptions: helmOptions,
@@ -232,14 +254,19 @@ func evaluatePrerequisites(
 	}
 	colonyDeployed := map[string]bool{}
 	colonyKnown := map[string]bool{}
+	colonyNamespace := map[string]string{}
 	for _, svc := range cd.Status.Services {
 		colonyKnown[svc.Template] = true
+		colonyNamespace[svc.Template] = svc.Namespace
 		if svc.State == k0rdentv1beta1.ServiceStateDeployed {
 			colonyDeployed[svc.Template] = true
 		}
 	}
 	for _, svc := range cd.Spec.ServiceSpec.Services {
 		colonyKnown[svc.Template] = true
+		if _, ok := colonyNamespace[svc.Template]; !ok {
+			colonyNamespace[svc.Template] = svc.Namespace
+		}
 	}
 
 	overall = PrerequisitesVerdictSatisfied
@@ -256,6 +283,7 @@ func evaluatePrerequisites(
 		}
 
 		st := workspacesv1.PrerequisiteStatus{Name: prereq.ServiceTemplate.Name}
+		explicitNS := prereq.Namespace
 
 		// (1) Our own prereq SS takes priority.
 		ss := &k0rdentv1beta1.ServiceSet{}
@@ -264,6 +292,14 @@ func evaluatePrerequisites(
 		switch {
 		case err == nil:
 			st.Source = workspacesv1.PrerequisiteSourceWorkspace
+			st.Namespace = readPrerequisiteSSNamespace(ss, prereq.ServiceTemplate.Name)
+			if prerequisiteNamespaceConflict(explicitNS, st.Namespace) {
+				st.Phase = workspacesv1.PrerequisitePhaseFailed
+				st.Message = prerequisiteConflictMessage(
+					prereq.ServiceTemplate.Name, st.Namespace, "workspace", explicitNS)
+				overall = PrerequisitesVerdictConflict
+				break
+			}
 			ssState, ssMsg := readPrerequisiteSSState(ss, prereq.ServiceTemplate.Name)
 			switch ssState {
 			case k0rdentv1beta1.ServiceStateDeployed:
@@ -271,10 +307,12 @@ func evaluatePrerequisites(
 			case k0rdentv1beta1.ServiceStateFailed:
 				st.Phase = workspacesv1.PrerequisitePhaseFailed
 				st.Message = ssMsg
-				overall = PrerequisitesVerdictFailed
+				if overall != PrerequisitesVerdictConflict {
+					overall = PrerequisitesVerdictFailed
+				}
 			default:
 				st.Phase = workspacesv1.PrerequisitePhaseInstalling
-				if overall != PrerequisitesVerdictFailed {
+				if overall != PrerequisitesVerdictFailed && overall != PrerequisitesVerdictConflict {
 					overall = PrerequisitesVerdictInstalling
 				}
 			}
@@ -282,19 +320,37 @@ func evaluatePrerequisites(
 			// (2) Colony-managed satisfaction — only when status confirms.
 			if colonyDeployed[prereq.ServiceTemplate.Name] {
 				st.Source = workspacesv1.PrerequisiteSourceColony
+				st.Namespace = colonyNamespace[prereq.ServiceTemplate.Name]
+				if prerequisiteNamespaceConflict(explicitNS, st.Namespace) {
+					st.Phase = workspacesv1.PrerequisitePhaseFailed
+					st.Message = prerequisiteConflictMessage(
+						prereq.ServiceTemplate.Name, st.Namespace, "colony", explicitNS)
+					overall = PrerequisitesVerdictConflict
+					break
+				}
 				st.Phase = workspacesv1.PrerequisitePhaseSatisfied
 			} else if colonyKnown[prereq.ServiceTemplate.Name] {
 				// Colony is mid-install; wait rather than racing it.
 				st.Source = workspacesv1.PrerequisiteSourceColony
+				st.Namespace = colonyNamespace[prereq.ServiceTemplate.Name]
+				if prerequisiteNamespaceConflict(explicitNS, st.Namespace) {
+					st.Phase = workspacesv1.PrerequisitePhaseFailed
+					st.Message = prerequisiteConflictMessage(
+						prereq.ServiceTemplate.Name, st.Namespace, "colony", explicitNS)
+					overall = PrerequisitesVerdictConflict
+					break
+				}
 				st.Phase = workspacesv1.PrerequisitePhaseInstalling
-				if overall != PrerequisitesVerdictFailed {
+				if overall != PrerequisitesVerdictFailed && overall != PrerequisitesVerdictConflict {
 					overall = PrerequisitesVerdictInstalling
 				}
 			} else {
-				// (3) Nobody is providing it — we install via a wsprereq SS.
+				// (3) Nobody is providing it — we install via a wsprereq SS
+				// into the class's effective namespace.
 				st.Source = workspacesv1.PrerequisiteSourceWorkspace
+				st.Namespace = effectivePrerequisiteNamespace(prereq)
 				st.Phase = workspacesv1.PrerequisitePhasePending
-				if overall != PrerequisitesVerdictFailed {
+				if overall != PrerequisitesVerdictFailed && overall != PrerequisitesVerdictConflict {
 					overall = PrerequisitesVerdictMissing
 				}
 			}
@@ -319,6 +375,18 @@ func readPrerequisiteSSState(ss *k0rdentv1beta1.ServiceSet, templateName string)
 	return "", ""
 }
 
+// readPrerequisiteSSNamespace returns the namespace the shared install is
+// pinned to, read from the ServiceSet spec (baked in at creation, so it is
+// available immediately — before k0rdent reports status).
+func readPrerequisiteSSNamespace(ss *k0rdentv1beta1.ServiceSet, templateName string) string {
+	for _, svc := range ss.Spec.Services {
+		if svc.Template == templateName {
+			return svc.Namespace
+		}
+	}
+	return ""
+}
+
 // PrerequisitesVerdict is the overall conclusion of evaluatePrerequisites.
 type PrerequisitesVerdict int
 
@@ -333,4 +401,42 @@ const (
 	PrerequisitesVerdictFailed
 	// At least one prereq is configured invalidly (e.g. versionConstraint).
 	PrerequisitesVerdictInvalid
+	// At least one prereq's explicitly-requested namespace disagrees with where
+	// the shared singleton already lives; fail-fast the WSD (ADR-0007).
+	PrerequisitesVerdictConflict
 )
+
+// prerequisiteNamespaceConflict reports whether an explicitly-requested
+// namespace disagrees with where the shared prerequisite singleton already
+// lives. An unset request (explicitNS == "") is permissive — it accepts
+// whatever namespace the incumbent occupies (ADR-0007, opt-in strictness).
+func prerequisiteNamespaceConflict(explicitNS, incumbentNS string) bool {
+	return explicitNS != "" && incumbentNS != "" && incumbentNS != explicitNS
+}
+
+// prerequisiteConflictMsgFragment is an invariant substring of every namespace
+// conflict message. Shared by the builder and the finder so a conflict-failed
+// prerequisite can be told apart from an ordinarily-failed one without matching
+// on a full, human-facing string.
+const prerequisiteConflictMsgFragment = " is already installed in namespace "
+
+// prerequisiteConflictMessage describes a namespace conflict for the WSD status.
+func prerequisiteConflictMessage(template, incumbentNS, source, requestedNS string) string {
+	return fmt.Sprintf(
+		"prerequisite %q%s%q (source: %s); this class requests namespace %q",
+		template, prerequisiteConflictMsgFragment, incumbentNS, source, requestedNS)
+}
+
+// firstConflictPrerequisite returns the first prerequisite that failed due to a
+// namespace conflict. Distinct from firstFailedPrerequisite: when a conflict
+// coexists with an ordinary failure, the conflict is the actionable config
+// error whose message the WSD must report (ADR-0007).
+func firstConflictPrerequisite(statuses []workspacesv1.PrerequisiteStatus) (workspacesv1.PrerequisiteStatus, bool) {
+	for _, s := range statuses {
+		if s.Phase == workspacesv1.PrerequisitePhaseFailed &&
+			strings.Contains(s.Message, prerequisiteConflictMsgFragment) {
+			return s, true
+		}
+	}
+	return workspacesv1.PrerequisiteStatus{}, false
+}

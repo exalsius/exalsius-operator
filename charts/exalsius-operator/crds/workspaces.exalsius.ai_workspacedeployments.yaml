@@ -545,6 +545,12 @@ spec:
                     name:
                       description: Name is the ServiceTemplate name from WorkspaceClass.spec.prerequisites.
                       type: string
+                    namespace:
+                      description: |-
+                        Namespace is where the shared prerequisite install actually resides on
+                        the child cluster: the incumbent's namespace when one exists, otherwise
+                        the namespace this class would install into.
+                      type: string
                     phase:
                       description: Phase is the current state of this prerequisite.
                       enum:
