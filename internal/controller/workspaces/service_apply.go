@@ -178,6 +178,51 @@ func ensureWorkspaceServiceSetDeleted(
 	return false, nil
 }
 
+// forceDeleteWorkspaceServiceSet removes the workspace's ServiceSet without
+// waiting for k0rdent to finish its Helm uninstall. Used only when the target
+// cluster is gone: k0rdent drives the uninstall through Sveltos against the
+// child cluster, which can never complete once that cluster no longer exists,
+// so the ServiceSet's finalizer would linger forever and wedge the
+// WorkspaceDeployment's own deletion. The Helm release is moot with the cluster
+// destroyed, so we drop the ServiceSet's finalizers to let it be collected.
+func forceDeleteWorkspaceServiceSet(
+	ctx context.Context,
+	c client.Client,
+	wsd *workspacesv1.WorkspaceDeployment,
+) error {
+	log := log.FromContext(ctx)
+
+	ssName := serviceSetName(wsd)
+	cdRef := wsd.Spec.ClusterDeploymentRef
+
+	ss := &k0rdentv1beta1.ServiceSet{}
+	err := c.Get(ctx, client.ObjectKey{Name: ssName, Namespace: cdRef.Namespace}, ss)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get ServiceSet: %w", err)
+	}
+
+	if ss.DeletionTimestamp.IsZero() {
+		if err := c.Delete(ctx, ss); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete ServiceSet: %w", err)
+		}
+	}
+
+	// Drop finalizers so the ServiceSet is garbage-collected even though
+	// k0rdent's uninstall can never run against the vanished cluster.
+	if len(ss.Finalizers) > 0 {
+		patch := client.MergeFrom(ss.DeepCopy())
+		ss.Finalizers = nil
+		if err := c.Patch(ctx, ss, patch); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to clear ServiceSet finalizers: %w", err)
+		}
+		log.Info("Force-removed workspace ServiceSet finalizers (target cluster gone)", "serviceSet", ssName)
+	}
+	return nil
+}
+
 func ptrBool(b bool) *bool {
 	return &b
 }

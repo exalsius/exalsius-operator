@@ -129,6 +129,12 @@ func (r *WorkspaceDeploymentReconciler) reconcileRoutes(
 // BEFORE the ServiceSet is deleted: kill the front door before the backend
 // disappears, and free provider-held resources (e.g. pool ports) first.
 // Returns done=false when cleanup must be retried.
+//
+// Route cleanup runs against the REGIONAL cluster, so an unreachable regional
+// cluster would otherwise retry forever and wedge deletion at step 1 — before
+// the child-side grace period downstream ever applies. Past
+// remoteCleanupGracePeriod the step is abandoned instead; the orphan route
+// sweeper reclaims whatever was left behind once the workspace is gone.
 func (r *WorkspaceDeploymentReconciler) cleanupRoutes(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,
@@ -151,6 +157,10 @@ func (r *WorkspaceDeploymentReconciler) cleanupRoutes(
 		ManagementClient: r.Client,
 		Scheme:           r.Scheme,
 	}); err != nil {
+		if r.remoteCleanupGraceExpired(wsd) {
+			r.abandonCleanup(ctx, wsd, "route cleanup", err)
+			return true
+		}
 		log.FromContext(ctx).Info("Failed to clean up workspace routes, retrying", "error", err.Error())
 		return false
 	}

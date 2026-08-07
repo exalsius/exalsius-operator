@@ -68,6 +68,26 @@ var _ = Describe("Deletion resilience", func() {
 		}, timeout, interval).Should(Succeed())
 	}
 
+	// expectAbandonEvent asserts the Warning event that is the only durable
+	// record of an abandoned cleanup step — the WSD itself is gone by then.
+	expectAbandonEvent := func(wsdName, step string) {
+		GinkgoHelper()
+		Eventually(func(g Gomega) {
+			evs := &corev1.EventList{}
+			g.Expect(k8sClient.List(ctx, evs, client.InNamespace("default"))).To(Succeed())
+			for _, ev := range evs.Items {
+				if ev.InvolvedObject.Name != wsdName ||
+					ev.Reason != workspacesv1.ReasonCleanupAbandoned {
+					continue
+				}
+				g.Expect(ev.Type).To(Equal(corev1.EventTypeWarning))
+				g.Expect(ev.Message).To(ContainSubstring(step))
+				return
+			}
+			g.Expect(false).To(BeTrue(), "no %s event for %s", workspacesv1.ReasonCleanupAbandoned, wsdName)
+		}, timeout, interval).Should(Succeed())
+	}
+
 	It("blocks deletion while route cleanup fails, holding the ServiceSet (ordering)", func() {
 		Expect(k8sClient.Create(ctx, makeClass("res-rt-class"))).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeCD("res-rt-cd"))).To(Succeed())
@@ -78,8 +98,10 @@ var _ = Describe("Deletion resilience", func() {
 		waitForDeploying(wsd)
 
 		// Route cleanup fails (e.g. regional cluster unreachable) — the CD
-		// still exists, so the operator must hold on, NOT give up: a
-		// time-boxed give-up would leak a pool port and a live route.
+		// still exists, so the operator holds on rather than giving up early:
+		// abandoning would leave a pool port and a live route behind. It gives
+		// up only past remoteCleanupGracePeriod (covered by its own spec
+		// below), which the default 10m keeps well clear of here.
 		testRouteProvider.setFailCleanup("res-rt-wsd", "regional unreachable")
 		Expect(k8sClient.Delete(ctx, wsd)).To(Succeed())
 
@@ -148,6 +170,107 @@ var _ = Describe("Deletion resilience", func() {
 			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), &workspacesv1.WorkspaceDeployment{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}, timeout, interval).Should(Succeed())
+	})
+
+	It("force-removes a finalizer-held ServiceSet and completes when the ClusterDeployment is gone", func() {
+		Expect(k8sClient.Create(ctx, makeClass("res-gone-class"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCD("res-gone-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("res-gone-cd", "default")
+
+		wsd := makeWSD("res-gone-wsd", "res-gone-class", "res-gone-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+		waitForDeploying(wsd)
+
+		// Simulate k0rdent holding the ServiceSet while it drives the Helm
+		// uninstall through Sveltos: a finalizer that never clears on its own.
+		ssKey := client.ObjectKey{Name: "wsd-res-gone-cd-res-gone-wsd", Namespace: "default"}
+		Eventually(func(g Gomega) {
+			ss := &k0rdentv1beta1.ServiceSet{}
+			g.Expect(k8sClient.Get(ctx, ssKey, ss)).To(Succeed())
+			ss.Finalizers = append(ss.Finalizers, "test.exalsius.ai/hold")
+			g.Expect(k8sClient.Update(ctx, ss)).To(Succeed())
+		}, timeout, interval).Should(Succeed())
+
+		// The child cluster is destroyed: its ClusterDeployment is gone, so
+		// k0rdent can never finish the uninstall and the finalizer is stuck.
+		Expect(k8sClient.Delete(ctx, makeCD("res-gone-cd"))).To(Succeed())
+		Eventually(func(g Gomega) {
+			err := k8sClient.Get(ctx, client.ObjectKey{Name: "res-gone-cd", Namespace: "default"}, &k0rdentv1beta1.ClusterDeployment{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+
+		Expect(k8sClient.Delete(ctx, wsd)).To(Succeed())
+
+		// Deletion completes: the ServiceSet is force-removed (finalizer dropped)
+		// and the WSD's own finalizer clears instead of wedging forever.
+		Eventually(func(g Gomega) {
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), &workspacesv1.WorkspaceDeployment{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			err = k8sClient.Get(ctx, ssKey, &k0rdentv1beta1.ServiceSet{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+	})
+
+	It("abandons namespace cleanup and completes once the child stays unreachable past the grace period", func() {
+		// Shorten the grace so the unreachable retry gives up within the test.
+		orig := remoteCleanupGracePeriod
+		remoteCleanupGracePeriod = 0
+		DeferCleanup(func() { remoteCleanupGracePeriod = orig })
+
+		Expect(k8sClient.Create(ctx, makeClass("res-grace-class"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCD("res-grace-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("res-grace-cd", "default")
+
+		wsd := makeWSD("res-grace-wsd", "res-grace-class", "res-grace-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+		waitForDeploying(wsd)
+
+		// Child unreachable (kubeconfig secret gone) while the CD still exists —
+		// the case a bounded retry must eventually give up on.
+		Expect(k8sClient.Delete(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "res-grace-cd-kubeconfig", Namespace: "default"},
+		})).To(Succeed())
+
+		Expect(k8sClient.Delete(ctx, wsd)).To(Succeed())
+
+		// Past the (zero) grace, namespace cleanup is abandoned and the WSD is
+		// deleted rather than looping forever against a child that never returns.
+		Eventually(func(g Gomega) {
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), &workspacesv1.WorkspaceDeployment{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+
+		expectAbandonEvent("res-grace-wsd", "workspace namespace cleanup")
+	})
+
+	It("abandons route cleanup and completes once the regional cluster stays unreachable past the grace period", func() {
+		// Route cleanup is step 1 and runs against the REGIONAL cluster, so
+		// without its own bound an unreachable regional wedges deletion before
+		// any child-side grace can apply.
+		orig := remoteCleanupGracePeriod
+		remoteCleanupGracePeriod = 0
+		DeferCleanup(func() { remoteCleanupGracePeriod = orig })
+
+		Expect(k8sClient.Create(ctx, makeClass("res-rtgrace-class"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCD("res-rtgrace-cd"))).To(Succeed())
+		ensureChildKubeconfigSecret("res-rtgrace-cd", "default")
+
+		wsd := makeWSD("res-rtgrace-wsd", "res-rtgrace-class", "res-rtgrace-cd")
+		Expect(k8sClient.Create(ctx, wsd)).To(Succeed())
+		waitForDeploying(wsd)
+
+		// Regional cluster unreachable for good — cleanup can never succeed.
+		testRouteProvider.setFailCleanup("res-rtgrace-wsd", "regional unreachable")
+		DeferCleanup(func() { testRouteProvider.clearFailCleanup("res-rtgrace-wsd") })
+
+		Expect(k8sClient.Delete(ctx, wsd)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wsd), &workspacesv1.WorkspaceDeployment{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, timeout, interval).Should(Succeed())
+
+		expectAbandonEvent("res-rtgrace-wsd", "route cleanup")
 	})
 
 	It("sweeps orphaned mirror namespaces and their TCPRoutes on the regional cluster", func() {
