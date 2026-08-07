@@ -938,9 +938,17 @@ func (r *WorkspaceDeploymentReconciler) checkServiceReadiness(ctx context.Contex
 // reconcileDelete handles finalizer cleanup during deletion, in order:
 // routes (provider cleanup) → ServiceSet (Helm uninstall via k0rdent/
 // Sveltos) → workspace namespace on the child cluster → finalizer removal.
-// The namespace step is skipped when
-// the target ClusterDeployment is gone or being torn down — the cluster's
-// destruction is the cleanup (ADR-0001).
+//
+// When the target cluster is gone (ClusterDeployment absent or being torn
+// down) the child cluster's destruction IS the cleanup: k0rdent can never
+// finish the ServiceSet's Helm uninstall against a cluster that no longer
+// exists, so we force-remove the ServiceSet instead of waiting on it and skip
+// child-side namespace cleanup.
+//
+// Steps that talk to a remote cluster which is merely unreachable (rather than
+// definitively gone) are bounded by remoteCleanupGracePeriod and then
+// abandoned with a Warning event. Between the two, no step can keep an
+// orphaned WorkspaceDeployment wedged in Deleting forever.
 func (r *WorkspaceDeploymentReconciler) reconcileDelete(ctx context.Context, wsd *workspacesv1.WorkspaceDeployment) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -963,22 +971,41 @@ func (r *WorkspaceDeploymentReconciler) reconcileDelete(ctx context.Context, wsd
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
-	// 2. Delete the workspace's ServiceSet and wait until it is fully gone.
-	// K0rdent garbage-collects the Sveltos Profile and Sveltos uninstalls the
-	// Helm release; touching the namespace earlier would race the uninstall.
-	ssGone, err := ensureWorkspaceServiceSetDeleted(ctx, r.Client, wsd)
+	// Is the target cluster gone? If so, child-dependent teardown can never
+	// complete and must be abandoned rather than waited on.
+	clusterGone, err := r.targetClusterGone(ctx, wsd)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if !ssGone {
-		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+
+	// 2. Remove the workspace's ServiceSet. K0rdent garbage-collects the
+	// Sveltos Profile and Sveltos uninstalls the Helm release; touching the
+	// namespace earlier would race the uninstall. When the cluster is gone the
+	// uninstall can never run, so force-remove the ServiceSet instead of
+	// waiting for it to drain.
+	if clusterGone {
+		if err := forceDeleteWorkspaceServiceSet(ctx, r.Client, wsd); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		ssGone, err := ensureWorkspaceServiceSetDeleted(ctx, r.Client, wsd)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !ssGone {
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
 	}
 
 	// 3. Delete the workspace namespace on the child cluster — Sveltos never
 	// removes it, and stale PVCs would resurrect state into a recreated
-	// same-name workspace.
-	if res, done, err := r.cleanupWorkspaceNamespace(ctx, wsd); err != nil || !done {
-		return res, err
+	// same-name workspace. Skipped when the cluster is gone: the namespace went
+	// with it.
+	if clusterGone {
+		log.Info("Target cluster is gone, skipping workspace namespace cleanup",
+			"clusterDeployment", wsd.Spec.ClusterDeploymentRef.Name)
+	} else if res, done := r.cleanupWorkspaceNamespace(ctx, wsd); !done {
+		return res, nil
 	}
 
 	// 4. Remove finalizer
@@ -990,48 +1017,113 @@ func (r *WorkspaceDeploymentReconciler) reconcileDelete(ctx context.Context, wsd
 	return ctrl.Result{}, nil
 }
 
-// cleanupWorkspaceNamespace removes the per-workspace namespace from the
-// child cluster. Returns done=true when cleanup is complete or rightly
-// skipped. Unreachable child clusters are retried for as long as the
-// ClusterDeployment exists — giving up early would silently leak the
-// namespace; once the CD is gone or deleting, teardown owns the cleanup.
-func (r *WorkspaceDeploymentReconciler) cleanupWorkspaceNamespace(
+// remoteCleanupGracePeriod bounds how long deletion keeps retrying a cleanup
+// step that depends on a remote cluster before abandoning it. It covers both
+// remote clusters deletion touches: the regional cluster (route cleanup) and
+// the child cluster (workspace namespace). It only applies while the remote is
+// merely unreachable — a kubeconfig secret that is gone, or a dead API — since
+// the definitive "child cluster gone" case is short-circuited immediately by
+// targetClusterGone. Past this window a WorkspaceDeployment whose remote
+// vanished can still be deleted instead of wedging in Deleting forever.
+//
+// A var (not a const) so tests can shorten it; not user-configurable.
+var remoteCleanupGracePeriod = 10 * time.Minute
+
+// targetClusterGone reports whether the WSD's target ClusterDeployment no
+// longer exists or is being torn down — in which case the child cluster is
+// (going) away and child-dependent teardown must be abandoned rather than
+// waited on.
+func (r *WorkspaceDeploymentReconciler) targetClusterGone(
 	ctx context.Context,
 	wsd *workspacesv1.WorkspaceDeployment,
-) (ctrl.Result, bool, error) {
-	log := log.FromContext(ctx)
+) (bool, error) {
 	cdRef := wsd.Spec.ClusterDeploymentRef
-
 	cd := &k0rdentv1beta1.ClusterDeployment{}
 	if err := r.Get(ctx, client.ObjectKey{Name: cdRef.Name, Namespace: cdRef.Namespace}, cd); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("Target ClusterDeployment gone, skipping workspace namespace cleanup",
-				"clusterDeployment", cdRef.Name)
-			return ctrl.Result{}, true, nil
+			return true, nil
 		}
-		return ctrl.Result{}, false, err
+		return false, err
 	}
-	if !cd.DeletionTimestamp.IsZero() {
-		log.Info("Target ClusterDeployment is being torn down, skipping workspace namespace cleanup",
-			"clusterDeployment", cdRef.Name)
-		return ctrl.Result{}, true, nil
+	return !cd.DeletionTimestamp.IsZero(), nil
+}
+
+// remoteCleanupGraceExpired reports whether deletion has been retrying
+// remote-cluster cleanup longer than remoteCleanupGracePeriod, measured from
+// the WSD's deletion timestamp.
+func (r *WorkspaceDeploymentReconciler) remoteCleanupGraceExpired(wsd *workspacesv1.WorkspaceDeployment) bool {
+	if wsd.DeletionTimestamp.IsZero() {
+		return false
 	}
+	return time.Since(wsd.DeletionTimestamp.Time) > remoteCleanupGracePeriod
+}
+
+// abandonCleanup gives up on a deletion step that has been failing against a
+// remote cluster past remoteCleanupGracePeriod, so the WorkspaceDeployment can
+// finish deleting instead of wedging. The Warning event is the only durable
+// record that resources may have been left behind — the object itself is about
+// to disappear, so status is not a usable channel here.
+func (r *WorkspaceDeploymentReconciler) abandonCleanup(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+	step string,
+	cause error,
+) {
+	msg := fmt.Sprintf(
+		"Abandoned %s for cluster %q after failing for %s; deleting anyway, leftover resources may need manual cleanup: %v",
+		step, wsd.Spec.ClusterDeploymentRef.Name, remoteCleanupGracePeriod, cause)
+	log.FromContext(ctx).Info(msg)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(wsd, nil, corev1.EventTypeWarning,
+			workspacesv1.ReasonCleanupAbandoned, "Delete", "%s", msg)
+	}
+}
+
+// cleanupWorkspaceNamespace removes the per-workspace namespace from the
+// child cluster. Returns done=true when cleanup is complete or rightly
+// abandoned. The caller only reaches here when the ClusterDeployment still
+// exists and is not being torn down (targetClusterGone handles that case).
+//
+// An unreachable child (kubeconfig secret gone, or a dead API surfacing as a
+// delete error) is retried until remoteCleanupGracePeriod elapses, then
+// abandoned so the WorkspaceDeployment can still be deleted rather than
+// retrying forever against a child that never comes back.
+// Never fails: every remote-side error is either retried or abandoned here,
+// so there is nothing left for the caller to decide.
+func (r *WorkspaceDeploymentReconciler) cleanupWorkspaceNamespace(
+	ctx context.Context,
+	wsd *workspacesv1.WorkspaceDeployment,
+) (ctrl.Result, bool) {
+	log := log.FromContext(ctx)
+	cdRef := wsd.Spec.ClusterDeploymentRef
 
 	childClient, err := getChildClusterClient(ctx, r.Client, wsd, r.Scheme)
 	if err != nil {
+		if r.remoteCleanupGraceExpired(wsd) {
+			r.abandonCleanup(ctx, wsd, "workspace namespace cleanup", err)
+			return ctrl.Result{}, true
+		}
 		log.Info("Child cluster unreachable, retrying workspace namespace cleanup",
 			"clusterDeployment", cdRef.Name, "error", err.Error())
-		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
 
 	done, err := deleteWorkspaceNamespace(ctx, childClient, wsd)
 	if err != nil {
-		return ctrl.Result{}, false, err
+		// A dead-but-reachable-secret child surfaces here. Bound the retries the
+		// same way so it cannot wedge deletion indefinitely.
+		if r.remoteCleanupGraceExpired(wsd) {
+			r.abandonCleanup(ctx, wsd, "workspace namespace cleanup", err)
+			return ctrl.Result{}, true
+		}
+		log.Info("Failed to delete workspace namespace, retrying",
+			"clusterDeployment", cdRef.Name, "error", err.Error())
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
 	if !done {
-		return ctrl.Result{RequeueAfter: requeueInterval}, false, nil
+		return ctrl.Result{RequeueAfter: requeueInterval}, false
 	}
-	return ctrl.Result{}, true, nil
+	return ctrl.Result{}, true
 }
 
 // setCondition adds or updates a condition on the WorkspaceDeployment status.

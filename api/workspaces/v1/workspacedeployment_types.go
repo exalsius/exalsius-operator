@@ -290,6 +290,11 @@ const (
 	// the workspace is held in the Waiting phase and proceeds once capacity
 	// frees.
 	ReasonWaitingForGpuCapacity = "WaitingForGpuCapacity"
+	// ReasonCleanupAbandoned signals that a deletion step depending on a
+	// remote cluster kept failing past remoteCleanupGracePeriod and was given
+	// up on so the WorkspaceDeployment could be deleted. Emitted as a Warning
+	// event: it is the only record that resources may have been left behind.
+	ReasonCleanupAbandoned = "CleanupAbandoned"
 )
 
 // ClusterDeploymentRef references a k0rdent ClusterDeployment.
