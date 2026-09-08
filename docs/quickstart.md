@@ -338,16 +338,21 @@ running on a cluster that did not exist a few minutes ago.
 ## Teardown
 
 Delete in the reverse order of creation. Each delete blocks until the operator
-has finished cleaning up.
+has finished cleaning up; then a helper removes k0s from the management node.
 
 ```bash
 kubectl delete wsd my-notebook -n kcm-system                      # ~45 s: uninstalls the chart, removes ws-my-notebook
 kubectl delete colony quickstart -n kcm-system --timeout=10m      # ~60 s: removes the child cluster, k0s reset on the worker
-k0sctl reset --config quickstart-out/k0sctl.yaml                  # removes k0s from the management node (asks for confirmation)
+hack/quickstart/reset-management.sh                               # refuses while a Colony or workspace remains, then k0sctl reset
 ```
 
 Both nodes are then free for a second run; you do not need fresh machines to
-try again.
+try again. The worker keeps the k0s binary, `/etc/k0s`, and a stale Cilium CNI
+config and network links behind; that is harmless, a new Colony provisions
+straight over it, and a reboot clears the links. To keep the management cluster
+and only clear what a deleted Colony leaves behind, run the helper with
+`--keep-cluster` instead; it also honors `--out-dir` if you changed it for the
+setup script.
 
 ## Troubleshooting
 

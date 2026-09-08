@@ -8,6 +8,7 @@ in [examples/quickstart/](../../examples/quickstart/) stay visible YAML.
 |---|---|
 | `setup-management.sh` | One SSH node → k0s management cluster with OpenEBS, k0rdent/KCM, exalsius-operator, the `exalsius-remote-cluster` ClusterTemplate, the SSH Credential for worker nodes, and the demo workspace catalog. |
 | `child-kubeconfig.sh` | Prints a child cluster's kubeconfig from its k0rdent Secret. |
+| `reset-management.sh` | Teardown's last step: refuses while any WorkspaceDeployment, Colony, or ClusterDeployment remains, removes the `<colony>-kubeconfigs` Secrets a deleted Colony leaves behind, then `k0sctl reset`s the management node. `--keep-cluster` stops after the cleanup. |
 | `versions.env` | Every version pin, in one place. |
 | `manifests/` | Static manifests the setup script applies. |
 | `lib.sh` | Shared shell helpers. |
