@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -68,6 +69,7 @@ type ColonyReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // Note: Child cluster access (for Cilium ConfigMap creation) is done via kubeconfig secrets,
 // which requires the secrets RBAC permission above. No additional RBAC is needed for child cluster resources.
 func (r *ColonyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -592,10 +594,27 @@ func (r *ColonyReconciler) ensureAPIEndpointConfigMapForAllClusters(ctx context.
 			continue
 		}
 
-		// Determine the API endpoint (external LoadBalancer address if available, otherwise ClusterIP)
-		endpoint, err := common.DetermineAPIEndpoint(service)
+		// On the NodePort path the service ClusterIP is unreachable from remote
+		// workers; the CAPI Cluster (next to the service) carries the address they
+		// dial (k0smotron's externalAddress). Other service types don't need it.
+		var capiCluster *clusterv1.Cluster
+		if service.Spec.Type == corev1.ServiceTypeNodePort {
+			capiCluster, err = common.GetCAPICluster(ctx, discoveryClient, colony.Namespace, clusterRef.Name)
+			if err != nil {
+				log.Error(err, "Failed to get CAPI Cluster, will retry", "cluster", clusterName)
+				continue
+			}
+		}
+
+		// Determine the API endpoint (LoadBalancer address, CAPI controlPlaneEndpoint
+		// for NodePort, otherwise ClusterIP)
+		endpoint, err := common.DetermineAPIEndpoint(service, capiCluster)
 		if err != nil {
-			log.Error(err, "Failed to determine API endpoint", "cluster", clusterName)
+			if stderrors.Is(err, common.ErrControlPlaneEndpointNotReady) {
+				log.Info("Control plane endpoint not published yet, will retry", "cluster", clusterName)
+			} else {
+				log.Error(err, "Failed to determine API endpoint", "cluster", clusterName)
+			}
 			continue
 		}
 
