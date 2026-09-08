@@ -21,6 +21,8 @@ With **exalsius**, AI practitioners and engineers can:
 
 Together with [**exalsius-cli**](https://github.com/exalsius/exalsius-cli) and [**exalsius-api**](https://api.exalsius.ai/docs), the operator forms the foundation of a **modular, decentralized, and cost-efficient AI training platform**.
 
+> 🚀 **Quick start:** [docs/quickstart.md](docs/quickstart.md) takes two SSH-reachable Linux nodes to a management cluster, a Colony-provisioned child cluster, and a running Jupyter workspace in about 20 minutes.
+
 
 ## Key Features
 
