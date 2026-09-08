@@ -19,12 +19,23 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// ErrControlPlaneEndpointNotReady is returned by DetermineAPIEndpoint when the
+// control plane is exposed via NodePort but the CAPI Cluster has not published a
+// worker-reachable controlPlaneEndpoint yet. Callers should treat it as
+// "retry later", not as a failure.
+var ErrControlPlaneEndpointNotReady = errors.New("control plane endpoint not published yet")
 
 // DiscoverControlPlaneService discovers the k0smotron control plane Service for a cluster.
 // Uses label selectors to find services, supporting name variations like -nodeport or -loadbalancer suffixes.
@@ -164,11 +175,34 @@ func ExtractClusterNameFromDeploymentName(deploymentName, colonyName string) str
 	return deploymentName[len(prefix):]
 }
 
-// DetermineAPIEndpoint determines the API endpoint for a control plane service.
-// If the service is a LoadBalancer with an external address, it returns the external address.
-// Otherwise, it returns the ClusterIP.
-// Returns the endpoint in format "host:port" and an error if the endpoint cannot be determined.
-func DetermineAPIEndpoint(service *corev1.Service) (string, error) {
+// GetCAPICluster fetches the Cluster API Cluster backing a ClusterDeployment.
+// k0rdent names the CAPI Cluster after the ClusterDeployment, and k0smotron
+// publishes the address workers dial (its externalAddress, explicit or
+// auto-detected, plus the API port) in spec.controlPlaneEndpoint.
+// Returns (nil, nil) while the Cluster does not exist yet.
+func GetCAPICluster(ctx context.Context, c client.Client, namespace, name string) (*clusterv1.Cluster, error) {
+	cluster := &clusterv1.Cluster{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get CAPI Cluster %s/%s: %w", namespace, name, err)
+	}
+	return cluster, nil
+}
+
+// DetermineAPIEndpoint determines the API server endpoint that child-cluster
+// workloads (Cilium's k8sServiceHost) must dial to reach the hosted control plane.
+//
+//   - LoadBalancer with an external address: that address.
+//   - NodePort: the CAPI Cluster's controlPlaneEndpoint. The Service's ClusterIP
+//     is unreachable from a remote worker's host network, so when the endpoint is
+//     not published yet the function returns ErrControlPlaneEndpointNotReady
+//     rather than falling back to the ClusterIP.
+//   - Anything else (ClusterIP, LoadBalancer still pending): the ClusterIP.
+//
+// capiCluster may be nil (not created yet). Returns the endpoint as "host:port".
+func DetermineAPIEndpoint(service *corev1.Service, capiCluster *clusterv1.Cluster) (string, error) {
 	// Validate ClusterIP exists (as fallback)
 	if service.Spec.ClusterIP == "" || service.Spec.ClusterIP == "None" {
 		return "", fmt.Errorf("service %s has no valid ClusterIP", service.Name)
@@ -182,9 +216,26 @@ func DetermineAPIEndpoint(service *corev1.Service) (string, error) {
 
 	if hasExternalAddress {
 		// Use external LoadBalancer address
-		return fmt.Sprintf("%s:%d", externalAddress, apiPort), nil
+		return joinHostPort(externalAddress, apiPort), nil
+	}
+
+	if service.Spec.Type == corev1.ServiceTypeNodePort {
+		if capiCluster == nil || capiCluster.Spec.ControlPlaneEndpoint.Host == "" {
+			return "", fmt.Errorf("service %s is NodePort but CAPI Cluster has no controlPlaneEndpoint: %w",
+				service.Name, ErrControlPlaneEndpointNotReady)
+		}
+		port := capiCluster.Spec.ControlPlaneEndpoint.Port
+		if port == 0 {
+			port = apiPort
+		}
+		return joinHostPort(capiCluster.Spec.ControlPlaneEndpoint.Host, port), nil
 	}
 
 	// Fall back to ClusterIP
-	return fmt.Sprintf("%s:%d", service.Spec.ClusterIP, apiPort), nil
+	return joinHostPort(service.Spec.ClusterIP, apiPort), nil
+}
+
+// joinHostPort formats host:port, bracketing IPv6 literals.
+func joinHostPort(host string, port int32) string {
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }

@@ -18,12 +18,14 @@ package common
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -485,11 +487,35 @@ func TestExtractClusterNameFromDeploymentName(t *testing.T) {
 
 // TestDetermineAPIEndpoint tests endpoint determination logic
 func TestDetermineAPIEndpoint(t *testing.T) {
+	capiClusterWithEndpoint := func(host string, port int32) *clusterv1.Cluster {
+		return &clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-colony-cluster-a", Namespace: "default"},
+			Spec: clusterv1.ClusterSpec{
+				ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: host, Port: port},
+			},
+		}
+	}
+	nodePortService := func(clusterIP string) *corev1.Service {
+		return &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "kmc-test-colony-cluster-a-nodeport"},
+			Spec: corev1.ServiceSpec{
+				Type:      corev1.ServiceTypeNodePort,
+				ClusterIP: clusterIP,
+				Ports: []corev1.ServicePort{
+					{Name: "api", Port: 30443, NodePort: 30443},
+					{Name: "konnectivity", Port: 30132, NodePort: 30132},
+				},
+			},
+		}
+	}
+
 	tests := []struct {
 		name         string
 		service      *corev1.Service
+		capiCluster  *clusterv1.Cluster
 		wantEndpoint string
 		wantErr      bool
+		wantErrIs    error
 		errContains  string
 	}{
 		{
@@ -557,18 +583,86 @@ func TestDetermineAPIEndpoint(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name: "NodePort service - uses ClusterIP",
+			// The remote-cluster path: hosted CP on the management cluster exposed via
+			// NodePort, workers on SSH nodes outside the cluster network. The ClusterIP
+			// is unreachable from there; k0smotron's externalAddress (published on the
+			// CAPI Cluster) is what workers dial.
+			name:         "NodePort service - uses CAPI controlPlaneEndpoint, never the ClusterIP",
+			service:      nodePortService("10.96.0.2"),
+			capiCluster:  capiClusterWithEndpoint("203.0.113.10", 30443),
+			wantEndpoint: "203.0.113.10:30443",
+			wantErr:      false,
+		},
+		{
+			name:         "NodePort service - controlPlaneEndpoint hostname",
+			service:      nodePortService("10.96.0.2"),
+			capiCluster:  capiClusterWithEndpoint("cp.example.com", 30443),
+			wantEndpoint: "cp.example.com:30443",
+			wantErr:      false,
+		},
+		{
+			name:         "NodePort service - IPv6 controlPlaneEndpoint is bracketed",
+			service:      nodePortService("10.96.0.2"),
+			capiCluster:  capiClusterWithEndpoint("2001:db8::10", 30443),
+			wantEndpoint: "[2001:db8::10]:30443",
+			wantErr:      false,
+		},
+		{
+			name:         "NodePort service - controlPlaneEndpoint without port falls back to service API port",
+			service:      nodePortService("10.96.0.2"),
+			capiCluster:  capiClusterWithEndpoint("203.0.113.10", 0),
+			wantEndpoint: "203.0.113.10:30443",
+			wantErr:      false,
+		},
+		{
+			name:        "NodePort service - no CAPI Cluster yet is not-ready, not a ClusterIP fallback",
+			service:     nodePortService("10.96.0.2"),
+			capiCluster: nil,
+			wantErr:     true,
+			wantErrIs:   ErrControlPlaneEndpointNotReady,
+		},
+		{
+			name:        "NodePort service - CAPI Cluster without controlPlaneEndpoint is not-ready",
+			service:     nodePortService("10.96.0.2"),
+			capiCluster: capiClusterWithEndpoint("", 0),
+			wantErr:     true,
+			wantErrIs:   ErrControlPlaneEndpointNotReady,
+		},
+		{
+			name: "LoadBalancer with external address - CAPI Cluster is ignored",
 			service: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-svc"},
 				Spec: corev1.ServiceSpec{
-					Type:      corev1.ServiceTypeNodePort,
-					ClusterIP: "10.96.0.2",
+					Type:      corev1.ServiceTypeLoadBalancer,
+					ClusterIP: "10.96.0.1",
 					Ports: []corev1.ServicePort{
 						{Name: "api", Port: 30443},
 					},
 				},
+				Status: corev1.ServiceStatus{
+					LoadBalancer: corev1.LoadBalancerStatus{
+						Ingress: []corev1.LoadBalancerIngress{{IP: "203.0.113.50"}},
+					},
+				},
 			},
-			wantEndpoint: "10.96.0.2:30443",
+			capiCluster:  capiClusterWithEndpoint("203.0.113.99", 30443),
+			wantEndpoint: "203.0.113.50:30443",
+			wantErr:      false,
+		},
+		{
+			name: "ClusterIP service - uses ClusterIP even when CAPI Cluster has an endpoint",
+			service: &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-svc"},
+				Spec: corev1.ServiceSpec{
+					Type:      corev1.ServiceTypeClusterIP,
+					ClusterIP: "10.96.0.3",
+					Ports: []corev1.ServicePort{
+						{Name: "api", Port: 6443},
+					},
+				},
+			},
+			capiCluster:  capiClusterWithEndpoint("203.0.113.99", 6443),
+			wantEndpoint: "10.96.0.3:6443",
 			wantErr:      false,
 		},
 		{
@@ -628,7 +722,7 @@ func TestDetermineAPIEndpoint(t *testing.T) {
 					},
 				},
 			},
-			wantEndpoint: "fd00::1:6443",
+			wantEndpoint: "[fd00::1]:6443", // bracketed so the ConfigMap parser can split host and port
 			wantErr:      false,
 		},
 		{
@@ -665,7 +759,7 @@ func TestDetermineAPIEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			endpoint, err := DetermineAPIEndpoint(tt.service)
+			endpoint, err := DetermineAPIEndpoint(tt.service, tt.capiCluster)
 
 			if tt.wantErr {
 				if err == nil {
@@ -674,6 +768,9 @@ func TestDetermineAPIEndpoint(t *testing.T) {
 				}
 				if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("DetermineAPIEndpoint() error = %v, want error containing %q", err, tt.errContains)
+				}
+				if tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs) {
+					t.Errorf("DetermineAPIEndpoint() error = %v, want errors.Is %v", err, tt.wantErrIs)
 				}
 				return
 			}
@@ -688,6 +785,55 @@ func TestDetermineAPIEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGetCAPICluster tests the CAPI Cluster lookup used for the NodePort endpoint.
+func TestGetCAPICluster(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = clusterv1.AddToScheme(scheme)
+
+	existing := &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-colony-cluster-a", Namespace: "default"},
+		Spec: clusterv1.ClusterSpec{
+			ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: "203.0.113.10", Port: 30443},
+		},
+	}
+
+	t.Run("returns the Cluster when it exists", func(t *testing.T) {
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+		got, err := GetCAPICluster(context.Background(), c, "default", "test-colony-cluster-a")
+		if err != nil {
+			t.Fatalf("GetCAPICluster() unexpected error = %v", err)
+		}
+		if got == nil {
+			t.Fatal("GetCAPICluster() = nil, want cluster")
+		}
+		if got.Spec.ControlPlaneEndpoint.Host != "203.0.113.10" {
+			t.Errorf("GetCAPICluster() host = %q, want %q", got.Spec.ControlPlaneEndpoint.Host, "203.0.113.10")
+		}
+	})
+
+	t.Run("returns nil, nil while the Cluster does not exist", func(t *testing.T) {
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		got, err := GetCAPICluster(context.Background(), c, "default", "test-colony-cluster-a")
+		if err != nil {
+			t.Fatalf("GetCAPICluster() unexpected error = %v", err)
+		}
+		if got != nil {
+			t.Errorf("GetCAPICluster() = %v, want nil", got)
+		}
+	})
+
+	t.Run("propagates non-NotFound errors", func(t *testing.T) {
+		// Scheme without the CAPI types: the client cannot even build the request.
+		bare := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(bare)
+		c := fake.NewClientBuilder().WithScheme(bare).Build()
+		if _, err := GetCAPICluster(context.Background(), c, "default", "test-colony-cluster-a"); err == nil {
+			t.Error("GetCAPICluster() expected error for unregistered type, got none")
+		}
+	})
 }
 
 // TestDiscoverControlPlaneService tests the service discovery logic

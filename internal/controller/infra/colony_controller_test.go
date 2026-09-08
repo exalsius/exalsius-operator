@@ -27,6 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -35,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrav1 "github.com/exalsius/exalsius-operator/api/infra/v1"
+	"github.com/exalsius/exalsius-operator/internal/controller/infra/cilium"
 )
 
 var _ = Describe("Colony Controller", func() {
@@ -610,6 +614,104 @@ var _ = Describe("Colony Controller", func() {
 			// Should handle gracefully - service not found is expected during provisioning
 			reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
 		})
+
+		// NodePort path (hosted control plane on the management cluster, workers on
+		// remote SSH nodes). The child kubeconfig secret points at envtest itself, so
+		// the ConfigMap the controller writes "into the child" is observable here.
+		Context("on the NodePort remote-cluster path", func() {
+			const (
+				colonyName  = "np-endpoint-test"
+				clusterName = "cluster-a"
+				cdName      = colonyName + "-" + clusterName
+				externalIP  = "203.0.113.10"
+			)
+			var (
+				colony  *infrav1.Colony
+				service *corev1.Service
+			)
+
+			configMapKey := types.NamespacedName{Name: cilium.ConfigMapName, Namespace: cilium.ConfigMapNamespace}
+
+			BeforeEach(func() {
+				colony = &infrav1.Colony{
+					ObjectMeta: metav1.ObjectMeta{Name: colonyName, Namespace: "default"},
+					Status: infrav1.ColonyStatus{
+						ClusterDeploymentRefs: []*corev1.ObjectReference{
+							{Name: cdName, Namespace: "default"},
+						},
+					},
+				}
+				service = &corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "kmc-" + cdName + "-nodeport",
+						Namespace: "default",
+						Labels: map[string]string{
+							"app":       "k0smotron",
+							"component": "cluster",
+							"cluster":   cdName,
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type: corev1.ServiceTypeNodePort,
+						Ports: []corev1.ServicePort{
+							{Name: "api", Port: 30443, NodePort: 30443},
+							{Name: "konnectivity", Port: 30132, NodePort: 30132},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, service)).To(Succeed())
+				ensureChildKubeconfigSecret(cdName, "default")
+			})
+
+			AfterEach(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, service))).To(Succeed())
+				capiCluster := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: cdName, Namespace: "default"}}
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, capiCluster))).To(Succeed())
+				cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapKey.Name, Namespace: configMapKey.Namespace}}
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, cm))).To(Succeed())
+			})
+
+			It("publishes the CAPI controlPlaneEndpoint, not the service ClusterIP", func() {
+				By("Creating the CAPI Cluster with k0smotron's externalAddress as controlPlaneEndpoint")
+				capiCluster := &clusterv1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{Name: cdName, Namespace: "default"},
+					Spec: clusterv1.ClusterSpec{
+						ControlPlaneEndpoint: clusterv1.APIEndpoint{Host: externalIP, Port: 30443},
+					},
+				}
+				Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
+
+				By("Calling ensureAPIEndpointConfigMapForAllClusters")
+				reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+
+				By("Checking the cp-api-endpoint ConfigMap in the child")
+				cm := &corev1.ConfigMap{}
+				Expect(k8sClient.Get(ctx, configMapKey, cm)).To(Succeed())
+				Expect(cm.Data).To(HaveKeyWithValue("host", externalIP))
+				Expect(cm.Data).To(HaveKeyWithValue("port", "30443"))
+
+				stored := &corev1.Service{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(service), stored)).To(Succeed())
+				Expect(cm.Data["host"]).NotTo(Equal(stored.Spec.ClusterIP))
+			})
+
+			It("does not publish a ClusterIP while the controlPlaneEndpoint is missing", func() {
+				By("Calling ensureAPIEndpointConfigMapForAllClusters without a CAPI Cluster")
+				reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+
+				cm := &corev1.ConfigMap{}
+				Expect(errors.IsNotFound(k8sClient.Get(ctx, configMapKey, cm))).To(BeTrue(),
+					"no ConfigMap must be written until the worker-reachable endpoint is known")
+
+				By("Creating the CAPI Cluster with an empty controlPlaneEndpoint")
+				capiCluster := &clusterv1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{Name: cdName, Namespace: "default"},
+				}
+				Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
+				reconciler.ensureAPIEndpointConfigMapForAllClusters(ctx, colony)
+				Expect(errors.IsNotFound(k8sClient.Get(ctx, configMapKey, cm))).To(BeTrue())
+			})
+		})
 	})
 
 	Context("Helper Functions", func() {
@@ -703,3 +805,38 @@ var _ = Describe("Colony Controller", func() {
 		})
 	})
 })
+
+// ensureChildKubeconfigSecret creates the `<cd-name>-kubeconfig` secret the
+// controller uses to reach a child cluster — pointed at the envtest API server
+// itself, so "child cluster" writes land in this test cluster and can be
+// asserted with k8sClient. Idempotent.
+func ensureChildKubeconfigSecret(cdName, namespace string) {
+	GinkgoHelper()
+
+	kc := clientcmdapi.NewConfig()
+	kc.Clusters["envtest"] = &clientcmdapi.Cluster{
+		Server:                   cfg.Host,
+		CertificateAuthorityData: cfg.CAData,
+	}
+	kc.AuthInfos["envtest"] = &clientcmdapi.AuthInfo{
+		ClientCertificateData: cfg.CertData,
+		ClientKeyData:         cfg.KeyData,
+		Token:                 cfg.BearerToken,
+	}
+	kc.Contexts["envtest"] = &clientcmdapi.Context{Cluster: "envtest", AuthInfo: "envtest"}
+	kc.CurrentContext = "envtest"
+
+	data, err := clientcmd.Write(*kc)
+	Expect(err).NotTo(HaveOccurred())
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cdName + "-kubeconfig",
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{"value": data},
+	}
+	if err := k8sClient.Create(context.Background(), secret); err != nil && !errors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+}

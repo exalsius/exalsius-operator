@@ -27,6 +27,7 @@ import (
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -65,6 +66,10 @@ var _ = BeforeSuite(func() {
 
 	// Add k0rdent types to the scheme for testing
 	err = k0rdentv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Add Cluster API types (the colony controller reads Cluster.spec.controlPlaneEndpoint)
+	err = clusterv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
