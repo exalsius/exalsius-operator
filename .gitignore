@@ -35,3 +35,6 @@ go.work
 /workspace-refactoring/
 /.scratch/
 
+
+# quickstart output (kubeconfigs, generated k0sctl.yaml)
+quickstart-out/
