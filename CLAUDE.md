@@ -100,12 +100,17 @@ Each `WorkspaceDeployment` creates its own k0rdent `ServiceSet` named `wsd-<clus
 
 ## Deployment
 
-Single Helm chart at `charts/exalsius-operator/` (Deployment, RBAC, ServiceAccount, HPA, CRDs).
+Single Helm chart at `charts/exalsius-operator/` (Deployment, RBAC, ServiceAccount, CRDs).
 The chart `version`/`appVersion` and the operator image tag move as one version line, bumped by
 release-please (`release-please-config.json` `extra-files`). On release, the chart is packaged
 and pushed to `oci://ghcr.io/exalsius/charts/exalsius-operator` and attached to the GitHub
 Release. CRDs are kept in lockstep with `config/crd/bases` via `make sync-chart-crds`. See
 `docs/adr/0003-helm-chart-distribution-and-versioning.md`.
+
+The chart is listed on Artifact Hub (repository `exalsius-operator`, org `exalsius`). Listing
+metadata lives in `Chart.yaml` (`artifacthub.io/*` annotations), `charts/exalsius-operator/README.md`
+and `values.schema.json`; `artifacthub-repo.yml` is pushed to the OCI tag `artifacthub.io` by the
+post-release workflow. Keep the README values tables in sync when changing `values.yaml`.
 
 ## Agent skills
 
