@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/exalsius/exalsius-operator/compare/v0.11.2...v0.12.0) (2026-09-09)
+
+
+### Features
+
+* **chart:** prepare Helm chart for Artifact Hub ([#170](https://github.com/exalsius/exalsius-operator/issues/170)) ([4ab5c69](https://github.com/exalsius/exalsius-operator/commit/4ab5c695de49d2eb85b48285a04e42b27cc23feb))
+
 ## [0.11.2](https://github.com/exalsius/exalsius-operator/compare/v0.11.1...v0.11.2) (2026-09-08)
 
 
