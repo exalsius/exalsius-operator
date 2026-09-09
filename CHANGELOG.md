@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.2](https://github.com/exalsius/exalsius-operator/compare/v0.11.1...v0.11.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **colony:** publish a worker-reachable cp-api-endpoint on the NodePort path ([#168](https://github.com/exalsius/exalsius-operator/issues/168)) ([5bad885](https://github.com/exalsius/exalsius-operator/commit/5bad8859285e68f696460bc2f473f483fe725cf8))
+* configurable prerequisite namespace with singleton conflict policy ([#164](https://github.com/exalsius/exalsius-operator/issues/164)) ([66c04b8](https://github.com/exalsius/exalsius-operator/commit/66c04b8f00bf0e895ca944df0b1f10eb8d60fc62))
+* unwedge WorkspaceDeployment deletion when the target cluster is gone ([#166](https://github.com/exalsius/exalsius-operator/issues/166)) ([34e69dd](https://github.com/exalsius/exalsius-operator/commit/34e69dd266b45ce3a76e266ca5db82bf96aa5b2e))
+
 ## [0.11.1](https://github.com/exalsius/exalsius-operator/compare/v0.11.0...v0.11.1) (2026-07-01)
 
 
