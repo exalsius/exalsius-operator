@@ -38,3 +38,4 @@ go.work
 
 # quickstart output (kubeconfigs, generated k0sctl.yaml)
 quickstart-out/
+child.kubeconfig

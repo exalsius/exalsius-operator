@@ -21,13 +21,25 @@ and the `WorkspaceDeployment`, you apply yourself as YAML.
 
 **Two Linux nodes**, each:
 
-- Ubuntu 24.04 (other systemd-based distributions that k0s supports should work
-  but are untested here), 4 vCPU and 8 GB RAM.
+- Ubuntu 24.04 / 26.04, 4 vCPU and 8 GB RAM.
 - Reachable as `root` over SSH with the **same** key from your workstation.
   The key must work non-interactively: no passphrase, or loaded into
   `ssh-agent`.
 - Fresh: no Kubernetes, no container runtime, no firewall rules you did not
   set yourself.
+
+> **Ubuntu 26.04 worker.** 26.04 ships the Rust `uutils` coreutils as
+> `/usr/bin/stat`, and the k0smotron release bundled with KCM 1.10 misdetects
+> it as BSD `stat` while copying the join token to the worker ("failed to stat
+> parent directory"). GNU stat is still installed as `gnustat`; put it first on
+> `PATH` on **node 2** before you apply the Colony:
+>
+> ```bash
+> ssh -i "$SSH_KEY" root@$WORKER_NODE_IP 'ln -s /usr/bin/gnustat /usr/local/bin/stat'
+> ```
+>
+> Node 1 needs nothing: k0sctl carries the fixed SSH library. Ubuntu 24.04 is
+> unaffected.
 
 **Network** between them:
 
@@ -66,7 +78,7 @@ All version pins live in [`hack/quickstart/versions.env`](../hack/quickstart/ver
 ## Step 1: set up the management cluster
 
 One command turns node 1 into the management cluster. It bootstraps a single-node
-k0s, installs a default StorageClass (OpenEBS), k0rdent (KCM 1.8) trimmed to the
+k0s, installs a default StorageClass (OpenEBS), k0rdent (KCM 1.10) with only the
 k0smotron and Sveltos providers, the exalsius-operator, the
 `exalsius-remote-cluster` ClusterTemplate, a k0rdent `Credential` holding your
 SSH key for the worker node, and the public workspace catalog with the Jupyter
@@ -76,14 +88,14 @@ Notebook class.
 hack/quickstart/setup-management.sh --node "$MGMT_NODE_IP" --ssh-key "$SSH_KEY"
 ```
 
-Expect roughly 8 to 10 minutes; each step prints what it is waiting for. The
+Expect roughly 5 to 10 minutes; each step prints what it is waiting for. The
 script is idempotent, so if it fails on a transient error (a slow image pull,
 an SSH hiccup) just run it again. It ends with:
 
 ```
 ==> management cluster ready
 
-  Management cluster:   root@203.0.113.10  (k0s v1.33.8+k0s.1, KCM 1.8.0, operator 0.11.1)
+  Management cluster:   root@203.0.113.10  (k0s v1.33.8+k0s.1, KCM 1.10.0, operator 0.11.2)
   Kubeconfig:           /path/to/exalsius-operator/quickstart-out/mgmt.kubeconfig
   Cluster template:     exalsius-remote-cluster-0-1-5   (credential: remote-cred)
   Workspace class:      jupyter-notebook-0-3-0
@@ -167,10 +179,11 @@ Apply it and watch the Colony and the ClusterDeployment it creates:
 
 ```bash
 kubectl apply -f examples/quickstart/colony.yaml
-kubectl get colony,clusterdeployment -n kcm-system -w
+kubectl get colony -n kcm-system -w
+kubectl get clusterdeployment -n kcm-system -w
 ```
 
-Within about 2 minutes the ClusterDeployment becomes Ready. Press `Ctrl-C` once
+Within 2 to 4 minutes the ClusterDeployment becomes Ready. Press `Ctrl-C` once
 you see:
 
 ```
@@ -394,7 +407,17 @@ phase can briefly read `Ready` right after apply and then flip back to
 **The setup script fails on the SSH probe.** The key must log in as `root` on
 node 1 without a passphrase prompt. Test with `ssh -i "$SSH_KEY" root@$MGMT_NODE_IP
 hostname`. The same key is uploaded for the worker, so it must work on node 2
-as well.
+as well. If the probe reports `REMOTE HOST IDENTIFICATION HAS CHANGED`, the
+address was re-used by a re-provisioned VM; run `ssh-keygen -R $MGMT_NODE_IP`
+(and the same for the worker) and start again.
+
+**The worker never joins and the RemoteMachine reports `ProvisionFailed` with
+`failed to upload file: ... /etc/k0s.token: invalid argument: failed to stat
+parent directory`.** The worker runs Ubuntu 26.04 without the `gnustat` symlink
+from the [prerequisites](#prerequisites). Cluster API does not retry a failed
+RemoteMachine: add the symlink, then delete the Colony and apply it again.
+Check with `kubectl -n kcm-system get remotemachine -o
+jsonpath='{.items[*].status.failureMessage}'`.
 
 **The worker never joins (Machine stuck, no `RemoteMachine` progress).** Node 1
 must reach node 2 on port 22, and node 2 must reach node 1 on 30443 and 30132.

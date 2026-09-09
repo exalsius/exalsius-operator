@@ -98,14 +98,30 @@ wait_for 300 "StorageClass openebs-hostpath is the default" \
   kc_field_is "" storageclass/openebs-hostpath '{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}' true
 
 # --- 3. k0rdent / KCM -------------------------------------------------------------
-log "installing k0rdent KCM $KCM_VERSION"
+# The chart's default Management object pulls in every CAPI provider (AWS,
+# Azure, GCP, vSphere, ...). That is a dozen controllers the quickstart never
+# uses, and on a small node they OOM the cluster before KCM ever turns Ready.
+# So: install the chart without its default Management and create one that
+# lists only the k0smotron and Sveltos providers.
+log "installing k0rdent KCM $KCM_VERSION (providers: k0smotron + projectsveltos)"
 run hlm upgrade --install kcm "$KCM_CHART" --version "$KCM_VERSION" \
-  -n "$KCM_NAMESPACE" --create-namespace --wait --timeout 15m
+  -n "$KCM_NAMESPACE" --create-namespace --set controller.createManagement=false \
+  --wait --timeout 15m
+[[ "${DRY_RUN:-0}" == "1" ]] || kc apply -f - <<YAML
+apiVersion: k0rdent.mirantis.com/v1beta1
+kind: Management
+metadata:
+  name: kcm
+spec:
+  release: kcm-${KCM_VERSION//./-}
+  core:
+    capi: {}
+    kcm: {}
+  providers:
+    - name: cluster-api-provider-k0sproject-k0smotron
+    - name: projectsveltos
+YAML
 wait_for 900 "Management/kcm Ready" kc_ready "$KCM_NAMESPACE" management.k0rdent.mirantis.com/kcm
-log "trimming KCM providers to k0smotron + projectsveltos"
-run kc patch management.k0rdent.mirantis.com kcm --type=merge \
-  -p '{"spec":{"providers":[{"name":"cluster-api-provider-k0sproject-k0smotron"},{"name":"projectsveltos"}]}}'
-wait_for 900 "Management/kcm Ready with trimmed providers" kc_ready "$KCM_NAMESPACE" management.k0rdent.mirantis.com/kcm
 
 # --- 4. exalsius-operator ----------------------------------------------------------
 log "installing exalsius-operator $EXALSIUS_OPERATOR_VERSION"
