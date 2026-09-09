@@ -1,0 +1,22 @@
+# OpenEBS values for the management cluster: only the localpv hostpath engine,
+# made the default StorageClass (openebs-hostpath). The hosted control plane of
+# every child cluster keeps its etcd on a PVC here.
+alloy:
+  enabled: false
+loki:
+  enabled: false
+engines:
+  local:
+    lvm:
+      enabled: false
+    zfs:
+      enabled: false
+  replicated:
+    mayastor:
+      enabled: false
+localpv-provisioner:
+  hostpathClass:
+    isDefaultClass: true
+lvm-localpv:
+  lvmNode:
+    kubeletDir: /var/lib/k0s/kubelet/

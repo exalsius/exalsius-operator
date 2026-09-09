@@ -227,7 +227,9 @@ func (r *ColonyReconciler) ensureAggregatedKubeconfigSecretExists(ctx context.Co
 			}
 
 			// Mirror the kubeconfig secret on the management cluster so downstream
-			// consumers (DDPJob controller, etc.) can find it
+			// consumers resolve child credentials from one place regardless of
+			// topology: the aggregated kubeconfig secret below, and the workspace
+			// controllers, which always look the secret up on the management cluster.
 			if err := r.mirrorKubeconfigSecret(ctx, colony, &kubeconfigSecret); err != nil {
 				log.Error(err, "Failed to mirror kubeconfig secret to management cluster",
 					"cluster", clusterDeploymentRef.Name)

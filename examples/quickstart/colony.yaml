@@ -1,0 +1,43 @@
+# Quickstart: a Colony with one child cluster on your worker node.
+#
+# The control plane runs as pods on the management cluster (k0smotron) and is
+# exposed on NodePorts 30443 (API) / 30132 (konnectivity); your worker node
+# joins it over SSH and becomes the cluster's only node.
+#
+# Fill in the two CHANGE ME addresses, then:
+#   kubectl apply -f examples/quickstart/colony.yaml
+#   kubectl get colony,clusterdeployment -n kcm-system -w
+apiVersion: infra.exalsius.ai/v1
+kind: Colony
+metadata:
+  name: quickstart
+  namespace: kcm-system
+spec:
+  colonyClusters:
+    # ClusterDeployments are named <colony>-<clusterName>: quickstart-child-1.
+    - clusterName: child-1
+      clusterDeploymentSpec:
+        # Registered by hack/quickstart/setup-management.sh (see versions.env).
+        template: exalsius-remote-cluster-0-1-5
+        credential: remote-cred
+        config:
+          controlPlaneNumber: 1
+          # Bare SSH nodes have no cloud provider; leaving this on (the chart
+          # default) gives the node a providerID and no address the control
+          # plane can use, and the ClusterDeployment never becomes Ready.
+          k0sCloudProvider:
+            enabled: false
+          k0smotron:
+            # CHANGE ME: the address of your management node as the worker
+            # node reaches it (its public IP is fine).
+            externalAddress: "MGMT_NODE_IP"
+            service:
+              type: NodePort
+              apiPort: 30443
+              konnectivityPort: 30132
+          machines:
+            # CHANGE ME: the address of your worker node as the management
+            # cluster reaches it, plus the SSH user the quickstart key logs in as.
+            - address: "WORKER_NODE_IP"
+              user: root
+              port: 22

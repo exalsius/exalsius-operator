@@ -21,6 +21,8 @@ With **exalsius**, AI practitioners and engineers can:
 
 Together with [**exalsius-cli**](https://github.com/exalsius/exalsius-cli) and [**exalsius-api**](https://api.exalsius.ai/docs), the operator forms the foundation of a **modular, decentralized, and cost-efficient AI training platform**.
 
+> **Quick start:** [docs/quickstart.md](docs/quickstart.md) takes two SSH-reachable Linux nodes to a management cluster, a Colony-provisioned child cluster, and a running Jupyter workspace in about 20 minutes.
+
 
 ## Key Features
 
@@ -41,6 +43,9 @@ Together with [**exalsius-cli**](https://github.com/exalsius/exalsius-cli) and [
 * **Multi-Cloud GPU Cost Optimization**
   Deploy workloads on the most cost-efficient GPUs across **AWS**, **Azure**, **GCP**, and on-premise environments using [**exalsius-cli**](https://github.com/exalsius/exalsius-cli).
 
+* **Workspace Catalog & Deployments**
+  Offer ready-to-use application environments (Jupyter notebooks, training stacks, inference servers) as an admin-curated catalog of **WorkspaceClass** entries that users instantiate on any provisioned cluster via **WorkspaceDeployment** resources — see [Workspaces](#workspaces).
+
 ## Declarative Workflow
 The **exalsius-operator** follows a **declarative approach** to multi-cluster infrastructure management using Kubernetes **Custom Resource Definitions (CRDs)**.
 
@@ -56,7 +61,10 @@ The **exalsius-operator** follows a **declarative approach** to multi-cluster in
 4. **Colony resources logically group clusters**
    A `Colony` CRD provides a high-level abstraction that **bundles multiple clusters** across different geographical locations or cloud providers into a unified logical group for management and coordination.
 
-5. **Lifecycle management and teardown**
+5. **Workspaces are deployed onto the provisioned clusters**
+   Users pick a **WorkspaceClass** from the catalog and create **WorkspaceDeployment** resources; the operator installs the corresponding application (e.g. a Jupyter environment) onto the target cluster and publishes its access endpoints (see [Workspaces](#workspaces)).
+
+6. **Lifecycle management and teardown**
    The operator continuously reconciles the desired and actual states of all managed clusters, and can **automatically delete** clusters when they are no longer needed, minimizing operational and cloud costs.
 
 ### Integration within the exalsius Stack
@@ -75,13 +83,41 @@ The **exalsius-operator** forms a central backbone component of the **exalsius s
 
 Together, these components enable **declarative, automated, and cost-efficient multi-cloud cluster orchestration** for AI and data-intensive workloads.
 
+## Workspaces
+
+A **workspace** is a ready-to-use application environment — a Jupyter notebook server, a distributed training stack, an inference server — installed as a Helm release onto one of the clusters the operator manages. Two CRDs in the `workspaces.exalsius.ai/v1` API group split the responsibility between platform admins and end users:
+
+* **WorkspaceClass** (cluster-scoped, `wsc`) is an admin-authored **catalog entry** describing a workspace *type*. It pins the k0rdent **ServiceTemplate** (i.e. the Helm chart) to deploy, declares the default resource shape (replicas × CPU/memory/GPU per replica), lists **prerequisites** that must be healthy on the target cluster first (e.g. a GPU operator), and defines the **access endpoints** the workspace exposes as well as the config options users may set. Admins apply classes to the management cluster; users browse them as a catalog.
+
+* **WorkspaceDeployment** (namespaced, `wsd`) captures a **user's intent** to run one instance of a class on a specific target cluster. It references a WorkspaceClass and a k0rdent `ClusterDeployment`, optionally overriding resources and Helm values. End users can create deployments with `kubectl` or through the exalsius API/CLI.
+
+A deployment moves through the phases `Pending → InstallingPrerequisites → Deploying → Running` (with `Waiting` when GPU capacity is temporarily exhausted, `Failed` on errors, and `Deleting` on teardown). The operator publishes the phase, detailed conditions, and the resolved access URLs on the WorkspaceDeployment's `status`, so clients only ever need to watch the CR.
+
+Under the hood, each WorkspaceDeployment becomes its own k0rdent **ServiceSet** on the management cluster; k0rdent drives a **Sveltos** profile that installs the class's Helm chart onto the target child cluster and reports readiness back via the `ClusterDeployment` status. Before deploying, the operator validates the class's prerequisites against the target cluster and installs any that are missing. One ServiceSet per workspace keeps independent workspaces isolated from each other.
+
+A minimal WorkspaceDeployment:
+
+```yaml
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: my-notebook
+  namespace: default
+spec:
+  workspaceClassRef: jupyter
+  clusterDeploymentRef:
+    name: my-colony-cluster-1
+    namespace: kcm-system
+```
+
+See [docs/quickstart.md](docs/quickstart.md) for an end-to-end walkthrough from bare SSH nodes to a running workspace.
 
 ## Contributing
 We welcome contributions! Please check the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines.
 
 ## License
 
-Copyright 2025.
+Copyright 2026.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
