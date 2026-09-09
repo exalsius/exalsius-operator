@@ -21,7 +21,7 @@ With **exalsius**, AI practitioners and engineers can:
 
 Together with [**exalsius-cli**](https://github.com/exalsius/exalsius-cli) and [**exalsius-api**](https://api.exalsius.ai/docs), the operator forms the foundation of a **modular, decentralized, and cost-efficient AI training platform**.
 
-> 🚀 **Quick start:** [docs/quickstart.md](docs/quickstart.md) takes two SSH-reachable Linux nodes to a management cluster, a Colony-provisioned child cluster, and a running Jupyter workspace in about 20 minutes.
+> **Quick start:** [docs/quickstart.md](docs/quickstart.md) takes two SSH-reachable Linux nodes to a management cluster, a Colony-provisioned child cluster, and a running Jupyter workspace in about 20 minutes.
 
 
 ## Key Features
@@ -89,7 +89,7 @@ A **workspace** is a ready-to-use application environment — a Jupyter notebook
 
 * **WorkspaceClass** (cluster-scoped, `wsc`) is an admin-authored **catalog entry** describing a workspace *type*. It pins the k0rdent **ServiceTemplate** (i.e. the Helm chart) to deploy, declares the default resource shape (replicas × CPU/memory/GPU per replica), lists **prerequisites** that must be healthy on the target cluster first (e.g. a GPU operator), and defines the **access endpoints** the workspace exposes as well as the config options users may set. Admins apply classes to the management cluster; users browse them as a catalog.
 
-* **WorkspaceDeployment** (namespaced, `wsd`) captures a **user's intent** to run one instance of a class on a specific target cluster. It references a WorkspaceClass and a k0rdent `ClusterDeployment`, optionally overriding resources and Helm values. End users typically create deployments through the exalsius API/CLI rather than with `kubectl`.
+* **WorkspaceDeployment** (namespaced, `wsd`) captures a **user's intent** to run one instance of a class on a specific target cluster. It references a WorkspaceClass and a k0rdent `ClusterDeployment`, optionally overriding resources and Helm values. End users can create deployments with `kubectl` or through the exalsius API/CLI.
 
 A deployment moves through the phases `Pending → InstallingPrerequisites → Deploying → Running` (with `Waiting` when GPU capacity is temporarily exhausted, `Failed` on errors, and `Deleting` on teardown). The operator publishes the phase, detailed conditions, and the resolved access URLs on the WorkspaceDeployment's `status`, so clients only ever need to watch the CR.
 
@@ -110,14 +110,14 @@ spec:
     namespace: kcm-system
 ```
 
-See [docs/quickstart.md](docs/quickstart.md) for an end-to-end walkthrough from bare SSH nodes to a running workspace, and [docs/adr/](docs/adr/) for the design decisions behind the workspace model.
+See [docs/quickstart.md](docs/quickstart.md) for an end-to-end walkthrough from bare SSH nodes to a running workspace.
 
 ## Contributing
 We welcome contributions! Please check the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines.
 
 ## License
 
-Copyright 2025.
+Copyright 2026.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
