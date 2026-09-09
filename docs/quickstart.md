@@ -95,7 +95,7 @@ an SSH hiccup) just run it again. It ends with:
 ```
 ==> management cluster ready
 
-  Management cluster:   root@203.0.113.10  (k0s v1.33.8+k0s.1, KCM 1.10.0, operator 0.11.2)
+  Management cluster:   root@203.0.113.10  (k0s v1.33.8+k0s.1, KCM 1.10.0, operator 0.12.0)
   Kubeconfig:           /path/to/exalsius-operator/quickstart-out/mgmt.kubeconfig
   Cluster template:     exalsius-remote-cluster-0-1-5   (credential: remote-cred)
   Workspace class:      jupyter-notebook-0-3-0
