@@ -1,0 +1,20 @@
+{{ .Chart.Name }} {{ .Chart.Version }} (operator {{ .Values.image.tag | default .Chart.AppVersion }}) installed in namespace {{ .Release.Namespace }}.
+
+Check the operator:
+
+  kubectl -n {{ .Release.Namespace }} get deploy {{ include "exalsius-operator.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "exalsius-operator.fullname" . }} -f
+
+Installed CRDs:
+
+  kubectl get crd colonies.infra.exalsius.ai workspaceclasses.workspaces.exalsius.ai workspacedeployments.workspaces.exalsius.ai
+
+Next steps:
+
+  - Make sure k0rdent (KCM) with the Sveltos state management provider is installed on this cluster.
+  - Create a Colony to provision child clusters, then WorkspaceClasses and WorkspaceDeployments.
+    Examples: https://github.com/exalsius/exalsius-operator/tree/main/examples
+{{- if not .Values.operator.metrics.enabled }}
+
+Metrics are disabled. Set operator.metrics.enabled=true to expose them on port {{ .Values.operator.metrics.port }}.
+{{- end }}

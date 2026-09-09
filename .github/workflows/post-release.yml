@@ -45,6 +45,16 @@ jobs:
           context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }},${{ env.IMAGE_NAME }}:latest
+          # OCI labels link the GHCR package to this repository and identify the
+          # release; Artifact Hub and GHCR both surface them.
+          labels: |
+            org.opencontainers.image.title=exalsius-operator
+            org.opencontainers.image.description=Kubernetes operator for ephemeral multi-cloud AI clusters and GPU workspaces
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
 
   helm-chart:
     runs-on: ubuntu-latest
@@ -64,6 +74,20 @@ jobs:
 
       - name: Push chart to GHCR (OCI)
         run: helm push dist/exalsius-operator-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      # Artifact Hub reads repository metadata (verified publisher, owners) from
+      # the OCI reference tagged `artifacthub.io` next to the chart versions.
+      # https://artifacthub.io/docs/topics/repositories/#oci-support
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Push Artifact Hub repository metadata
+        working-directory: charts/exalsius-operator
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+          oras push ghcr.io/${{ github.repository_owner }}/charts/exalsius-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
 
       - name: Attach chart to GitHub Release
         env:

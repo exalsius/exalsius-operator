@@ -72,3 +72,13 @@ single artifact, tie its version to the operator, and publish it on every releas
   edits usually ride along with the operator change that motivates them). The cost of the
   alternative — two release-please components and two version lines maintained forever — is not
   worth it at this cadence.
+
+## Addendum (2026-09-09): Artifact Hub listing
+
+The OCI repository is registered on Artifact Hub as `exalsius-operator` under the `exalsius`
+organization. Artifact Hub indexes every semver tag under
+`oci://ghcr.io/exalsius/charts/exalsius-operator`, so only real releases may be pushed there —
+a stray chart tag with no matching image tag breaks its security scan. Listing metadata ships
+inside the chart (`artifacthub.io/*` annotations in `Chart.yaml`, `README.md`,
+`values.schema.json`, `LICENSE`); the repository-level `artifacthub-repo.yml` (verified
+publisher, owners) is pushed with `oras` to the special tag `artifacthub.io` on every release.
