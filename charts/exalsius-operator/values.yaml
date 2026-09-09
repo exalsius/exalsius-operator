@@ -1,86 +1,154 @@
+# Default values for the exalsius-operator chart.
+# The operator runs on a k0rdent management cluster and provisions child clusters
+# and workspaces from Colony, WorkspaceClass and WorkspaceDeployment resources.
+
+# -- Number of operator replicas. Leader election is enabled, so only one
+# replica reconciles at a time; extra replicas are hot standbys.
 replicaCount: 1
 
 image:
+  # -- Container image repository of the operator.
   repository: ghcr.io/exalsius/exalsius-operator
-  pullPolicy: IfNotPresent
-  # Defaults to the chart appVersion (see deployment.yaml). Override to pin a
-  # specific image, e.g. a dev tag.
+  # -- Image tag. Defaults to the chart `appVersion`, which always matches
+  # the release this chart was cut in. Override to pin a specific image.
   tag: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
 
+# -- Secrets used to pull the operator image from a private registry.
 imagePullSecrets: []
+
+# -- Override the chart name used in resource names and labels.
 nameOverride: ""
+# -- Override the fully qualified resource name.
 fullnameOverride: "exalsius-operator"
 
 serviceAccount:
-  # Specifies whether a service account should be created
-  create: false
-  # Automatically mount a ServiceAccount's API credentials?
+  # -- Create the ServiceAccount the operator runs as.
+  create: true
+  # -- Automatically mount the ServiceAccount token into the operator pod.
   automount: true
-  # Annotations to add to the service account
+  # -- Annotations to add to the ServiceAccount.
   annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
-  name: "exalsius-operator"
+  # -- Name of the ServiceAccount. Defaults to the fully qualified chart name.
+  # When `create` is false this must name an existing ServiceAccount.
+  name: ""
 
+rbac:
+  # -- Create the ClusterRole and ClusterRoleBinding for the operator. The
+  # operator manages k0rdent ClusterDeployments, ServiceSets, kubeconfig
+  # Secrets and its own CRDs on the management cluster and is granted
+  # cluster-admin-equivalent permissions.
+  create: true
+
+operator:
+  # -- Enable leader election so only one replica reconciles at a time.
+  leaderElection: true
+  # -- Log level and encoding passed to the controller-runtime zap logger.
+  # `development: true` uses console encoding at debug level.
+  logging:
+    development: true
+  metrics:
+    # -- Expose the controller-runtime metrics endpoint and create a Service
+    # for it. Disabled by default.
+    enabled: false
+    # -- Port the metrics endpoint listens on.
+    port: 8443
+    # -- Serve metrics over HTTPS with kube-rbac-proxy-style authn/authz
+    # (controller-runtime `--metrics-secure`). Set to false for plain HTTP.
+    secure: true
+  workspaces:
+    gateway:
+      # -- Name of the tenant Gateway (Gateway API) on regional clusters that
+      # workspace routes attach to.
+      name: istio-ingressgateway
+      # -- Namespace of the tenant Gateway on regional clusters.
+      namespace: istio-system
+    # -- How workspace namespaces are enrolled into the Istio mesh:
+    # `ambient`, `sidecar` or `none`.
+    meshMode: ambient
+    waypoint:
+      # -- Route workspace namespaces through a per-child Istio ambient
+      # waypoint so cross-cluster traffic stays scoped to the hosting child.
+      enabled: true
+      # -- Namespace where the per-child waypoint Gateways live.
+      namespace: istio-system
+  # -- Additional command-line arguments appended to the operator binary.
+  extraArgs: []
+  # -- Additional environment variables for the operator container.
+  extraEnv: []
+
+# -- Annotations to add to the operator pod.
 podAnnotations: {}
+# -- Labels to add to the operator pod.
 podLabels: {}
 
-podSecurityContext: {}
-  # fsGroup: 2000
+# -- Pod-level security context. Defaults satisfy the `restricted` Pod
+# Security Standard; the image runs as a non-root distroless user.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# -- Container-level security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
 
+# -- Resource requests and limits for the operator container. Left empty so
+# the choice stays with the cluster owner; the operator is light but its
+# memory footprint grows with the number of managed clusters.
 resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
   # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
+  #   cpu: 500m
+  #   memory: 256Mi
   # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+  #   cpu: 10m
+  #   memory: 64Mi
 
-# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+# -- Liveness probe for the operator container.
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 8081
+    port: health
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# -- Readiness probe for the operator container.
 readinessProbe:
   httpGet:
-    path: /healthz
-    port: 8081
+    path: /readyz
+    port: health
+  initialDelaySeconds: 5
+  periodSeconds: 10
 
-#This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 100
-  targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
-
-# Additional volumes on the output Deployment definition.
+# -- Additional volumes for the operator pod.
 volumes: []
 # - name: foo
 #   secret:
 #     secretName: mysecret
 #     optional: false
 
-# Additional volumeMounts on the output Deployment definition.
+# -- Additional volume mounts for the operator container.
 volumeMounts: []
 # - name: foo
 #   mountPath: "/etc/foo"
 #   readOnly: true
 
+# -- Node selector for the operator pod.
 nodeSelector: {}
 
+# -- Tolerations for the operator pod.
 tolerations: []
 
+# -- Affinity rules for the operator pod.
 affinity: {}
+
+# -- PriorityClass for the operator pod.
+priorityClassName: ""
+
+# -- Seconds the operator pod gets to shut down cleanly.
+terminationGracePeriodSeconds: 10

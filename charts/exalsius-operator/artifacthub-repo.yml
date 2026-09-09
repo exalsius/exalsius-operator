@@ -1,0 +1,9 @@
+# Artifact Hub repository metadata for oci://ghcr.io/exalsius/charts/exalsius-operator.
+# Pushed by .github/workflows/post-release.yml under the special tag
+# `artifacthub.io`; Artifact Hub reads it to mark the repository as a verified
+# publisher (repositoryID) and to resolve ownership claims (owners).
+# See https://artifacthub.io/docs/topics/repositories/
+repositoryID: 6202bf1b-ceb1-4c25-b76f-7dcc81b10ee9
+owners:
+  - name: exalsius
+    email: run.it@exalsius.ai

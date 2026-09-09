@@ -5,9 +5,7 @@ metadata:
   labels:
     {{- include "exalsius-operator.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "exalsius-operator.selectorLabels" . | nindent 6 }}
@@ -28,29 +26,71 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "exalsius-operator.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.podSecurityContext }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+        - name: manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-          - --leader-elect
-          - --health-probe-bind-address=:8081
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          volumeMounts:
-          {{- with .Values.volumeMounts }}
+          {{- with .Values.securityContext }}
+          securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      volumes:
+          args:
+            - --health-probe-bind-address=:8081
+            {{- if .Values.operator.leaderElection }}
+            - --leader-elect
+            {{- end }}
+            {{- if .Values.operator.metrics.enabled }}
+            - --metrics-bind-address=:{{ .Values.operator.metrics.port }}
+            - --metrics-secure={{ .Values.operator.metrics.secure }}
+            {{- end }}
+            - --workspace-gateway-name={{ .Values.operator.workspaces.gateway.name }}
+            - --workspace-gateway-namespace={{ .Values.operator.workspaces.gateway.namespace }}
+            - --workspace-mesh-mode={{ .Values.operator.workspaces.meshMode }}
+            - --workspace-waypoint-enabled={{ .Values.operator.workspaces.waypoint.enabled }}
+            - --workspace-waypoint-namespace={{ .Values.operator.workspaces.waypoint.namespace }}
+            - --zap-devel={{ .Values.operator.logging.development }}
+            {{- with .Values.operator.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.operator.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            {{- if .Values.operator.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.operator.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- with .Values.volumes }}
+      volumes:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.nodeSelector }}

@@ -38,6 +38,22 @@ jobs:
           go mod tidy
           make test
 
+  chart:
+    name: Lint Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart and render with default and CI values
+        run: |
+          helm lint --strict charts/exalsius-operator
+          helm template exalsius-operator charts/exalsius-operator > /dev/null
+          helm template exalsius-operator charts/exalsius-operator -f hack/ci-values.yaml > /dev/null
+
   build:
     name: Build container image
     runs-on: ubuntu-latest

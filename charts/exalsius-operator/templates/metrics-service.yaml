@@ -1,0 +1,18 @@
+{{- if .Values.operator.metrics.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "exalsius-operator.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "exalsius-operator.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "exalsius-operator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.operator.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}
