@@ -36,6 +36,8 @@ go.work
 /.scratch/
 
 
-# quickstart output (kubeconfigs, generated k0sctl.yaml)
+# quickstart output (kubeconfigs, generated k0sctl.yaml) and local SSH keys
 quickstart-out/
 child.kubeconfig
+/quickstart-test
+/quickstart-test.pub

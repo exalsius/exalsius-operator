@@ -25,8 +25,7 @@ each of these.
 **Tested with:** the pins in
 [`hack/quickstart/versions.env`](../hack/quickstart/versions.env) (k0s
 v1.33.8, KCM 1.10.0, operator 0.12.0, k0sctl v0.32.2) on Ubuntu 24.04 and
-26.04 nodes with 4 vCPU and 8 GB RAM. The record of verification runs is in
-[`hack/quickstart/README.md`](../hack/quickstart/README.md#verification-runs).
+26.04 nodes with 4 vCPU and 8 GB RAM.
 
 ## Who does what
 

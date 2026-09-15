@@ -19,7 +19,7 @@ Requirements on your workstation: `bash`, `ssh`, `kubectl`, `helm`, and
 loaded into `ssh-agent`) as root on both nodes.
 
 ```bash
-hack/quickstart/setup-management.sh --node <mgmt-ip> --ssh-key ~/.ssh/quickstart
+hack/quickstart/setup-management.sh --node <mgmt-ip> --ssh-key ~/.ssh/exalsius-quickstart
 export KUBECONFIG=$PWD/quickstart-out/mgmt.kubeconfig
 ```
 
