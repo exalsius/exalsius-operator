@@ -38,8 +38,12 @@ annotations:
   artifacthub.io/links: |
     - name: Documentation
       url: https://github.com/exalsius/exalsius-operator#readme
+    - name: Quick start
+      url: https://github.com/exalsius/exalsius-operator/blob/main/docs/quickstart.md
+    - name: Concepts
+      url: https://github.com/exalsius/exalsius-operator/blob/main/docs/concepts.md
     - name: Examples
-      url: https://github.com/exalsius/exalsius-operator/tree/main/examples
+      url: https://github.com/exalsius/exalsius-operator/tree/main/examples/quickstart
     - name: Workspace hub
       url: https://github.com/exalsius/exalsius-workspace-hub
     - name: Changelog
@@ -54,8 +58,8 @@ annotations:
       description: >-
         A logical group of Kubernetes clusters, possibly spanning cloud
         providers. Each entry provisions a k0rdent ClusterDeployment; the
-        operator wires up Cilium, aggregates kubeconfigs and publishes the
-        GPU inventory of every child cluster.
+        operator aggregates kubeconfigs and publishes the GPU inventory of
+        every child cluster.
     - kind: WorkspaceClass
       version: v1
       name: workspaceclasses.workspaces.exalsius.ai
@@ -70,58 +74,81 @@ annotations:
       displayName: WorkspaceDeployment
       description: >-
         A user's request to run a workspace of a given WorkspaceClass on a
-        target child cluster. The operator creates a k0rdent ServiceSet per
-        workspace and reports readiness and access URLs in the status.
+        target child cluster. The operator installs the prerequisites the
+        class declares, gates on GPU capacity, creates a k0rdent ServiceSet
+        per workspace and reports readiness and access URLs in the status.
   artifacthub.io/crdsExamples: |
     - apiVersion: infra.exalsius.ai/v1
       kind: Colony
       metadata:
-        name: docker-colony
-        namespace: default
+        name: quickstart
+        namespace: kcm-system
       spec:
         colonyClusters:
-          - clusterName: docker-1
+          - clusterName: child-1
             clusterDeploymentSpec:
-              template: docker-hosted-cp-1-0-0
-              credential: docker-stub-credential
+              template: exalsius-remote-cluster-0-1-5
+              credential: remote-cred
               config:
-                workersNumber: 2
+                controlPlaneNumber: 1
+                k0sCloudProvider:
+                  enabled: false
+                k0smotron:
+                  externalAddress: "203.0.113.10"
+                  service:
+                    type: NodePort
+                    apiPort: 30443
+                    konnectivityPort: 30132
+                machines:
+                  - address: "203.0.113.11"
+                    user: root
+                    port: 22
     - apiVersion: workspaces.exalsius.ai/v1
       kind: WorkspaceClass
       metadata:
-        name: jupyter-notebook
+        name: jupyter-notebook-0-3-0
+        labels:
+          workspaces.exalsius.ai/template: jupyter-notebook
+          workspaces.exalsius.ai/version: "0.3.0"
       spec:
         displayName: Jupyter Notebook
-        description: Interactive Python notebook with JupyterLab UI
+        description: Single-user Jupyter Notebook on CPU, NVIDIA or AMD ROCm nodes.
         serviceTemplate:
-          name: jupyter-notebook-template
-        deployTimeout: 20m
+          name: jupyter-notebook-0-3-0
+          namespace: kcm-system
         defaultResources:
+          replicas: 1
           perReplica:
-            cpu: "2"
+            cpu: "4"
             memory: 8Gi
             storage: 20Gi
             gpuCount: 0
         accessEndpoints:
-          - name: web
+          - name: http
             protocol: HTTP
-            port: 8888
-            description: JupyterLab web interface
+            port: 80
+            description: Jupyter Notebook web UI
         userFacingConfig:
           - helmValuePath: notebookPassword
             displayName: Notebook Password
-            description: Password to access the JupyterLab instance
+            description: Password to access the Jupyter web UI
             type: secret
             required: true
+        deployTimeout: 15m
     - apiVersion: workspaces.exalsius.ai/v1
       kind: WorkspaceDeployment
       metadata:
         name: my-notebook
         namespace: kcm-system
       spec:
-        workspaceClassRef: jupyter-notebook
+        workspaceClassRef: jupyter-notebook-0-3-0
         clusterDeploymentRef:
-          name: docker-colony-docker-1
+          name: quickstart-child-1
           namespace: kcm-system
+        resources:
+          perReplica:
+            cpu: "2"
+            memory: 4Gi
+            storage: 10Gi
         values:
-          notebookPassword: change-me
+          notebookPassword: change-me-please
