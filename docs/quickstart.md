@@ -521,6 +521,13 @@ deploy/k0smotron-controller-manager-infrastructure -f`.
   inference, training stacks). Point a WorkspaceDeployment at a GPU node with
   `gpuCount` and `gpuNodeSelector`; the GPU gate and the `Waiting` phase are
   explained in [Concepts](concepts.md#the-deployment-merges-gates-and-hands-off).
+- **A reproducible GPU evaluation.** The
+  [exalsius-provisioning-benchmark](https://github.com/exalsius/exalsius-provisioning-benchmark)
+  provisions an operator-managed cluster directly on your own GPU nodes,
+  deploys LLM inference workspaces in single-node, replicated and sharded
+  scenarios, and collects throughput and telemetry. It needs Docker on your
+  workstation and NVIDIA nodes, runs everything in one cluster rather than a
+  Colony with a child, and pins its own component versions.
 - **The full picture.** [Concepts](concepts.md) explains how classes,
   deployments, ServiceSets and Sveltos fit together and shows the complete
   topology with a regional cluster, which this guide leaves out.

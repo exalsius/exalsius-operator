@@ -150,6 +150,9 @@ The runnable copy lives in
   cluster topology, with diagrams.
 - [Helm chart](charts/exalsius-operator/README.md): install, upgrade,
   values and RBAC for an existing k0rdent cluster.
+- [Provisioning benchmark](https://github.com/exalsius/exalsius-provisioning-benchmark):
+  scripted, reproducible GPU inference scenarios on your own nodes, with
+  committed evidence.
 - [docs.exalsius.ai](https://docs.exalsius.ai): the CLI and hosted platform.
 
 ## Contributing
