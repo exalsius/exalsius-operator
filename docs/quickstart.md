@@ -262,8 +262,8 @@ kubectl -n kcm-system logs deploy/k0smotron-controller-manager-infrastructure -f
 Workspaces come in two parts: a cluster-scoped **WorkspaceClass** that an
 administrator publishes as a catalog entry, and a namespaced
 **WorkspaceDeployment** that a user creates to run one instance of a class on
-one cluster. How the two map onto k0rdent and Sveltos is in the
-[resource model](../README.md#resource-model) of the README.
+one cluster. How the two map onto k0rdent and Sveltos is in
+[Concepts](concepts.md).
 
 The setup script installed the Jupyter Notebook class from the public
 [exalsius-workspace-hub](https://github.com/exalsius/exalsius-workspace-hub)
@@ -479,8 +479,7 @@ the pod actually stays `Pending`, lower `resources.perReplica`.
 **`kubectl describe wsd` shows `RoutesReady=False` /
 `RoutingInfraNotReady`.** Expected here. URL publishing needs a regional
 cluster with a tenant Gateway, which this guide does not set up; the workspace
-itself is fine. See
-[ADR-0001](adr/0001-workspace-access-via-gateway-api.md).
+itself is fine. See [Workspace access](concepts.md#workspace-access).
 
 **The Colony shows `Ready` before the ClusterDeployment does.** The Colony's
 phase can briefly read `Ready` right after apply and then flip back to
@@ -514,20 +513,17 @@ deploy/k0smotron-controller-manager-infrastructure -f`.
 - **Published URLs instead of port-forward.** In a full deployment each child
   is attached to a **regional cluster**, a per-tenant hub that runs a Gateway
   API `Gateway`. Attach the child to one and the operator fills in the `URL`
-  column automatically. The design is in
-  [ADR-0001](adr/0001-workspace-access-via-gateway-api.md).
+  column automatically. How publishing works is in
+  [Workspace access](concepts.md#workspace-access).
 - **More nodes.** Add entries to `config.machines[]` in the Colony to give the
   child more workers, or add a second `colonyClusters` entry for a second
   cluster.
 - **GPU workspaces.** The same catalog serves GPU-backed classes (LLM
   inference, training stacks). Point a WorkspaceDeployment at a GPU node with
-  `gpuCount` and `gpuNodeSelector`; see
-  [ADR-0002](adr/0002-gpu-selection-inventory-and-capacity-gating.md).
-- **The full picture.** The [resource model](../README.md#resource-model) in
-  the README explains how classes, deployments, ServiceSets and Sveltos fit
-  together, and the architecture diagrams in
-  [`docs/architecture/`](architecture/) show the complete topology with a
-  regional cluster, which this guide leaves out. The [ADRs](adr/) record the
-  reasoning behind each part.
+  `gpuCount` and `gpuNodeSelector`; the GPU gate and the `Waiting` phase are
+  explained in [Concepts](concepts.md#the-deployment-merges-gates-and-hands-off).
+- **The full picture.** [Concepts](concepts.md) explains how classes,
+  deployments, ServiceSets and Sveltos fit together and shows the complete
+  topology with a regional cluster, which this guide leaves out.
 - **The CLI and hosted platform.** The exalsius CLI and API sit on top of these
   resources; their journey starts at <https://docs.exalsius.ai>.
