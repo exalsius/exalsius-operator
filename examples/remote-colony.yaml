@@ -1,16 +1,50 @@
+# A Colony with one child cluster built from bare SSH-reachable machines.
+#
+# Uses the exalsius-remote-cluster ClusterTemplate: the control plane runs as
+# pods on the management cluster (k0smotron) and each listed machine joins as
+# a worker over SSH. Machines may sit in different datacenters or clouds; the
+# template enables Cilium with WireGuard encryption between all nodes.
+#
+# Before applying, register the ClusterTemplate and an SSH Credential as shown
+# in charts/exalsius-operator/README.md ("After installing"), and replace the
+# addresses below. For a one-machine walkthrough with expected output, see
+# examples/quickstart/colony.yaml and docs/quickstart.md.
 apiVersion: infra.exalsius.ai/v1
 kind: Colony
 metadata:
   name: remote-colony
+  namespace: kcm-system
 spec:
-  k8sVersion: v1.27.2
-
-  hostedControlPlaneEnabled: true
-  # In case the nodes of the management cluster have the external IP not set,
-  # you can set the external address here.
-  # This is used for hosted control planes as the API Server NodePort IP.
-  externalAddress: "192.168.1.100"
-
   colonyClusters:
+    # ClusterDeployments are named <colony>-<clusterName>: remote-colony-remote-1.
     - clusterName: remote-1
-      remoteClusterEnabled: true
+      # Labels and annotations copied onto the ClusterDeployment (optional).
+      clusterLabels: {}
+      clusterAnnotations: {}
+      clusterDeploymentSpec:
+        template: exalsius-remote-cluster-0-1-5
+        credential: remote-cred
+        config:
+          controlPlaneNumber: 1
+          # Bare machines have no cloud provider; the template default (true)
+          # leaves the nodes without a usable address.
+          k0sCloudProvider:
+            enabled: false
+          k0smotron:
+            # The address of the management cluster as the workers reach it.
+            # With type NodePort the API server and konnectivity tunnel are
+            # exposed on these ports of every management node.
+            externalAddress: "203.0.113.10"
+            service:
+              type: NodePort
+              apiPort: 30443
+              konnectivityPort: 30132
+          # One entry per worker. Each must accept the Credential's SSH key
+          # and reach externalAddress on the two ports above.
+          machines:
+            - address: "203.0.113.11"
+              user: root
+              port: 22
+            - address: "198.51.100.20"
+              user: root
+              port: 22
