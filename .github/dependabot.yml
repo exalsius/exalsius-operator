@@ -10,17 +10,26 @@ updates:
       day: monday
     commit-message:
       prefix: "chore(deps)"
+    # KCM and k0smotron are pinned to the version running on the management cluster.
+    # Their Go API changes between minors (e.g. KCM 1.12 turned
+    # ClusterDeployment.spec.propagateCredentials into *bool), so they are bumped by
+    # hand together with a management-cluster upgrade, never by Dependabot.
+    ignore:
+      - dependency-name: "github.com/K0rdent/kcm"
+      - dependency-name: "github.com/k0sproject/k0smotron"
     groups:
       kubernetes:
         patterns:
           - "k8s.io/*"
           - "sigs.k8s.io/*"
-      k0rdent:
-        patterns:
-          - "github.com/K0rdent/*"
-          - "github.com/k0rdent/*"
-          - "github.com/k0sproject/*"
+      # Everything else. The exclude list keeps the kubernetes group's members out of
+      # this one; without it Dependabot folds them into the catch-all group.
       go-minor-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
         update-types:
           - minor
           - patch
