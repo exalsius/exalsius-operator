@@ -10,13 +10,16 @@ updates:
       day: monday
     commit-message:
       prefix: "chore(deps)"
-    # KCM and k0smotron are pinned to the version running on the management cluster.
-    # Their Go API changes between minors (e.g. KCM 1.12 turned
-    # ClusterDeployment.spec.propagateCredentials into *bool), so they are bumped by
-    # hand together with a management-cluster upgrade, never by Dependabot.
+    # KCM, k0smotron and the Sveltos addon-controller are pinned to the versions running
+    # on the management cluster (Sveltos via k0rdent's ksm-projectsveltos provider).
+    # Their Go APIs change between minors (KCM 1.12 turned
+    # ClusterDeployment.spec.propagateCredentials into *bool; addon-controller 1.15
+    # requires Go 1.27), so they are bumped by hand together with a management-cluster
+    # upgrade, never by Dependabot.
     ignore:
       - dependency-name: "github.com/K0rdent/kcm"
       - dependency-name: "github.com/k0sproject/k0smotron"
+      - dependency-name: "github.com/projectsveltos/addon-controller"
     groups:
       kubernetes:
         patterns:
