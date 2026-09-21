@@ -5,8 +5,8 @@ description: >-
   k0rdent and deploys GPU workspaces (notebooks, LLM endpoints, Slurm, ...) onto
   them from a declarative catalog.
 type: application
-version: 0.12.0
-appVersion: 0.12.0
+version: 0.12.1
+appVersion: 0.12.1
 kubeVersion: '>=1.28.0-0'
 home: https://github.com/exalsius/exalsius-operator
 icon: >-
