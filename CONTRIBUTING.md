@@ -201,7 +201,9 @@ Releases are cut by [release-please](https://github.com/googleapis/release-pleas
 1. Merged `feat:` and `fix:` PRs accumulate in an automatically maintained release PR
    titled `chore(main): release X.Y.Z`.
 2. Merging that PR tags `vX.Y.Z`, updates `CHANGELOG.md`, and bumps `version` and
-   `appVersion` in the Helm chart in one commit.
+   `appVersion` in the Helm chart and the operator pin of the quick start
+   (`hack/quickstart/versions.env`, `docs/quickstart.md`) in one commit, so a tag's
+   quick start installs that tag's operator.
 3. The post-release workflow builds and pushes `ghcr.io/exalsius/exalsius-operator:X.Y.Z`,
    pushes the chart to `oci://ghcr.io/exalsius/charts/exalsius-operator`, refreshes the
    Artifact Hub metadata, and attaches the chart `.tgz` to the GitHub Release.
