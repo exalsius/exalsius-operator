@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/exalsius/exalsius-operator/compare/v0.12.0...v0.12.1) (2026-09-21)
+
+
+### Miscellaneous Chores
+
+* **quickstart:** let release-please maintain the operator pin, pin the workspace hub ([#189](https://github.com/exalsius/exalsius-operator/issues/189)) ([8a3041f](https://github.com/exalsius/exalsius-operator/commit/8a3041ffa1bbf0e9aca8da17905939bc1dddc9ec))
+
 ## [0.12.0](https://github.com/exalsius/exalsius-operator/compare/v0.11.2...v0.12.0) (2026-09-09)
 
 

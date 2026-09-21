@@ -24,7 +24,7 @@ each of these.
 
 **Tested with:** the pins in
 [`hack/quickstart/versions.env`](../hack/quickstart/versions.env) (operator
-0.12.0, <!-- x-release-please-version -->
+0.12.1, <!-- x-release-please-version -->
 KCM 1.10.0, k0s v1.33.8, k0sctl v0.32.2) on Ubuntu 24.04 and 26.04 nodes with
 4 vCPU and 8 GB RAM.
 
@@ -127,7 +127,7 @@ an SSH hiccup) just run it again. It ends with:
 ```
 ==> management cluster ready
 
-  Management cluster:   operator 0.12.0, KCM 1.10.0, k0s v1.33.8+k0s.1  (root@203.0.113.10)
+  Management cluster:   operator 0.12.1, KCM 1.10.0, k0s v1.33.8+k0s.1  (root@203.0.113.10)
   Kubeconfig:           /path/to/exalsius-operator/quickstart-out/mgmt.kubeconfig
   Cluster template:     exalsius-remote-cluster-0-1-5   (credential: remote-cred)
   Workspace class:      jupyter-notebook-0-3-0
