@@ -33,20 +33,20 @@ jobs:
     steps:
       - name: Mint GitHub App token (contents:read + packages:read on the org)
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Checkout operator (this PR) as a sibling
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: exalsius-operator   # resolves to ../exalsius-operator from local-dev-env root
 
       - name: Checkout local-dev-env (provisioning + CI scripts)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/local-dev-env
           ref: main
@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-diagnostics-${{ github.run_id }}
           path: diagnostics/
