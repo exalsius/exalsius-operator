@@ -1,0 +1,32 @@
+name: Documentation
+description: Something in the README, chart README, ADRs, examples or quickstart is wrong, missing or unclear.
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: dropdown
+    id: location
+    attributes:
+      label: Which document
+      options:
+        - README.md
+        - charts/exalsius-operator/README.md (chart, values, install)
+        - Quickstart
+        - examples/
+        - docs/adr/ (architecture decision records)
+        - CONTRIBUTING.md / SECURITY.md
+        - docs.exalsius.ai (please also say which page)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+      description: Quote the passage if it is a correction, or describe what you were looking for and could not find.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+      description: Optional. A proposed wording or the facts that should be added. Pull requests for docs are welcome.

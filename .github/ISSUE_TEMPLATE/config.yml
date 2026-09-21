@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/exalsius/exalsius-operator/security/advisories/new
+    about: Do not open a public issue for vulnerabilities. Use private reporting; see SECURITY.md for what to include and what to expect.
+  - name: Ask a question
+    url: mailto:run.it@exalsius.ai
+    about: Usage questions and general help. Please check the README, the chart README and docs.exalsius.ai first.
+  - name: exalsius documentation
+    url: https://docs.exalsius.ai
+    about: End-user documentation for the exalsius stack (CLI, API, hosted platform).
+  - name: Workspace charts and WorkspaceClass catalog
+    url: https://github.com/exalsius/exalsius-workspace-hub/issues
+    about: Problems with a specific workspace chart (Jupyter, Slurm, llm-d, ...) or a catalog entry belong in the workspace hub.

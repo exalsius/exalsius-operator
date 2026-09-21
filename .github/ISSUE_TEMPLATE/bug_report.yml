@@ -1,0 +1,95 @@
+name: Bug report
+description: The operator, its Helm chart or the quickstart behaves differently from what is documented.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please fill in what you can; the
+        version fields and the resource status are what we usually need first.
+
+        **Do not report security vulnerabilities here.** Use
+        [private vulnerability reporting](https://github.com/exalsius/exalsius-operator/security/advisories/new)
+        instead (see [SECURITY.md](https://github.com/exalsius/exalsius-operator/blob/main/SECURITY.md)).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        I created a Colony with two ClusterDeployments on ... and expected ...
+        Instead the Colony stays in phase ... and the operator logs show ...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Colony reconciliation (ClusterDeployment provisioning, Cilium, kubeconfig aggregation)
+        - WorkspaceClass
+        - WorkspaceDeployment (ServiceSet, prerequisites, readiness, access URL)
+        - Helm chart (install, upgrade, RBAC, values)
+        - Quickstart / hack scripts
+        - CRD schema or validation
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: operator-version
+    attributes:
+      label: Operator version
+      description: Helm chart version, image tag or image digest. `helm list -A` or `kubectl -n <ns> get deploy -o jsonpath='{..image}'`.
+      placeholder: "chart 0.12.0 / ghcr.io/exalsius/exalsius-operator:0.12.0"
+    validations:
+      required: true
+  - type: input
+    id: kcm-version
+    attributes:
+      label: k0rdent (KCM) version
+      description: "`kubectl -n kcm-system get management kcm -o jsonpath='{.status.release}'` or the KCM chart version."
+      placeholder: "1.10.0"
+    validations:
+      required: true
+  - type: input
+    id: k8s-version
+    attributes:
+      label: Management cluster Kubernetes version
+      description: "`kubectl version --short` against the management cluster."
+      placeholder: "v1.32.3"
+  - type: input
+    id: infra
+    attributes:
+      label: Infrastructure and ClusterTemplate
+      description: Cloud provider or on-prem, and the k0rdent ClusterTemplate / ServiceTemplate names involved.
+      placeholder: "Hetzner bare metal, remote-machine template; or AWS, aws-standalone-cp-1-0-0"
+  - type: textarea
+    id: resources
+    attributes:
+      label: Resource YAML and status
+      description: |
+        The Colony / WorkspaceClass / WorkspaceDeployment that shows the problem, including `.status`.
+        `kubectl get <kind> <name> -n <ns> -o yaml`. **Redact credentials, kubeconfigs and hostnames you do not want public.**
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Operator logs
+      description: "`kubectl -n <operator-namespace> logs deploy/exalsius-operator --since=30m`. Trim to the relevant reconciler lines if long."
+      render: shell
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Anything that made the problem go away, if you found one.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the CHANGELOG for this problem.
+          required: true
+        - label: I removed credentials, kubeconfigs, SSH keys and tokens from everything pasted above.
+          required: true

@@ -1,0 +1,47 @@
+# Dependabot keeps Go modules, GitHub Actions and the Dockerfile base image current.
+# Security updates are always opened; version updates are grouped to limit PR noise.
+# Dependabot PR titles follow Conventional Commits so release-please picks them up.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      k0rdent:
+        patterns:
+          - "github.com/K0rdent/*"
+          - "github.com/k0rdent/*"
+          - "github.com/k0sproject/*"
+      go-minor-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"

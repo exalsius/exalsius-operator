@@ -1,38 +1,40 @@
 ## Description
 
-This PR fixes #
+<!-- What does this change and why? Link the issue if there is one. -->
 
-## Notes for Reviewers
+Fixes #
 
-<!-- 
-## PR Title Format (Conventional Commits)
+## Checklist
 
-Please use one of the following prefixes in your PR title (the scope is optional):
+<!-- Tick what applies; delete lines that do not. See CONTRIBUTING.md for details. -->
 
-- `feat(scope): ...` – New features or significant enhancements
-- `fix(scope): ...` – Bug fixes
-- `docs(scope): ...` – Documentation changes
-- `refactor(scope): ...` – Code changes that neither fix bugs nor add features
-- `chore(scope): ...` – Maintenance tasks, dependency updates, etc.
-- `test(scope): ...` – Adding or modifying tests
-- `ci(scope): ...` – Changes to CI configuration files and scripts
+- [ ] `make fmt vet lint test` passes locally
+- [ ] `*_types.go` changed: ran `make manifests generate sync-chart-crds` and committed the output
+- [ ] `values.yaml` changed: updated `charts/exalsius-operator/README.md` values tables and `values.schema.json`
+- [ ] Behaviour or API changed: updated README, chart README or examples
+- [ ] Architectural decision: added or updated an ADR under `docs/adr/`
+- [ ] Workspace path changed: added the `e2e` label to run the multi-cluster suite
+- [ ] Breaking change: PR title carries `!` and the description explains the migration
 
-**Example:** `feat(auth): add OAuth2 login support`
+## Notes for reviewers
 
-Please also aim to use Conventional Commits for your individual commits, or squash your commits before merging.  
-The **CHANGELOG is automatically generated** based on `feat:` and `fix:` messages.
+<!-- Anything that helps review: what to look at first, what you are unsure about, how you tested it. -->
 
-## Multiple Contributors?
+<!--
+PR titles must follow Conventional Commits; the title becomes the squash-commit message
+and release-please builds the CHANGELOG from it:
 
-If this PR includes commits from multiple authors and you're going to squash-merge it, please consider adding  
-`Co-authored-by:` lines to the final squash commit message to give proper credit.
+  feat(scope): ...      new capability            -> minor version bump
+  fix(scope): ...       bug fix                   -> patch version bump
+  feat(scope)!: ...     breaking change           -> minor bump while pre-1.0, called out in CHANGELOG
+  docs | chore | refactor | test | ci             -> no release
 
-Example:
+Common scopes: colony, workspace, chart, ci, docs.
+Do not edit CHANGELOG.md or the chart version by hand.
 
-```
-Co-authored-by: Alice <alice@example.com>
-Co-authored-by: Bob <bob@example.com>
-```
+Squash-merging commits from several authors? Add Co-authored-by trailers so credit is kept:
 
-More information: Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  Co-authored-by: Name <email@example.com>
+
+Reference: https://www.conventionalcommits.org/en/v1.0.0/
 -->
