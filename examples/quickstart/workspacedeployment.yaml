@@ -1,0 +1,31 @@
+# Quickstart: deploy a CPU-only Jupyter Notebook workspace onto the child
+# cluster that the quickstart Colony provisioned.
+#
+# The WorkspaceClass `jupyter-notebook-0-3-0` comes from the public
+# exalsius-workspace-hub catalog, installed by the quickstart setup script.
+#
+# Apply:  kubectl apply -f examples/quickstart/workspacedeployment.yaml
+# Watch:  kubectl get wsd -n kcm-system -w
+# Delete: kubectl delete wsd my-notebook -n kcm-system
+apiVersion: workspaces.exalsius.ai/v1
+kind: WorkspaceDeployment
+metadata:
+  name: my-notebook
+  namespace: kcm-system
+spec:
+  workspaceClassRef: jupyter-notebook-0-3-0
+  clusterDeploymentRef:
+    # ClusterDeployments are named <colony>-<clusterName>; the quickstart Colony
+    # is `quickstart` with one cluster `child-1`.
+    name: quickstart-child-1
+    namespace: kcm-system
+  # Sized down from the class defaults (4 CPU / 8Gi / 20Gi) to fit a small
+  # node. No gpuCount / gpuNodeSelector: this workspace runs on CPU.
+  resources:
+    perReplica:
+      cpu: "2"
+      memory: "4Gi"
+      storage: "10Gi"
+  values:
+    # CHANGE ME: password for the Jupyter web UI.
+    notebookPassword: "change-me-please"

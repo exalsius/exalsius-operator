@@ -1,0 +1,19 @@
+# Flux HelmRepository for the public exalsius workspace hub.
+#
+# The hub's rendered ServiceTemplates (e.g. jupyter-notebook-0-3-0) reference a
+# HelmRepository named exactly `exalsius-workspace-hub` in their own namespace
+# (kcm-system) and deliberately leave creating it to the environment. This is
+# that one piece. Charts on GHCR are public: no credentials needed.
+#
+# Applied by the quickstart setup script; readers never touch it directly.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: exalsius-workspace-hub
+  namespace: kcm-system
+  labels:
+    k0rdent.mirantis.com/managed: "true"
+spec:
+  type: oci
+  interval: 10m
+  url: oci://ghcr.io/exalsius/exalsius-workspace-hub/charts
