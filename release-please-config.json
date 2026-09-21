@@ -13,6 +13,14 @@
           "type": "yaml",
           "path": "charts/exalsius-operator/Chart.yaml",
           "jsonpath": "$.appVersion"
+        },
+        {
+          "type": "generic",
+          "path": "hack/quickstart/versions.env"
+        },
+        {
+          "type": "generic",
+          "path": "docs/quickstart.md"
         }
       ]
     }

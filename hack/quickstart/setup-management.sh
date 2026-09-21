@@ -175,7 +175,7 @@ run kc apply -f "$JUPYTER_WORKSPACECLASS_URL"
 log "management cluster ready"
 cat >&2 <<MSG
 
-  Management cluster:   $SSH_USER@$MGMT_HOST  (k0s $K0S_VERSION, KCM $KCM_VERSION, operator $EXALSIUS_OPERATOR_VERSION)
+  Management cluster:   operator $EXALSIUS_OPERATOR_VERSION, KCM $KCM_VERSION, k0s $K0S_VERSION  ($SSH_USER@$MGMT_HOST)
   Kubeconfig:           $KUBECONFIG_OUT
   Cluster template:     $REMOTE_CLUSTER_TEMPLATE_NAME   (credential: remote-cred)
   Workspace class:      $JUPYTER_TEMPLATE_NAME

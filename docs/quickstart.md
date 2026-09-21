@@ -23,9 +23,10 @@ VMs, and the exalsius CLI and API. [Going further](#going-further) points to
 each of these.
 
 **Tested with:** the pins in
-[`hack/quickstart/versions.env`](../hack/quickstart/versions.env) (k0s
-v1.33.8, KCM 1.10.0, operator 0.12.0, k0sctl v0.32.2) on Ubuntu 24.04 and
-26.04 nodes with 4 vCPU and 8 GB RAM.
+[`hack/quickstart/versions.env`](../hack/quickstart/versions.env) (operator
+0.12.0, <!-- x-release-please-version -->
+KCM 1.10.0, k0s v1.33.8, k0sctl v0.32.2) on Ubuntu 24.04 and 26.04 nodes with
+4 vCPU and 8 GB RAM.
 
 ## Who does what
 
@@ -122,10 +123,11 @@ Expect roughly 5 to 10 minutes; each step prints what it is waiting for. The
 script is idempotent, so if it fails on a transient error (a slow image pull,
 an SSH hiccup) just run it again. It ends with:
 
+<!-- x-release-please-start-version -->
 ```
 ==> management cluster ready
 
-  Management cluster:   root@203.0.113.10  (k0s v1.33.8+k0s.1, KCM 1.10.0, operator 0.12.0)
+  Management cluster:   operator 0.12.0, KCM 1.10.0, k0s v1.33.8+k0s.1  (root@203.0.113.10)
   Kubeconfig:           /path/to/exalsius-operator/quickstart-out/mgmt.kubeconfig
   Cluster template:     exalsius-remote-cluster-0-1-5   (credential: remote-cred)
   Workspace class:      jupyter-notebook-0-3-0
@@ -134,6 +136,7 @@ Next:
   export KUBECONFIG=/path/to/exalsius-operator/quickstart-out/mgmt.kubeconfig
   ...
 ```
+<!-- x-release-please-end -->
 
 Point `kubectl` at the new cluster for the rest of the guide:
 

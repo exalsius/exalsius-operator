@@ -80,9 +80,11 @@ commands below assume k0rdent's namespace `kcm-system`; the `ClusterTemplate`,
 
 For bare SSH-reachable machines, the `exalsius-remote-cluster` template
 provisions a k0smotron-hosted control plane with Cilium as the network layer.
-Its versions are listed at
-<https://github.com/exalsius/cluster-templates>; the template name is the
-chart name with the version's dots replaced by dashes.
+The chart is published at
+`oci://ghcr.io/exalsius/cluster-templates/charts/exalsius-remote-cluster`; the
+version the quick start verifies is pinned in
+[`versions.env`](https://github.com/exalsius/exalsius-operator/blob/main/hack/quickstart/versions.env).
+The template name is the chart name with the version's dots replaced by dashes.
 
 ```bash
 kubectl apply -f - <<'YAML'
