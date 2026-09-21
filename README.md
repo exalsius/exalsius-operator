@@ -155,8 +155,15 @@ The runnable copy lives in
   committed evidence.
 - [docs.exalsius.ai](https://docs.exalsius.ai): the CLI and hosted platform.
 
-## Contributing
-We welcome contributions! Please check the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines.
+## Community
+
+- **Contributing**: setup, testing, commit conventions and the release process are in
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Bugs and feature requests**: use the
+  [issue forms](https://github.com/exalsius/exalsius-operator/issues/new/choose).
+- **Security**: report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+- **Code of conduct**: this project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
+- **Questions**: <run.it@exalsius.ai>.
 
 ## License
 

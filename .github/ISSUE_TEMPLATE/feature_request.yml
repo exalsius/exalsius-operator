@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a change to the operator's behaviour, CRDs or Helm chart.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requests for new *workspace types* (charts) belong in the
+        [workspace hub](https://github.com/exalsius/exalsius-workspace-hub/issues).
+        Requests that touch the CLI or API journey belong in
+        [exalsius-cli](https://github.com/exalsius/exalsius-cli/issues) or
+        [exalsius-api](https://github.com/exalsius/exalsius-api/issues).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what stops you today? Describe the situation, not the solution.
+      placeholder: "When a WorkspaceClass declares a prerequisite that is already installed by another tool on the child cluster, the operator ..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: How should the operator behave? If this changes a CRD, sketch the new fields; if it changes the chart, name the values.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Colony / cluster provisioning
+        - WorkspaceClass
+        - WorkspaceDeployment
+        - Helm chart / installation
+        - Observability (metrics, events, conditions)
+        - Security / RBAC
+        - Developer experience (Makefile, tests, CI)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to get the same result, including doing it outside the operator, and why they fall short.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This changes the public API (CRD fields, chart values, status contract) and probably needs an ADR under `docs/adr/`.
+        - label: I am willing to work on a pull request for this.
