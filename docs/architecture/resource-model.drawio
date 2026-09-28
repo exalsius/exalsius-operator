@@ -1,0 +1,112 @@
+<mxfile host="drawio">
+  <diagram name="resource-model" id="resource-model">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1340" pageHeight="520" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- tier containers -->
+        <mxCell id="mgmt" value="MANAGEMENT CLUSTER&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;&lt;span style=&quot;font-weight:normal&quot;&gt;runs k0rdent and the exalsius-operator&lt;/span&gt;&lt;/font&gt;" style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=14;spacingTop=8;fontSize=14;fontStyle=1;fillColor=#F5F8FC;strokeColor=#4A6FA5;fontColor=#4A6FA5;container=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="900" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="child" value="CHILD CLUSTER&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;&lt;span style=&quot;font-weight:normal&quot;&gt;runs the workloads&lt;/span&gt;&lt;/font&gt;" style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=14;spacingTop=8;fontSize=14;fontStyle=1;fillColor=#F3F8F3;strokeColor=#4E8A4E;fontColor=#4E8A4E;container=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="40" width="300" height="440" as="geometry" />
+        </mxCell>
+
+        <!-- column headers (relative to mgmt) -->
+        <mxCell id="h1" value="exalsius resources &amp;middot; you write" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=2;fontColor=#5A6B7B;" vertex="1" parent="mgmt">
+          <mxGeometry x="30" y="50" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="h2" value="k0rdent objects &amp;middot; the operator creates" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=2;fontColor=#5A6B7B;" vertex="1" parent="mgmt">
+          <mxGeometry x="330" y="50" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="h3" value="machinery &amp;middot; k0rdent drives" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=2;fontColor=#5A6B7B;" vertex="1" parent="mgmt">
+          <mxGeometry x="630" y="50" width="220" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="h4" value="what lands on the child" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=2;fontColor=#5A6B7B;" vertex="1" parent="child">
+          <mxGeometry x="30" y="50" width="240" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- row 1: Colony -->
+        <mxCell id="colony" value="&lt;b&gt;Colony&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;one entry per cluster&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#F3EFFA;strokeColor=#9673A6;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="30" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cd" value="&lt;b&gt;ClusterDeployment&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;one per Colony entry&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#FFF8E1;strokeColor=#D6B656;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="330" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="capi" value="&lt;b&gt;Cluster API + k0smotron&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;hosted control plane, workers join over the network&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=1.5;fillColor=#F5F5F5;strokeColor=#8A94A6;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="630" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster" value="&lt;b&gt;Kubernetes cluster&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;Cilium CNI, WireGuard between nodes&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#FFFFFF;strokeColor=#4E8A4E;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="child">
+          <mxGeometry x="30" y="90" width="240" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- row 2: WorkspaceClass -->
+        <mxCell id="wsc" value="&lt;b&gt;WorkspaceClass&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;cluster-scoped catalog entry, versioned&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#F3EFFA;strokeColor=#9673A6;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="30" y="210" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="st" value="&lt;b&gt;ServiceTemplate&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;wraps the workspace&#39;s Helm chart&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#FFF8E1;strokeColor=#D6B656;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="330" y="210" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- row 3: WorkspaceDeployment -->
+        <mxCell id="wsd" value="&lt;b&gt;WorkspaceDeployment&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;one instance of a class on one cluster&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#F3EFFA;strokeColor=#9673A6;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="30" y="340" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ss" value="&lt;b&gt;ServiceSet&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;one per workspace: template, values, target&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#FFF8E1;strokeColor=#D6B656;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="330" y="340" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sveltos" value="&lt;b&gt;Sveltos Profile&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;k0rdent&#39;s state management provider&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=1.5;fillColor=#F5F5F5;strokeColor=#8A94A6;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="mgmt">
+          <mxGeometry x="630" y="340" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="helm" value="&lt;b&gt;Helm release&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#5A6B7B&quot;&gt;the workspace, in namespace ws-&amp;lt;name&amp;gt;&lt;/font&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#FFFFFF;strokeColor=#4E8A4E;fontColor=#3A4A5B;fontSize=12;" vertex="1" parent="child">
+          <mxGeometry x="30" y="340" width="240" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- edges: operator creates (purple) -->
+        <mxCell id="e1" value="creates" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#9673A6;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" edge="1" parent="1" source="colony" target="cd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="creates" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#9673A6;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.6;entryDx=0;entryDy=0;" edge="1" parent="1" source="wsd" target="ss">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- edges: k0rdent drives (orange) -->
+        <mxCell id="e2" value="provisions via" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#B07D2B;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cd" target="capi">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="brings up" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#B07D2B;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="capi" target="cluster">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="becomes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#B07D2B;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ss" target="sveltos">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="installs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#B07D2B;strokeWidth=2;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sveltos" target="helm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- edges: references (grey dashed) -->
+        <mxCell id="e4" value="pins" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#8A94A6;strokeWidth=1.6;dashed=1;dashPattern=4 3;endArrow=open;endSize=8;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="wsc" target="st">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="20" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8" value="pins one class" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#8A94A6;strokeWidth=1.6;dashed=1;dashPattern=4 3;endArrow=open;endSize=8;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="wsd" target="wsc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="names" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#8A94A6;strokeWidth=1.6;dashed=1;dashPattern=4 3;endArrow=open;endSize=8;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="ss" target="st">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="targets" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;jumpStyle=arc;jumpSize=8;fontSize=10;labelBackgroundColor=#FFFFFF;fontColor=#3A4A5B;strokeColor=#8A94A6;strokeWidth=1.6;dashed=1;dashPattern=4 3;endArrow=open;endSize=8;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="wsd" target="cd">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="398" />
+              <mxPoint x="300" y="183" />
+            </Array>
+            <mxPoint x="10" y="-50" as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
