@@ -27,16 +27,7 @@ The operator does not provision machines or install Helm charts itself. It
 translates these resources into [k0rdent](https://k0rdent.io) objects and
 watches k0rdent's status flow back:
 
-```
- Colony ──────────────► ClusterDeployment (k0rdent) ──► Cluster API + k0smotron ──► child cluster
-   one entry per cluster                                                            (Cilium CNI)
-
- WorkspaceClass ──────► ServiceTemplate (k0rdent) = the workspace's Helm chart
-
- WorkspaceDeployment ─► ServiceSet (k0rdent) ──► Sveltos Profile ──► Helm release on the child,
-   pins one class,                                                    in namespace ws-<name>
-   targets one ClusterDeployment
-```
+<p align="middle"><a href="architecture/resource-model.drawio.png"><img src="architecture/resource-model.drawio.png" alt="Resource model: a Colony becomes k0rdent ClusterDeployments that Cluster API and k0smotron turn into child clusters; a WorkspaceClass pins a ServiceTemplate; a WorkspaceDeployment becomes a ServiceSet, a Sveltos Profile and a Helm release in namespace ws-name on the child" width="100%"></a></p>
 
 ## Where things run
 

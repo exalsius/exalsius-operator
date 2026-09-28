@@ -34,16 +34,7 @@ child cluster, and a running Jupyter workspace in about 20 minutes.
 Three custom resources map onto k0rdent objects, which in turn drive the
 provisioning and deployment machinery:
 
-```
- Colony ──────────────► ClusterDeployment (k0rdent) ──► Cluster API + k0smotron ──► child cluster
-   one entry per cluster                                                            (Cilium CNI)
-
- WorkspaceClass ──────► ServiceTemplate (k0rdent) = the workspace's Helm chart
-
- WorkspaceDeployment ─► ServiceSet (k0rdent) ──► Sveltos Profile ──► Helm release on the child,
-   pins one class,                                                    in namespace ws-<name>
-   targets one ClusterDeployment
-```
+<p align="middle"><a href="docs/architecture/resource-model.drawio.png"><img src="docs/architecture/resource-model.drawio.png" alt="Resource model: a Colony becomes k0rdent ClusterDeployments that Cluster API and k0smotron turn into child clusters; a WorkspaceClass pins a ServiceTemplate; a WorkspaceDeployment becomes a ServiceSet, a Sveltos Profile and a Helm release in namespace ws-name on the child" width="100%"></a></p>
 
 All three resources, and everything the operator creates from them, live on
 the **management cluster**: the cluster where k0rdent and the operator are
